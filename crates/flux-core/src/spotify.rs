@@ -706,7 +706,7 @@ fn launch_audiopulse() -> Result<String, String> {
     Ok("▶ Launched AudioPulse — give it a second to come online.".to_string())
 }
 
-/// Structured playback state for the mini-player bubble (#125). `/me/player`
+/// Structured playback state for the mini-player bubble (#196). `/me/player`
 /// returns 204 (→ `None` → default) when there's no active device, so polling this
 /// never trips the no-device auto-launch.
 #[derive(Serialize, Clone, Default, specta::Type)]

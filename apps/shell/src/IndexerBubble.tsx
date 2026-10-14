@@ -1,5 +1,5 @@
 /**
- * The Indexer orb (#125, in place of the music bubble): ask your Onyx notes a
+ * The Indexer orb (#196, in place of the music bubble): ask your Onyx notes a
  * question, typed or spoken, and read back the answer you already wrote. A port
  * of desktop-buddies/Indexer (SiriBubble). The ranking lives in indexer.rs; when
  * it isn't sure, a System 1 decision model (Laya) picks among the closest cards,

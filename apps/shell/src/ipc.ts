@@ -574,7 +574,7 @@ export const spotifyPlayLiked = () => invoke<string>("spotify_play_liked");
 export const spotifyPlayPlaylist = (name: string) => invoke<string>("spotify_play_playlist", { name });
 /** Launch AudioPulse (Linux/WSL build) so its Spotify Connect device comes online. */
 export const spotifyLaunch = () => invoke<string>("spotify_launch");
-// ─── Mini-player bubble (#125) — structured state + playlists ────────────────
+// ─── Mini-player bubble (#196) — structured state + playlists ────────────────
 export type SpotifyState = GenSpotifyState;
 export type SpotifyPlaylist = GenSpotifyPlaylist;
 /** Structured now-playing for the bubble (default/empty when no active device). */

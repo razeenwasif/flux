@@ -380,7 +380,7 @@ export type PageNote = { title: string; body: string; tags: string | null }
 export type Specialist = { domain: string; label: string; model: string }
 export type ServiceStatus = { name: string; label: string; running: boolean }
 /**
- * Structured playback state for the mini-player bubble (#125). `/me/player`
+ * Structured playback state for the mini-player bubble (#196). `/me/player`
  * returns 204 (→ `None` → default) when there's no active device, so polling this
  * never trips the no-device auto-launch.
  */

@@ -282,8 +282,8 @@ const App: Component = () => {
     if (connPersist) localStorage.setItem("flux.connect.open", v ? "1" : "0");
     connPersist = true;
   });
-  // Floating music bubble (#125) — on by default; toggled via the palette.
-  // The Indexer orb took the music bubble's place (#125), and its on/off setting.
+  // Floating music bubble (#196) — on by default; toggled via the palette.
+  // The Indexer orb took the music bubble's place (#196), and its on/off setting.
   const [orbOn, setOrbOn] = createSignal(
     (localStorage.getItem("flux.indexer.open") ?? localStorage.getItem("flux.music.open")) !== "0",
   );
@@ -1855,7 +1855,7 @@ const App: Component = () => {
           <ConnectionsRail />
         </Suspense>
       </Show>
-      {/* The Indexer orb (#125) — position:fixed, lives over the chrome. */}
+      {/* The Indexer orb (#196) — position:fixed, lives over the chrome. */}
       <Show when={orbOn() && !focusMode()}>
         <Suspense>
           <IndexerBubble />

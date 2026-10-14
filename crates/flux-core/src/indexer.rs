@@ -1,4 +1,4 @@
-//! The Indexer orb (replaces the music bubble, BACKLOG #125): ask a question,
+//! The Indexer orb (replaces the music bubble, BACKLOG #196): ask a question,
 //! typed or spoken, and get back the answer you already wrote in your Onyx vault.
 //!
 //! A port of desktop-buddies/Indexer (SiriBubble). Notes are cut into
@@ -2787,7 +2787,9 @@ mod tests {
         let idx = load(&dir).unwrap();
         assert_eq!(idx.roots, vec![PathBuf::from("/vault")]);
         let cards = all_cards(&idx);
-        assert_eq!(cards[0].path, "/vault/ml/a.md");
+        // Joined with the OS separator, as the conversion does (`/vault\ml/a.md` on Windows).
+        let joined = PathBuf::from("/vault").join("ml/a.md");
+        assert_eq!(cards[0].path, joined.to_string_lossy());
         assert_eq!(cards[0].kind, Kind::Note);
         assert_eq!(idx.segs[0].docs[0].mtime, 5);
         // Converted once: the next load reads the segments.

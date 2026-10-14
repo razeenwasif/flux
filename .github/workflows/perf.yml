@@ -1,7 +1,7 @@
 name: perf-budgets
 
 # Enforce the ADR 0001 performance budgets. The artifact-measurable budgets
-# (chrome JS gzip, binary size) hard-fail the build; the latency benches
+# (bundle sizes, binary size) hard-fail the build; the latency benches
 # (ipc_roundtrip, dom_snapshot) are compiled + run for signal. Budgets that need
 # a display/webview (idle RAM, cold start, terminal/agent latency) are measured
 # on a self-hosted runner / by hand — see docs/perf/memory-benchmark.md.
@@ -12,7 +12,9 @@ on:
   pull_request:
 
 jobs:
-  # Entry (56 KiB) and desktop preload (84 KiB) gzip budgets. Blocks merge.
+  # Entry JS (46 KiB), desktop preload (72 KiB), default desktop boot (242 KiB)
+  # and entry stylesheet (31 KiB) gzip budgets, from scripts/perf-budget.mjs.
+  # Blocks merge.
   chrome-budget:
     runs-on: ubuntu-latest
     steps:

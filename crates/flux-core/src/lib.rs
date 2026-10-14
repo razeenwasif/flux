@@ -491,7 +491,7 @@ fn init_knowledge(app: &tauri::App, boot_started: std::time::Instant) {
     app.manage(boot_phase("kb.empty", boot_started, || {
         kb::KbStore::empty(kb_path)
     }));
-    // The Indexer orb's question → answer cards (#125). Loaded on first use.
+    // The Indexer orb's question → answer cards (#196). Loaded on first use.
     app.manage(indexer::IndexerState::new(
         app.path().app_data_dir().ok().map(|d| d.join("indexer")),
     ));

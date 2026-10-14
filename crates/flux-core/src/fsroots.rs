@@ -454,19 +454,32 @@ mod tests {
 
     #[test]
     fn enabled_gates_on_the_allowed_roots() {
+        // On Windows a `/…` path is read inside WSL (see `check`), which needs a
+        // WSL distribution; the gate itself is the same arithmetic on both.
+        #[cfg(not(windows))]
+        let (home, shared, outside) = ("/home/me", "/data/shared", "/mnt/c/Users/me/taxes.pdf");
+        #[cfg(windows)]
+        let (home, shared, outside) = (
+            r"C:\Users\me",
+            r"C:\data\shared",
+            r"C:\Users\other\taxes.pdf",
+        );
+        let under =
+            |root: &str, rest: &str| Path::new(root).join(rest).to_string_lossy().into_owned();
+
         let s = RootsStore::default();
         s.set(AgentRoots {
             enabled: true,
-            roots: vec!["/home/me".into(), "/data/shared".into()],
+            roots: vec![home.into(), shared.into()],
         });
-        assert!(s.check("/home/me/notes.md").is_ok());
-        assert!(s.check("/data/shared/x").is_ok());
+        assert!(s.check(&under(home, "notes.md")).is_ok());
+        assert!(s.check(&under(shared, "x")).is_ok());
 
-        let err = s.check("/mnt/c/Users/me/taxes.pdf").unwrap_err();
+        let err = s.check(outside).unwrap_err();
         // The refusal must name the path and the allowance, or the user can't
         // tell whether to fix the request or the setting.
         assert!(err.contains("taxes.pdf"), "{err}");
-        assert!(err.contains("/home/me"), "{err}");
+        assert!(err.contains(home), "{err}");
     }
 
     /// The one case that depends on the OS rather than on the arithmetic above:
