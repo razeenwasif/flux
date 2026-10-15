@@ -19,6 +19,12 @@
 //! load, where "close the browser first" is the only order that works. So
 //! `storage_clear` writes a marker and [`apply_pending_clear`] acts on it at boot,
 //! before any webview exists.
+//!
+//! **macOS is the exception** (the `webkit` module below). WKWebView keeps its
+//! data in WebKit's own stores under `~/Library`, not in Flux's data folder, so
+//! none of the Chromium paths exist there and this page used to report 0 and
+//! clear nothing. WebKit clears a live store safely through `WKWebsiteDataStore`,
+//! so there the clear is immediate, for the default store and every container's.
 
 use std::path::{Path, PathBuf};
 
@@ -32,6 +38,8 @@ struct Category {
     hint: &'static str,
     /// Paths relative to the profile root. Missing ones simply contribute 0 —
     /// the layout is engine-specific and this must not fail on an unknown one.
+    /// Not read on macOS, which measures WebKit's own stores (`webkit`).
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     paths: &'static [&'static str],
     /// Above this, the category is called out as abnormal. `None` = never warn.
     warn_over: Option<u64>,
@@ -101,6 +109,9 @@ pub struct StorageReport {
     pub pending: Vec<String>,
     /// Where this was measured, for the "it's not lying, go look" case.
     pub root: String,
+    /// Clearing happens at once (macOS, through WebKit) rather than at the next
+    /// launch, so the page asks first and says it's done.
+    pub clears_now: bool,
 }
 
 /// Whole-profile ceiling. Independently of any one category, a browsing profile
@@ -152,6 +163,7 @@ fn container_roots(app_data: &Path) -> Vec<PathBuf> {
 /// The absolute paths `keys` cover in every profile, keeping only those that
 /// exist. On an engine whose layout isn't mapped (WKWebView, WebKitGTK) none of
 /// these Chromium paths do, and queuing them reported a clear that never happens.
+#[cfg_attr(target_os = "macos", allow(dead_code))] // macOS clears live instead
 fn clear_targets(roots: &[PathBuf], keys: &[String]) -> Vec<String> {
     CATEGORIES
         .iter()
@@ -217,6 +229,7 @@ struct Pending {
 impl Pending {
     /// Add to the queue (a union): clearing cookies, then the cache, in two
     /// clicks must clear both.
+    #[cfg_attr(target_os = "macos", allow(dead_code))] // macOS clears live instead
     fn merge(&mut self, keys: Vec<String>, paths: Vec<String>) {
         for k in keys {
             if !self.keys.contains(&k) {
@@ -248,10 +261,18 @@ pub async fn storage_usage(app: AppHandle) -> Result<StorageReport, String> {
     let pending = read_pending(&app);
     let root = profile_root(&app).ok_or("no app data directory")?;
     let roots = profile_roots(&app);
+    #[cfg(target_os = "macos")]
+    let (root, stores) = (webkit::data_root(), webkit::stores());
     let report = tauri::async_runtime::spawn_blocking(move || {
         let entries: Vec<StorageEntry> = CATEGORIES
             .iter()
             .map(|c| {
+                #[cfg(target_os = "macos")]
+                let bytes = {
+                    let _ = &roots;
+                    stores.iter().map(|s| s.bytes(c.key)).sum::<u64>()
+                };
+                #[cfg(not(target_os = "macos"))]
                 let bytes: u64 = c
                     .paths
                     .iter()
@@ -273,6 +294,7 @@ pub async fn storage_usage(app: AppHandle) -> Result<StorageReport, String> {
             total_bytes,
             pending,
             root: root.to_string_lossy().to_string(),
+            clears_now: cfg!(target_os = "macos"),
         }
     })
     .await
@@ -284,11 +306,12 @@ pub async fn storage_usage(app: AppHandle) -> Result<StorageReport, String> {
     Ok(report)
 }
 
-/// Queue categories for deletion at next launch. Returns the message to show.
+/// Clear categories of browsing data. Returns the message to show.
 ///
-/// Nothing is deleted here — see the module docs on why clearing is deferred.
+/// On macOS WebKit clears them now, live. Elsewhere they're queued for deletion
+/// at next launch: see the module docs on why.
 #[tauri::command]
-pub fn storage_clear(app: AppHandle, keys: Vec<String>) -> Result<String, String> {
+pub async fn storage_clear(app: AppHandle, keys: Vec<String>) -> Result<String, String> {
     let known: Vec<String> = keys
         .into_iter()
         .filter(|k| CATEGORIES.iter().any(|c| c.key == k))
@@ -296,7 +319,24 @@ pub fn storage_clear(app: AppHandle, keys: Vec<String>) -> Result<String, String
     if known.is_empty() {
         return Err("nothing selected to clear".into());
     }
-    let roots = profile_roots(&app);
+    #[cfg(target_os = "macos")]
+    {
+        let labels: Vec<&str> = CATEGORIES
+            .iter()
+            .filter(|c| known.iter().any(|k| k == c.key))
+            .map(|c| c.label)
+            .collect();
+        webkit::clear(&app, &known).await?;
+        Ok(format!("Cleared: {}.", labels.join(", ")))
+    }
+    #[cfg(not(target_os = "macos"))]
+    queue_clear(&app, known)
+}
+
+/// Queue `known` categories for the boot-time pass.
+#[cfg(not(target_os = "macos"))]
+fn queue_clear(app: &AppHandle, known: Vec<String>) -> Result<String, String> {
+    let roots = profile_roots(app);
     if roots.is_empty() {
         return Err("no app data directory".into());
     }
@@ -365,6 +405,235 @@ pub fn apply_pending_clear_early() {
     }
 }
 
+/// WKWebView's stores (macOS): where each category lives on disk, and clearing
+/// through `WKWebsiteDataStore`.
+#[cfg(target_os = "macos")]
+mod webkit {
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
+
+    use block::ConcreteBlock;
+    use objc::runtime::Object;
+    use objc::{class, msg_send, sel, sel_impl};
+    use tauri::AppHandle;
+
+    use super::{dir_size, IDENTIFIER};
+
+    /// One WebKit data store's folders: the default store, or a container's.
+    pub(super) struct Store {
+        /// Per-site storage and the store's own databases.
+        data: PathBuf,
+        /// The HTTP cache and CacheStorage.
+        cache: PathBuf,
+        /// Cookie files or folders.
+        cookies: Vec<PathBuf>,
+    }
+
+    fn library() -> PathBuf {
+        PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("Library")
+    }
+
+    /// Where the default store keeps per-site data, for the report's "go look".
+    pub(super) fn data_root() -> PathBuf {
+        library()
+            .join("WebKit")
+            .join(IDENTIFIER)
+            .join("WebsiteData")
+    }
+
+    /// The default store, then each container's (macOS 14+ keeps one per
+    /// identifier, laid out like the default; a missing folder measures 0).
+    pub(super) fn stores() -> Vec<Store> {
+        let lib = library();
+        let cache = lib.join("Caches").join(IDENTIFIER).join("WebKit");
+        let mut out = vec![Store {
+            data: data_root(),
+            cache: cache.clone(),
+            cookies: vec![lib
+                .join("HTTPStorages")
+                .join(format!("{IDENTIFIER}.binarycookies"))],
+        }];
+        let by_id = lib.join("WebKit").join(IDENTIFIER).join("WebsiteDataStore");
+        if let Ok(entries) = std::fs::read_dir(by_id) {
+            for e in entries.flatten() {
+                let data = e.path();
+                out.push(Store {
+                    cache: cache.join("WebsiteDataStore").join(e.file_name()),
+                    cookies: vec![data.join("Cookies")],
+                    data,
+                });
+            }
+        }
+        out
+    }
+
+    /// Per-site folders of these kinds: `Default/<top site>/<frame site>/<kind>`.
+    fn per_site(root: &Path, kinds: &[&str]) -> u64 {
+        let Ok(tops) = std::fs::read_dir(root) else {
+            return 0;
+        };
+        let mut total = 0;
+        for top in tops.flatten() {
+            let Ok(frames) = std::fs::read_dir(top.path()) else {
+                continue;
+            };
+            for frame in frames.flatten() {
+                let frame = frame.path();
+                total += kinds.iter().map(|k| dir_size(&frame.join(k))).sum::<u64>();
+            }
+        }
+        total
+    }
+
+    fn path_size(p: &Path) -> u64 {
+        match std::fs::symlink_metadata(p) {
+            Ok(m) if m.is_dir() => dir_size(p),
+            Ok(m) if m.is_file() => m.len(),
+            _ => 0,
+        }
+    }
+
+    impl Store {
+        #[cfg(test)]
+        pub(super) fn at(data: PathBuf, cache: PathBuf, cookies: Vec<PathBuf>) -> Self {
+            Store {
+                data,
+                cache,
+                cookies,
+            }
+        }
+
+        /// Bytes this store holds for a category key.
+        pub(super) fn bytes(&self, key: &str) -> u64 {
+            let default = self.data.join("Default");
+            match key {
+                "serviceworkers" => {
+                    per_site(&default, &["CacheStorage", "ServiceWorkers"])
+                        + dir_size(&self.cache.join("CacheStorage"))
+                }
+                "cache" => dir_size(&self.cache.join("NetworkCache")),
+                "sitedata" => {
+                    let kinds = ["LocalStorage", "IndexedDB", "SessionStorage", "FileSystem"];
+                    per_site(&default, &kinds)
+                        + dir_size(&self.data.join("LocalStorage"))
+                        + dir_size(&self.data.join("IndexedDB"))
+                }
+                "cookies" => self.cookies.iter().map(|p| path_size(p)).sum(),
+                _ => 0,
+            }
+        }
+    }
+
+    /// WebKit's data types for a category key. Their values are their names,
+    /// and WebKit ignores a type it doesn't know, so older macOS is fine.
+    fn types(key: &str) -> &'static [&'static str] {
+        match key {
+            "serviceworkers" => &[
+                "WKWebsiteDataTypeServiceWorkerRegistrations",
+                "WKWebsiteDataTypeFetchCache",
+            ],
+            "cache" => &[
+                "WKWebsiteDataTypeDiskCache",
+                "WKWebsiteDataTypeMemoryCache",
+                "WKWebsiteDataTypeOfflineWebApplicationCache",
+            ],
+            "sitedata" => &[
+                "WKWebsiteDataTypeLocalStorage",
+                "WKWebsiteDataTypeSessionStorage",
+                "WKWebsiteDataTypeIndexedDBDatabases",
+                "WKWebsiteDataTypeWebSQLDatabases",
+                "WKWebsiteDataTypeFileSystem",
+            ],
+            "cookies" => &["WKWebsiteDataTypeCookies"],
+            _ => &[],
+        }
+    }
+
+    /// The containers that have a WebKit store: each has a folder under
+    /// `containers/` once any of its tabs has opened (webview.rs).
+    fn container_ids(app: &AppHandle) -> Vec<u32> {
+        let Some(dir) = crate::webview::containers_dir(app) else {
+            return Vec::new();
+        };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter_map(|e| e.file_name().to_str()?.parse().ok())
+            .collect()
+    }
+
+    /// Clear `keys` from the default store and every container's, waiting for
+    /// WebKit to report each done. Live stores are fine: WebKit coordinates the
+    /// removal with its own processes.
+    pub(super) async fn clear(app: &AppHandle, keys: &[String]) -> Result<(), String> {
+        let types: Vec<&'static str> = keys.iter().flat_map(|k| types(k)).copied().collect();
+        let ids: Vec<[u8; 16]> = container_ids(app)
+            .into_iter()
+            .map(crate::webview::container_store_id)
+            .collect();
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        // WebKit's API is main-thread only.
+        app.run_on_main_thread(move || unsafe { remove(&types, &ids, tx) })
+            .map_err(|e| e.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || {
+            rx.recv_timeout(std::time::Duration::from_secs(30))
+                .map_err(|_| "WebKit didn't finish clearing in time".to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    /// Start the removal on each store; `done` gets one message after the last
+    /// store reports back.
+    unsafe fn remove(types: &[&str], ids: &[[u8; 16]], done: std::sync::mpsc::Sender<()>) {
+        let set: *mut Object = msg_send![class!(NSMutableSet), set];
+        for t in types {
+            let Ok(name) = std::ffi::CString::new(*t) else {
+                continue;
+            };
+            let ns: *mut Object = msg_send![class!(NSString), stringWithUTF8String: name.as_ptr()];
+            let _: () = msg_send![set, addObject: ns];
+        }
+        let default: *mut Object = msg_send![class!(WKWebsiteDataStore), defaultDataStore];
+        let mut stores = vec![default];
+        // Containers' own stores exist on macOS 14 and later.
+        let by_id = sel!(dataStoreForIdentifier:);
+        let has_ids: bool = msg_send![class!(WKWebsiteDataStore), respondsToSelector: by_id];
+        if has_ids {
+            for id in ids {
+                let uuid: *mut Object = msg_send![class!(NSUUID), alloc];
+                let uuid: *mut Object = msg_send![uuid, initWithUUIDBytes: id.as_ptr()];
+                let store: *mut Object =
+                    msg_send![class!(WKWebsiteDataStore), dataStoreForIdentifier: uuid];
+                let _: () = msg_send![uuid, release];
+                if !store.is_null() {
+                    stores.push(store);
+                }
+            }
+        }
+        let since: *mut Object = msg_send![class!(NSDate), distantPast];
+        let remaining = Arc::new(Mutex::new(stores.len()));
+        for store in stores {
+            let remaining = remaining.clone();
+            let done = done.clone();
+            let block = ConcreteBlock::new(move || {
+                let mut left = remaining.lock().unwrap_or_else(|e| e.into_inner());
+                *left = left.saturating_sub(1);
+                if *left == 0 {
+                    let _ = done.send(());
+                }
+            })
+            .copy();
+            let _: () = msg_send![store,
+                removeDataOfTypes: set
+                modifiedSince: since
+                completionHandler: &*block];
+        }
+    }
+}
+
 /// Cached snapshot so the chrome can warn without re-walking the profile.
 #[derive(Default)]
 pub struct StorageWarn(pub parking_lot::Mutex<Option<StorageReport>>);
@@ -379,6 +648,36 @@ pub fn storage_last(state: State<'_, StorageWarn>) -> Option<StorageReport> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn webkit_stores_are_measured_by_category() {
+        let root = std::env::temp_dir().join(format!("flux-wk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (data, cache) = (root.join("WebsiteData"), root.join("WebKit"));
+        let put = |p: PathBuf, n: usize| {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, vec![0u8; n]).unwrap();
+        };
+        // Default/<top site>/<frame site>/<kind>/…, as WebKit lays it out.
+        let site = data.join("Default/top/frame");
+        put(site.join("LocalStorage/localstorage.sqlite3"), 300);
+        put(site.join("IndexedDB/db"), 200);
+        put(site.join("CacheStorage/c"), 50);
+        put(site.join("ServiceWorkers/sw"), 7);
+        put(cache.join("NetworkCache/blob"), 1000);
+        put(cache.join("CacheStorage/x"), 3);
+        let cookies = root.join("flux.binarycookies");
+        put(cookies.clone(), 11);
+
+        let store = webkit::Store::at(data, cache, vec![cookies]);
+        assert_eq!(store.bytes("sitedata"), 500);
+        assert_eq!(store.bytes("serviceworkers"), 60);
+        assert_eq!(store.bytes("cache"), 1000);
+        assert_eq!(store.bytes("cookies"), 11);
+        assert_eq!(store.bytes("unknown"), 0);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn categories_are_well_formed() {

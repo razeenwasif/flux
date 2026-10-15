@@ -155,6 +155,7 @@ import {
   titleInternalTab,
 } from "./store";
 import "./SettingsPage.css";
+import { askConfirm } from "./ask";
 
 const TRACKING_LABELS = ["Off", "Basic", "Balanced", "Strict"];
 
@@ -240,9 +241,20 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   };
   const togglePick = (k: string) =>
     setStorePick((cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]));
-  const doClear = () => {
+  const doClear = async () => {
     const keys = storePick();
     if (!keys.length) return;
+    // On macOS WebKit clears at once, with no queue to cancel: ask first.
+    if (store()?.clears_now) {
+      const labels = (store()?.entries ?? []).filter((e) => keys.includes(e.key)).map((e) => e.label);
+      const signsOut = keys.includes("cookies") || keys.includes("sitedata");
+      const ok = await askConfirm({
+        title: `Clear ${labels.join(", ")} now?`,
+        hint: signsOut ? "This can't be undone, and it signs you out of sites." : "This can't be undone.",
+        confirm: "Clear",
+      });
+      if (!ok) return;
+    }
     void storageClear(keys)
       .then((m) => {
         setStoreMsg(m);
@@ -890,7 +902,9 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             label="Stored on disk"
             hint={
               store()
-                ? `Measured at ${store()!.root}. Clearing happens on the next launch — the engine keeps these files open while it's running, so they can't be deleted from under it.`
+                ? store()!.clears_now
+                  ? `Measured in WebKit's stores (${store()!.root}), containers included. Clearing happens straight away.`
+                  : `Measured at ${store()!.root}. Clearing happens on the next launch — the engine keeps these files open while it's running, so they can't be deleted from under it.`
                 : "Cache, service workers, site storage and cookies the engine keeps. Nothing evicts these on a schedule, so a service-worker cache can quietly reach hundreds of megabytes."
             }
           >
@@ -932,8 +946,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                 )}
               </For>
               <div class="store-actions">
-                <button class="set-link-btn" disabled={storePick().length === 0} onClick={doClear}>
-                  Clear selected on next launch
+                <button
+                  class="set-link-btn"
+                  disabled={storePick().length === 0}
+                  onClick={() => void doClear()}
+                >
+                  {store()!.clears_now ? "Clear selected" : "Clear selected on next launch"}
                 </button>
                 <Show when={storeMsg()}>
                   <span class="store-msg">{storeMsg()}</span>

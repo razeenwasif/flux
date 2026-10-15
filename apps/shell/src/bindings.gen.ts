@@ -137,7 +137,7 @@ export type MailMsg = { uid: number; from: string; subject: string; date_ms: num
  * One row in the storage report.
  */
 export type StorageEntry = { key: string; label: string; hint: string; bytes: number; warn: boolean }
-export type StorageReport = { entries: StorageEntry[]; total_bytes: number; warn: boolean; pending: string[]; root: string }
+export type StorageReport = { entries: StorageEntry[]; total_bytes: number; warn: boolean; pending: string[]; root: string; clears_now: boolean }
 /**
  * One logged agent action.
  */
