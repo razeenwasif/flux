@@ -449,6 +449,19 @@ pub struct VaultStatus {
 
 // ─── commands ────────────────────────────────────────────────────────────────
 
+/// Run vault work that derives a key (Argon2id, slow by design) on a worker
+/// thread. These commands ran on the main thread, so unlocking, changing the
+/// master password, importing a Proton or Flux export and writing an encrypted
+/// export each froze the window for as long as the derivation took.
+async fn off_main<R: Send + 'static>(
+    app: AppHandle,
+    work: impl FnOnce(&VaultState) -> Result<R, String> + Send + 'static,
+) -> Result<R, String> {
+    tauri::async_runtime::spawn_blocking(move || work(&app.state::<VaultState>()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn vault_status(state: State<'_, VaultState>) -> VaultStatus {
     let protection = if *state.protection.read() == Protection::Password {
@@ -469,7 +482,13 @@ pub fn vault_status(state: State<'_, VaultState>) -> VaultStatus {
 
 /// Unlock the vault with the master password (password mode).
 #[tauri::command]
-pub fn vault_unlock(state: State<'_, VaultState>, password: String) -> Result<(), String> {
+pub async fn vault_unlock(app: AppHandle, password: String) -> Result<(), String> {
+    off_main(app, move |state| unlock(state, password)).await
+}
+
+/// [`vault_unlock`]'s work. The key is derived before the vault's lock is
+/// taken, so nothing waits on the lock while Argon2 runs.
+fn unlock(state: &VaultState, password: String) -> Result<(), String> {
     if state.open.read().is_some() {
         return Ok(());
     }
@@ -503,10 +522,11 @@ pub fn vault_lock(state: State<'_, VaultState>) {
 /// Set (or change) the master password — switches to password protection and
 /// removes the data key from the keychain/file. Requires the vault unlocked.
 #[tauri::command]
-pub fn vault_set_master_password(
-    state: State<'_, VaultState>,
-    password: String,
-) -> Result<(), String> {
+pub async fn vault_set_master_password(app: AppHandle, password: String) -> Result<(), String> {
+    off_main(app, move |state| set_master_password(state, password)).await
+}
+
+fn set_master_password(state: &VaultState, password: String) -> Result<(), String> {
     if password.trim().is_empty() {
         return Err("master password cannot be empty".into());
     }
@@ -543,10 +563,11 @@ pub fn vault_set_master_password(
 /// Remove master-password protection: verify the password, then move the data
 /// key back to the OS keychain. Requires the vault unlocked.
 #[tauri::command]
-pub fn vault_disable_master_password(
-    state: State<'_, VaultState>,
-    password: String,
-) -> Result<(), String> {
+pub async fn vault_disable_master_password(app: AppHandle, password: String) -> Result<(), String> {
+    off_main(app, move |state| disable_master_password(state, password)).await
+}
+
+fn disable_master_password(state: &VaultState, password: String) -> Result<(), String> {
     let dk = {
         let guard = state.open.read();
         *guard.as_ref().ok_or("unlock the vault first")?.dk
@@ -665,17 +686,32 @@ pub fn vault_remove(state: State<'_, VaultState>, id: String) -> Result<(), Stri
 }
 
 /// Import a Proton Pass export (CSV / ZIP / PGP / JSON; PGP needs `passphrase`).
+///
+/// The file is parsed, and decrypted when it's a Flux or PGP export, into a
+/// scratch vault first, without the lock: the vault's lock is held only to
+/// merge the result, so autofill and the Passwords page don't wait on the
+/// decryption.
 #[tauri::command]
-pub fn vault_import_proton(
-    state: State<'_, VaultState>,
+pub async fn vault_import_proton(
+    app: AppHandle,
     path: String,
     passphrase: Option<String>,
 ) -> Result<usize, String> {
-    let data = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
-    state.write_open(|v| {
-        v.import(&data, &path, passphrase.as_deref())
-            .map_err(|e| e.to_string())
-    })?
+    off_main(app, move |state| {
+        state.probe_open(|_| ())?; // locked: say so before the slow part
+        let data = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+        let mut parsed = Vault::default();
+        let count = parsed
+            .import(&data, &path, passphrase.as_deref())
+            .map_err(|e| e.to_string())?;
+        state.write_open(|v| {
+            for c in parsed.entries {
+                v.upsert(c);
+            }
+        })?;
+        Ok(count)
+    })
+    .await
 }
 
 /// Export the whole vault to `path` so it can be carried to another device
@@ -693,8 +729,17 @@ pub fn vault_import_proton(
 ///
 /// Returns the number of logins written. Requires the vault unlocked.
 #[tauri::command]
-pub fn vault_export(
-    state: State<'_, VaultState>,
+pub async fn vault_export(
+    app: AppHandle,
+    path: String,
+    format: Option<String>,
+    passphrase: Option<String>,
+) -> Result<usize, String> {
+    off_main(app, move |state| export(state, path, format, passphrase)).await
+}
+
+fn export(
+    state: &VaultState,
     path: String,
     format: Option<String>,
     passphrase: Option<String>,
@@ -732,11 +777,11 @@ pub fn vault_export(
             if pass.trim().is_empty() {
                 return Err("an encrypted export needs a passphrase".into());
             }
-            state.read_open(|v| {
-                v.export_encrypted(&pass)
-                    .map(|b| (Zeroizing::new(b), v.entries.len()))
-                    .map_err(|e| e.to_string())
-            })??
+            // Sealed from a copy, outside the lock: the passphrase's Argon2 run
+            // would otherwise hold every save to the vault until it finished.
+            let (copy, count) = state.read_open(|v| (v.clone(), v.entries.len()))?;
+            let sealed = copy.export_encrypted(&pass).map_err(|e| e.to_string())?;
+            (Zeroizing::new(sealed), count)
         }
         "csv" => state.read_open(|v| {
             v.export_csv()
