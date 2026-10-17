@@ -220,10 +220,13 @@ pub fn tab_close(app: AppHandle, state: State<'_, FluxState>, id: TabId) {
     state.tabs.remove(&id);
     state.dom_cache.remove(&id);
     state.order_remove(id);
-    // Drop the tab's Trail pointer so its id can't seed a stale nav edge (#ADR-0011).
-    if let Some(tr) = app.try_state::<crate::trace::TraceStore>() {
-        tr.tab_closed(id);
-    }
+    // Drop the tab's Trail pointer so its id can't seed a stale nav edge
+    // (#ADR-0011). On the Trail's writer, after any visit still queued for it.
+    crate::trace::write_later(&app, move |app| {
+        if let Some(tr) = app.try_state::<crate::trace::TraceStore>() {
+            tr.tab_closed(id);
+        }
+    });
     state.persist();
 }
 

@@ -313,18 +313,26 @@ pub fn agent_roots_set(store: tauri::State<'_, RootsStore>, roots: AgentRoots) {
 /// The places worth pre-filling the allowance with — the vault, scribe,
 /// downloads and home. Deliberately **not** the drives: naming a drive is a
 /// convenience, letting the agent read it is a decision.
+///
+/// Off the main thread: the knowledge base may still be loading, and its first
+/// read waits for that.
 #[tauri::command]
-pub fn agent_roots_suggested(
-    app: tauri::AppHandle,
-    kb: tauri::State<'_, crate::kb::KbStore>,
-) -> Vec<String> {
-    crate::places::places(&app, kb.source_location("onyx").as_deref())
-        .into_iter()
-        // A drive is named by its single letter. Skipping them here is the whole
-        // point: `c` is offered as a shorthand, not as an allowance.
-        .filter(|p| p.name.chars().count() > 1)
-        .map(|p| p.path)
-        .collect()
+pub async fn agent_roots_suggested(app: tauri::AppHandle) -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let onyx = app
+            .try_state::<crate::kb::KbStore>()
+            .and_then(|kb| kb.source_location("onyx"));
+        crate::places::places(&app, onyx.as_deref())
+            .into_iter()
+            // A drive is named by its single letter. Skipping them here is the whole
+            // point: `c` is offered as a shorthand, not as an allowance.
+            .filter(|p| p.name.chars().count() > 1)
+            .map(|p| p.path)
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 // ─── Agent-scoped file reads ─────────────────────────────────────────────────

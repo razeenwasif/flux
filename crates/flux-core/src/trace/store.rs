@@ -208,6 +208,11 @@ impl TraceStore {
         }
     }
 
+    /// Whether the Trail has finished loading, without waiting for it.
+    pub fn is_loaded(&self) -> bool {
+        self.initialized.is_completed()
+    }
+
     /// Load visits/edges from disk, exactly once. Lazily invoked from every
     /// public entry point so a navigation that lands *before* the background
     /// hydrate thread runs can't start a fresh store and later overwrite the
@@ -1075,6 +1080,17 @@ mod tests {
         age(&s, VISIT_DEDUP_MS);
         s.record(1, "https://a.com/", "A", None, None);
         assert_eq!(s.visit(v).unwrap().hits, 2);
+    }
+
+    #[test]
+    fn is_loaded_reports_without_loading() {
+        let dir = std::env::temp_dir().join(format!("flux-trace-loaded-{}", std::process::id()));
+        let s = TraceStore::empty(dir.join("trace.json"));
+        assert!(!s.is_loaded(), "nothing has touched it yet");
+        assert!(!s.is_loaded(), "asking doesn't load it");
+        s.hydrate();
+        assert!(s.is_loaded());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

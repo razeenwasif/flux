@@ -67,6 +67,11 @@ impl TraceDrafts {
         }
     }
 
+    /// Whether the drafts have finished loading, without waiting for it.
+    pub fn is_loaded(&self) -> bool {
+        self.hydrated.get().is_some()
+    }
+
     /// Load from disk, exactly once (lazy, race-proof — see `TraceStore::hydrate`).
     pub fn hydrate(&self) {
         self.hydrated.get_or_init(|| self.load());

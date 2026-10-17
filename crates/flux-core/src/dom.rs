@@ -203,23 +203,28 @@ pub fn dom_publish(
     }
 
     if !private && url.len() <= MAX_RECORDED_URL {
-        // Record the visit in browsing history (#39); skips non-http(s) internally.
-        if let Some(h) = app.try_state::<crate::history::HistoryStore>() {
-            h.record(&url, &title);
-        }
-        // Record the visit in the provenance spine — "the Trail" (ADR 0011).
-        // Same non-private guard as history; the task label is the tab's active
-        // workspace name, and the nav edge is drawn from the tab's prior visit.
-        if let Some(tr) = app.try_state::<crate::trace::TraceStore>() {
-            let task = state
-                .workspaces_list()
-                .into_iter()
-                .find(|w| w.id == ws_id)
-                .map(|w| w.name);
+        // Record the visit in browsing history (#39) and in the provenance spine,
+        // "the Trail" (ADR 0011), on the ordered writer thread: either may still
+        // be loading, and this runs on the main thread. Same non-private guard
+        // for both; the task label is the tab's active workspace name, and the
+        // nav edge is drawn from the tab's prior visit.
+        let task = state
+            .workspaces_list()
+            .into_iter()
+            .find(|w| w.id == ws_id)
+            .map(|w| w.name);
+        let (visit_url, visit_title) = (url.clone(), title.clone());
+        crate::trace::write_later(&app, move |app| {
+            // History skips non-http(s) internally.
+            if let Some(h) = app.try_state::<crate::history::HistoryStore>() {
+                h.record(&visit_url, &visit_title);
+            }
             // Stamp the id too: the name is what the user sees, but it can be
             // renamed, and a scoped view must not lose old research when it is.
-            tr.record(tab_id, &url, &title, task, Some(ws_id));
-        }
+            if let Some(tr) = app.try_state::<crate::trace::TraceStore>() {
+                tr.record(tab_id, &visit_url, &visit_title, task, Some(ws_id));
+            }
+        });
         // Live ingest into Omni (no-op unless the user enabled auto-ingest). Done
         // before the snapshot is built so the page text is still owned here.
         crate::omni::maybe_auto_ingest(&app, &url, &title, &text);

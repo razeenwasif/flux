@@ -30,7 +30,7 @@ pub use store::{
     TraceStore, Visit, VisitId,
 };
 
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::state::TabId;
 use chats::chat_prompt;
@@ -44,51 +44,103 @@ pub(crate) fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Run a store write from a main-thread command on Flux's one ordered writer
+/// thread. The Trail and history load from disk on first touch, and that first
+/// touch could be a page publishing or a tab closing: a load behind a large
+/// file or a keychain prompt froze the window. One thread, so writes keep their
+/// order (a tab's close still lands after its last visit).
+pub(crate) fn write_later(app: &AppHandle, job: impl FnOnce(&AppHandle) + Send + 'static) {
+    type Job = Box<dyn FnOnce() + Send>;
+    static WRITER: std::sync::OnceLock<Option<std::sync::mpsc::Sender<Job>>> =
+        std::sync::OnceLock::new();
+    let writer = WRITER.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Job>();
+        std::thread::Builder::new()
+            .name("flux-trail-writer".into())
+            .spawn(move || {
+                for job in rx {
+                    job();
+                }
+            })
+            .ok()
+            .map(|_| tx)
+    });
+    let app = app.clone();
+    let job: Job = Box::new(move || job(&app));
+    match writer {
+        Some(tx) => {
+            if let Err(e) = tx.send(job) {
+                (e.0)(); // the writer is gone: do it here, as before
+            }
+        }
+        None => job(), // no writer thread could start: do it here, as before
+    }
+}
+
+/// Answer a Trail read from a worker thread, for the same reason as
+/// [`write_later`]: the first read can be the one that loads the Trail.
+async fn off_main<T: Default + Send + 'static>(
+    app: AppHandle,
+    read: impl FnOnce(&AppHandle) -> T + Send + 'static,
+) -> T {
+    tauri::async_runtime::spawn_blocking(move || read(&app))
+        .await
+        .unwrap_or_default()
+}
+
 // ─── IPC ─────────────────────────────────────────────────────────────────────
 
 /// Most-recent visits for the Trail timeline (newest first).
 #[tauri::command]
-pub fn trace_recent(store: State<'_, TraceStore>, limit: Option<usize>) -> Vec<Visit> {
-    store.recent(limit.unwrap_or(200))
+pub async fn trace_recent(app: AppHandle, limit: Option<usize>) -> Vec<Visit> {
+    off_main(app, move |a| {
+        a.state::<TraceStore>().recent(limit.unwrap_or(200))
+    })
+    .await
 }
 
 /// A single visit by id (node detail).
 #[tauri::command]
-pub fn trace_visit(store: State<'_, TraceStore>, id: VisitId) -> Option<Visit> {
-    store.visit(id)
+pub async fn trace_visit(app: AppHandle, id: VisitId) -> Option<Visit> {
+    off_main(app, move |a| a.state::<TraceStore>().visit(id)).await
 }
 
 /// The provenance graph (optionally time-windowed) for the Trail view. `limit`
 /// keeps only the newest visits (and the edges among them), applied before
-/// serialization: this runs on the UI thread.
+/// serialization.
 #[tauri::command]
-pub fn trace_graph(
-    store: State<'_, TraceStore>,
+pub async fn trace_graph(
+    app: AppHandle,
     after_ms: Option<u64>,
     before_ms: Option<u64>,
     task_id: Option<u32>,
     task: Option<String>,
     limit: Option<usize>,
 ) -> TraceGraph {
-    store.graph_newest(after_ms, before_ms, task_id, task.as_deref(), limit)
+    off_main(app, move |a| {
+        a.state::<TraceStore>()
+            .graph_newest(after_ms, before_ms, task_id, task.as_deref(), limit)
+    })
+    .await
 }
 
 /// Follow a workspace rename so its earlier visits stay in the scoped view.
 /// Returns how many visits were retagged.
 #[tauri::command]
-pub fn trace_rename_task(
-    store: State<'_, TraceStore>,
-    id: Option<u32>,
-    from: String,
-    to: String,
-) -> usize {
-    store.rename_task(id, &from, &to)
+pub async fn trace_rename_task(app: AppHandle, id: Option<u32>, from: String, to: String) -> usize {
+    off_main(app, move |a| {
+        a.state::<TraceStore>().rename_task(id, &from, &to)
+    })
+    .await
 }
 
 /// Visit-density histogram for the Trail scrubber's activity backdrop.
 #[tauri::command]
-pub fn trace_histogram(store: State<'_, TraceStore>, buckets: Option<usize>) -> TraceHistogram {
-    store.histogram(buckets.unwrap_or(120))
+pub async fn trace_histogram(app: AppHandle, buckets: Option<usize>) -> TraceHistogram {
+    off_main(app, move |a| {
+        a.state::<TraceStore>().histogram(buckets.unwrap_or(120))
+    })
+    .await
 }
 
 /// A tab reference for branch grouping: its id + current URL (the URL is the
@@ -104,15 +156,15 @@ pub struct BranchTabRef {
 /// Returns the branches largest-first; every input tab appears exactly once
 /// (unconnected tabs come back as singletons).
 #[tauri::command]
-pub fn trace_branches(store: State<'_, TraceStore>, tabs: Vec<BranchTabRef>) -> Vec<Vec<TabId>> {
+pub async fn trace_branches(app: AppHandle, tabs: Vec<BranchTabRef>) -> Vec<Vec<TabId>> {
     let pairs: Vec<(TabId, String)> = tabs.into_iter().map(|t| (t.id, t.url)).collect();
-    store.branches(&pairs)
+    off_main(app, move |a| a.state::<TraceStore>().branches(&pairs)).await
 }
 
 /// A dwell snapshot's content (node detail).
 #[tauri::command]
-pub fn trace_snapshot_get(snaps: State<'_, TraceSnapshots>, id: u64) -> Option<SnapshotWire> {
-    snaps.get(id)
+pub async fn trace_snapshot_get(app: AppHandle, id: u64) -> Option<SnapshotWire> {
+    off_main(app, move |a| a.state::<TraceSnapshots>().get(id)).await
 }
 
 /// Capture the dwell snapshot for a tab's current visit (ADR 0011 step 1). Called
@@ -247,21 +299,25 @@ pub async fn trace_ambient(
 /// Is draft capture on? Asked once by the injected `drafts.js` at page load —
 /// when off (the default) the script attaches no listeners at all. A `fluxtab`
 /// plugin command so remote pages may call it (it leaks one boolean).
+///
+/// Off until the drafts have loaded: this is asked on the main thread on every
+/// page load, and waiting for the load there froze the window. A page that
+/// loads in that moment simply doesn't capture drafts.
 #[tauri::command]
 pub fn trace_drafts_enabled(drafts: State<'_, TraceDrafts>) -> bool {
-    drafts.enabled()
+    drafts.is_loaded() && drafts.enabled()
 }
 
 /// Toggle draft capture (Settings → Privacy; applies to newly-loaded pages).
 #[tauri::command]
-pub fn trace_drafts_set(drafts: State<'_, TraceDrafts>, on: bool) {
-    drafts.set_enabled(on);
+pub async fn trace_drafts_set(app: AppHandle, on: bool) {
+    off_main(app, move |a| a.state::<TraceDrafts>().set_enabled(on)).await
 }
 
 /// A visit's captured drafts, for the Trail detail panel.
 #[tauri::command]
-pub fn trace_drafts(drafts: State<'_, TraceDrafts>, visit_id: VisitId) -> Vec<Draft> {
-    drafts.get(visit_id)
+pub async fn trace_drafts(app: AppHandle, visit_id: VisitId) -> Vec<Draft> {
+    off_main(app, move |a| a.state::<TraceDrafts>().get(visit_id)).await
 }
 
 /// Store a typed draft against the tab's current Visit (ADR 0011 final phase).
@@ -292,6 +348,11 @@ pub fn draft_publish(
     if caller != Some(tab_id) {
         return Err("tab_id does not match the calling tab".into());
     }
+    // Page-called, on the main thread: never the call that loads either store.
+    // Drafts only switch on once both have loaded (`trace_drafts_enabled`).
+    if !drafts.is_loaded() || !trace.is_loaded() {
+        return Ok(());
+    }
     if !drafts.enabled() {
         return Ok(()); // toggled off after page load — drop silently
     }
@@ -310,8 +371,8 @@ pub fn draft_publish(
 
 /// A visit's chat thread (ADR 0011 step d) — empty if none yet.
 #[tauri::command]
-pub fn trace_chat(chats: State<'_, TraceChats>, visit_id: VisitId) -> Vec<ChatMsg> {
-    chats.get(visit_id)
+pub async fn trace_chat(app: AppHandle, visit_id: VisitId) -> Vec<ChatMsg> {
+    off_main(app, move |a| a.state::<TraceChats>().get(visit_id)).await
 }
 
 /// The active page's persistent thread, re-attached by visit (ADR 0011
@@ -326,16 +387,15 @@ pub struct TabThread {
 }
 
 #[tauri::command]
-pub fn trace_tab_thread(
-    trace: State<'_, TraceStore>,
-    chats: State<'_, TraceChats>,
-    tab_id: TabId,
-) -> Option<TabThread> {
-    let visit_id = trace.current_visit(tab_id)?;
-    Some(TabThread {
-        visit_id,
-        msgs: chats.get(visit_id),
+pub async fn trace_tab_thread(app: AppHandle, tab_id: TabId) -> Option<TabThread> {
+    off_main(app, move |a| {
+        let visit_id = a.state::<TraceStore>().current_visit(tab_id)?;
+        Some(TabThread {
+            visit_id,
+            msgs: a.state::<TraceChats>().get(visit_id),
+        })
     })
+    .await
 }
 
 /// Send a message to a visit's chat (ADR 0011 step d): grounded in the visit's

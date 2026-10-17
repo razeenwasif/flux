@@ -61,9 +61,12 @@ fn known_good_brands(app: &AppHandle) -> Vec<String> {
             }
         }
     }
-    let fresh = compute_known_good_brands(app);
-    if let Ok(mut guard) = cache.lock() {
-        *guard = Some((std::time::Instant::now(), fresh.clone()));
+    let (fresh, complete) = compute_known_good_brands(app);
+    // Without the Trail tier (still loading), ask again next time.
+    if complete {
+        if let Ok(mut guard) = cache.lock() {
+            *guard = Some((std::time::Instant::now(), fresh.clone()));
+        }
     }
     fresh
 }
@@ -71,7 +74,11 @@ fn known_good_brands(app: &AppHandle) -> Vec<String> {
 /// The user's high-value brand labels — the impersonation-TARGET set, tiered by
 /// strength (ADR 0013): vault origins (credentials saved there) > Trail-frequent
 /// hosts (real engagement) > the curated seed. Deduped. NOT an allowlist.
-fn compute_known_good_brands(app: &AppHandle) -> Vec<String> {
+///
+/// The bool is false when the Trail hasn't loaded yet and its tier was left out:
+/// this is asked on the main thread, on every navigation and vault check, and
+/// waiting for the Trail to load there froze the window.
+fn compute_known_good_brands(app: &AppHandle) -> (Vec<String>, bool) {
     use std::collections::BTreeSet;
     let mut set: BTreeSet<String> = phishing::SEED_BRANDS.iter().map(|s| s.to_string()).collect();
 
@@ -91,7 +98,11 @@ fn compute_known_good_brands(app: &AppHandle) -> Vec<String> {
     }
     // Broad: Trail hosts with real engagement (hits ≥ 2), not raw visits — a
     // drive-by lookalike never becomes a brand worth protecting.
-    if let Some(trace) = app.try_state::<crate::trace::TraceStore>() {
+    let trail = app
+        .try_state::<crate::trace::TraceStore>()
+        .filter(|t| t.is_loaded());
+    let complete = trail.is_some() || app.try_state::<crate::trace::TraceStore>().is_none();
+    if let Some(trace) = trail {
         for v in trace.recent(300) {
             if v.hits >= 2 {
                 let l = phishing::brand_label(&host_of(&v.url));
@@ -101,7 +112,7 @@ fn compute_known_good_brands(app: &AppHandle) -> Vec<String> {
             }
         }
     }
-    set.into_iter().collect()
+    (set.into_iter().collect(), complete)
 }
 
 /// Everything the **deterministic** layer can say the moment a navigation lands
