@@ -132,6 +132,7 @@ pub fn profile_root(app: &AppHandle) -> Option<PathBuf> {
 }
 
 /// Every engine profile: the default one, then each container's own jar.
+#[cfg_attr(target_os = "macos", allow(dead_code))] // macOS reads WebKit's stores
 fn profile_roots(app: &AppHandle) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = profile_root(app).into_iter().collect();
     if let Ok(dir) = app.path().app_data_dir() {
@@ -143,6 +144,7 @@ fn profile_roots(app: &AppHandle) -> Vec<PathBuf> {
 /// The container jars under the app data dir. `webview.rs` gives a container's
 /// tabs `<app data>/containers/<n>` as their user-data folder, so on WebView2
 /// each one holds a whole `EBWebView` profile of its own.
+#[cfg_attr(target_os = "macos", allow(dead_code))] // macOS reads WebKit's stores
 fn container_roots(app_data: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(app_data.join("containers")) else {
         return Vec::new();
@@ -259,8 +261,11 @@ fn read_pending(_app: &AppHandle) -> Vec<String> {
 #[tauri::command]
 pub async fn storage_usage(app: AppHandle) -> Result<StorageReport, String> {
     let pending = read_pending(&app);
-    let root = profile_root(&app).ok_or("no app data directory")?;
-    let roots = profile_roots(&app);
+    #[cfg(not(target_os = "macos"))]
+    let (root, roots) = (
+        profile_root(&app).ok_or("no app data directory")?,
+        profile_roots(&app),
+    );
     #[cfg(target_os = "macos")]
     let (root, stores) = (webkit::data_root(), webkit::stores());
     let report = tauri::async_runtime::spawn_blocking(move || {
@@ -268,10 +273,7 @@ pub async fn storage_usage(app: AppHandle) -> Result<StorageReport, String> {
             .iter()
             .map(|c| {
                 #[cfg(target_os = "macos")]
-                let bytes = {
-                    let _ = &roots;
-                    stores.iter().map(|s| s.bytes(c.key)).sum::<u64>()
-                };
+                let bytes: u64 = stores.iter().map(|s| s.bytes(c.key)).sum();
                 #[cfg(not(target_os = "macos"))]
                 let bytes: u64 = c
                     .paths
