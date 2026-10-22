@@ -124,13 +124,24 @@ const TrailMini: Component = () => {
   let lastY = 0;
   let W = 0;
   let H = 0;
+  /** The pixel ratio the canvas buffer was sized for (`fitCanvas`). */
+  let dpr = 1;
 
   const draw = () => {
     const ctx = cv?.getContext("2d");
     if (!ctx || !cv) return;
-    const dpr = window.devicePixelRatio || 1;
+    // The ratio changes without a resize when the window moves to a display of
+    // another density, or the UI is zoomed. Drawing at the new ratio into a
+    // buffer sized for the old one painted a half-size map into one corner and
+    // left the rest of the canvas uncleared, so re-size the buffer first.
+    if ((window.devicePixelRatio || 1) !== dpr) {
+      fitCanvas();
+      return;
+    }
+    // Clear the whole buffer, whatever transform the last frame left.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, cv.width, cv.height);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
     ctx.save();
     ctx.translate(W / 2 + view.x, H / 2 + view.y);
     ctx.scale(view.z, view.z);
@@ -273,7 +284,7 @@ const TrailMini: Component = () => {
 
   const fitCanvas = () => {
     if (!cv) return;
-    const dpr = window.devicePixelRatio || 1;
+    dpr = window.devicePixelRatio || 1;
     W = cv.clientWidth;
     H = cv.clientHeight;
     cv.width = Math.max(1, Math.round(W * dpr));
