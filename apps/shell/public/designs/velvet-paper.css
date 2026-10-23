@@ -3815,3 +3815,12 @@
   min-height: auto;
   overflow: visible;
 }
+
+/* The docked calendar is `position: relative` here (for its edge title), and
+   Classic's floating .cal-pane carries `top/left: 50%` for centring — which a
+   relative box takes as an offset, pushing the card half out of its column. */
+:root[data-design="velvet-paper"] .cal-pane.docked {
+  top: auto;
+  left: auto;
+  transform: none;
+}

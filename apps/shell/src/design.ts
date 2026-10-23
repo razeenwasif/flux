@@ -9,9 +9,10 @@
  * keyed on `<html data-design="…">`, so the Classic boot path never downloads it
  * and it stays out of the entry CSS budget (`npm run perf`).
  *
- * **Applied before first paint**, like the theme (see `index.html`): the inline
- * script sets the attribute and adds the stylesheet link, so a Velvet Paper
- * launch never shows one classic frame first.
+ * **Applied before first paint**, like the theme (see `index.html`): an inline
+ * script in <head> sets the attribute and one at the top of <body> links the
+ * stylesheet (after the theme's, so the design wins the rules they share), so a
+ * Velvet Paper launch never shows one classic frame first.
  *
  * A design brings its own palette. While one is active the theme picker is moot,
  * so Settings says so rather than offering colours that wouldn't show.
