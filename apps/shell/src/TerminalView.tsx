@@ -37,6 +37,7 @@ import { createAcker, termBytes, terminalAck } from "./termflow";
 import { speak, stopSpeaking } from "./speak";
 import LiquidBackground from "./LiquidBackground";
 import { hex, palette as pal, rgba } from "./palette";
+import { design } from "./design";
 import { theme } from "./themes";
 
 /**
@@ -50,7 +51,9 @@ import { theme } from "./themes";
  */
 const termTheme = () => {
   const p = pal();
-  if (theme() === "gruvbox") {
+  // Gruvbox's hand-tuned terminal only belongs to the Classic design; any other
+  // design brings its own palette, which the derived colours below follow.
+  if (theme() === "gruvbox" && design() === "classic") {
     return {
       background: "#282828",
       foreground: "#ebdbb2",
@@ -173,6 +176,7 @@ const TerminalView: Component<{
 
   createEffect(() => {
     theme();
+    design();
     if (termRef) {
       termRef.options.theme = { ...termTheme(), background: "#00000000" };
     }

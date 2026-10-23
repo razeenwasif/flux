@@ -225,7 +225,10 @@
    cut-paper hills behind everything. Structure is untouched — this is only
    colour and material, so every control on the tab bar and the pages rail is
    exactly where it is in the other themes. */
-:root[data-theme="velvet-paper"] {
+/* The tokens are shared with the Velvet Paper *design* (design.ts), whose own
+   sheet in public/designs/ carries the layout and materials. */
+:root[data-theme="velvet-paper"],
+:root[data-design="velvet-paper"] {
   --velvet-900: #09070b; /* deepest */
   --velvet-800: #0c0a0f; /* base plum-black */
   --velvet-700: #15101a; /* paper cards */
@@ -4317,6 +4320,10 @@ body.resizing .panel-edge-resize::after {
      otherwise be silently clipped off the bottom with no way to reach it. */
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+/* A wrapper only Velvet Paper draws (as a card); here its children are the rail's. */
+.connect-notes {
+  display: contents;
 }
 .connect-head {
   display: flex;

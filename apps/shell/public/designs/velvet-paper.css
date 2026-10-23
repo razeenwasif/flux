@@ -1,0 +1,477 @@
+/* ════════════════════════════════════════════════════════════════════════
+   Velvet Paper — a Flux design (see src/design.ts)
+   ════════════════════════════════════════════════════════════════════════
+
+   Picked from the design explorations: plum velvet, with every surface cut
+   from thick dark paper and floated on it. Cards sit apart with a gutter of
+   velvet between them, carry a faint satin foil ring, and have their title set
+   into the top edge. Five cut-paper hills lie behind everything.
+
+   Only loaded when the design is chosen (index.html adds the link before first
+   paint; design.ts on a live switch), so none of it is in the entry CSS budget.
+   Every rule is scoped to `:root[data-design="velvet-paper"]`, so the sheet is
+   inert in Classic even if it stays linked.
+
+   The palette (base tones, accents, the hills) is shared with the Velvet Paper
+   *theme* and lives in theme.css. This sheet is shape and material only, and it
+   never removes anything: every control of the Classic chrome is still here.
+
+   Card titles: the cards that clip their overflow (sidebar, Trail) can't hang a
+   label across their own top edge, so every titled card draws its paper on a
+   ::before inset 10px from the top and sets its title on ::after across that
+   inset line. Same technique everywhere, so they all line up.
+   ════════════════════════════════════════════════════════════════════════ */
+
+@font-face {
+  font-family: "Figtree";
+  src: url("/fonts/Figtree-Variable.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fraunces";
+  src: url("/fonts/Fraunces-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fraunces";
+  src: url("/fonts/Fraunces-Variable-Italic.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root[data-design="velvet-paper"] {
+  --vp-paper: #15101a; /* card */
+  --vp-paper-2: #1a1420; /* inset well, inputs */
+  --vp-raise: #1e1823; /* raised chip / button */
+  --vp-chip: #2b2233; /* favicon tile */
+  --vp-gap: 16px;
+  --vp-r: 26px;
+  --vp-shadow: 0 22px 30px -14px rgba(0, 0, 0, 0.7), 0 40px 60px -34px rgba(0, 0, 0, 0.85);
+  --vp-edge: rgba(240, 222, 250, 0.1);
+  --vp-display: "Fraunces", Georgia, serif;
+  --vp-mono: "CaskaydiaCove NF", ui-monospace, monospace;
+  --vp-satin: linear-gradient(100deg, #f3b6d3, #c9b5ff 40%, #f6ede4 72%, #a9e6ec);
+  --vp-foil-line: linear-gradient(
+    100deg,
+    rgba(243, 182, 211, 0.28),
+    rgba(201, 181, 255, 0.28) 40%,
+    rgba(246, 237, 228, 0.28) 70%,
+    rgba(169, 230, 236, 0.28)
+  );
+
+  --flux-radius: 14px;
+  --flux-radius-card: var(--vp-r);
+  --flux-frame-pad: var(--vp-gap);
+
+  font-family: "Figtree", "Inter", system-ui, sans-serif;
+  font-size: 13.5px;
+}
+
+/* ── The velvet and the hills ─────────────────────────────────────────── */
+:root[data-design="velvet-paper"] body,
+:root[data-design="velvet-paper"] .shell {
+  background-color: var(--velvet-800);
+  background-image: var(--vp-bloom), var(--vp-hills);
+  background-repeat: no-repeat;
+  background-position:
+    0 0,
+    center bottom;
+  background-size:
+    auto,
+    100% 46%;
+}
+:root[data-design="velvet-paper"] .titlebar {
+  background: transparent;
+  border-bottom: none;
+}
+
+/* ── Paper cards with a title in the edge ─────────────────────────────── */
+:root[data-design="velvet-paper"] .sidebar,
+:root[data-design="velvet-paper"] .connect-notes,
+:root[data-design="velvet-paper"] .sysmon,
+:root[data-design="velvet-paper"] .trailmini {
+  position: relative;
+  isolation: isolate;
+  background: none;
+  border: none;
+  border-radius: var(--vp-r);
+  box-shadow: var(--vp-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-design="velvet-paper"] .sidebar::before,
+:root[data-design="velvet-paper"] .connect-notes::before,
+:root[data-design="velvet-paper"] .sysmon::before,
+:root[data-design="velvet-paper"] .trailmini::before {
+  content: "";
+  position: absolute;
+  inset: 10px 0 0;
+  z-index: -1;
+  border-radius: var(--vp-r);
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--vp-paper), var(--vp-paper)) padding-box,
+    var(--vp-foil) border-box;
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .sidebar::after,
+:root[data-design="velvet-paper"] .connect-notes::after,
+:root[data-design="velvet-paper"] .sysmon::after,
+:root[data-design="velvet-paper"] .trailmini::after {
+  position: absolute;
+  top: 1px;
+  left: 22px;
+  z-index: 1;
+  max-width: calc(100% - 44px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0 10px;
+  /* The top half shows the velvet behind; the lower half is the card's paper,
+     which hides the ring where the title crosses it. */
+  background: linear-gradient(rgba(0, 0, 0, 0) 9px, var(--vp-paper) 9px);
+  font:
+    600 11px/18px "Figtree",
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--flux-text);
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .sidebar::after,
+:root[data-design="velvet-paper"] .connect-notes::after {
+  content: attr(data-legend);
+}
+:root[data-design="velvet-paper"] .sysmon::after {
+  content: "System";
+}
+:root[data-design="velvet-paper"] .trailmini::after {
+  content: "Trail";
+}
+
+/* ── Tabs pane (the sidebar) ──────────────────────────────────────────── */
+:root[data-design="velvet-paper"] .sidebar {
+  margin: 6px 0 var(--vp-gap) var(--vp-gap);
+  padding: 28px 14px 14px;
+  gap: 10px;
+}
+:root[data-design="velvet-paper"] .sidebar.with-apps {
+  padding-left: 46px;
+}
+:root[data-design="velvet-paper"] .sidebar.collapsed {
+  padding: 24px 8px 12px;
+}
+/* A collapsed pane is a rail: no room for a title. */
+:root[data-design="velvet-paper"] .sidebar.collapsed::after {
+  display: none;
+}
+:root[data-design="velvet-paper"] .sidebar .icon-btn {
+  border-radius: 12px;
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .sidebar .icon-btn:hover {
+  background: var(--velvet-500);
+}
+:root[data-design="velvet-paper"] .sidebar .icon-btn.active {
+  background: var(--vp-wash);
+  box-shadow: inset 0 0 0 1px rgba(201, 181, 255, 0.16);
+}
+/* The URL bar and find bar: satin-edged pills. */
+:root[data-design="velvet-paper"] .address,
+:root[data-design="velvet-paper"] .find-bar {
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--vp-paper-2), var(--vp-paper-2)) padding-box,
+    var(--vp-foil-line) border-box;
+}
+:root[data-design="velvet-paper"] .address {
+  height: 42px;
+  padding: 0 16px;
+  font-family: var(--vp-mono);
+  font-size: 12px;
+}
+:root[data-design="velvet-paper"] .address:focus {
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
+}
+:root[data-design="velvet-paper"] .find-bar .find-input {
+  background: transparent;
+  border: none;
+}
+:root[data-design="velvet-paper"] .pin-tile {
+  border-radius: 14px;
+  background: var(--vp-raise);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+:root[data-design="velvet-paper"] .new-tab-control {
+  border-radius: 16px;
+}
+:root[data-design="velvet-paper"] .new-tab-primary,
+:root[data-design="velvet-paper"] .new-tab-options {
+  background: transparent;
+  border: 1px dashed rgba(240, 222, 250, 0.14);
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .new-tab-primary {
+  border-radius: 16px 0 0 16px;
+  border-right: none;
+}
+:root[data-design="velvet-paper"] .new-tab-options {
+  border-radius: 0 16px 16px 0;
+}
+:root[data-design="velvet-paper"] .tab-list-head .sidebar-section {
+  letter-spacing: 0.14em;
+}
+
+/* Tab rows: a favicon tile, two weights, and a foil wash when active. */
+:root[data-design="velvet-paper"] .tab-list {
+  gap: 4px;
+}
+:root[data-design="velvet-paper"] .tab-row {
+  min-height: 46px;
+  padding: 0 10px;
+  gap: 12px;
+  border-left: none;
+  border-radius: 16px;
+}
+:root[data-design="velvet-paper"] .tab-row:hover {
+  background: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .tab-row .tab-favicon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--vp-chip);
+}
+:root[data-design="velvet-paper"] .tab-row .title {
+  font-size: 13.5px;
+}
+:root[data-design="velvet-paper"] .tab-row.active {
+  background: var(--vp-wash);
+  color: var(--flux-text);
+  box-shadow:
+    inset 0 0 0 1px rgba(201, 181, 255, 0.16),
+    0 6px 14px -8px rgba(0, 0, 0, 0.7);
+}
+:root[data-design="velvet-paper"] .tab-row.active .tab-favicon {
+  background: #f3b6d3;
+  color: #22121b;
+}
+:root[data-design="velvet-paper"] .tab-row .close {
+  border-radius: 8px;
+}
+:root[data-design="velvet-paper"] .sidebar-footer {
+  border-top: 1px solid rgba(240, 222, 250, 0.06);
+  padding-top: 12px;
+}
+
+/* ── The page card ────────────────────────────────────────────────────── */
+:root[data-design="velvet-paper"] .content {
+  padding: var(--vp-gap);
+}
+/* Room above the card for its address tab. */
+:root[data-design="velvet-paper"] .content-row {
+  position: relative;
+  padding-top: 22px;
+}
+:root[data-design="velvet-paper"] .card {
+  border: 1.5px solid transparent;
+  border-radius: var(--vp-r);
+  background:
+    linear-gradient(var(--vp-paper), var(--vp-paper)) padding-box,
+    var(--vp-foil) border-box;
+  box-shadow: var(--vp-shadow);
+}
+/* The address as a paper tab cut from the card's top edge (the native page
+   covers the card itself, so the tab rises above it rather than crossing it). */
+:root[data-design="velvet-paper"] .page-legend {
+  position: absolute;
+  top: 0;
+  left: 26px;
+  z-index: 2;
+  max-width: min(60%, 520px);
+  height: 23px;
+  padding: 0 16px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border: 1.5px solid rgba(201, 181, 255, 0.22);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  background: var(--vp-paper);
+  font: 12px/22px var(--vp-mono);
+  color: var(--flux-text);
+  box-shadow: 0 -6px 14px -10px rgba(0, 0, 0, 0.8);
+}
+:root[data-design="velvet-paper"] .editor-col-surface,
+:root[data-design="velvet-paper"] .terminal-surface {
+  border-radius: var(--vp-r);
+  border: 1.5px solid var(--vp-edge);
+  background: #120d16;
+  box-shadow: var(--vp-shadow);
+}
+:root[data-design="velvet-paper"] .bookmark-bar {
+  height: 44px;
+  margin-top: 12px;
+  padding: 0 10px;
+  border: 1px solid var(--vp-edge);
+  border-radius: 18px;
+  background: var(--vp-paper);
+  box-shadow: 0 10px 20px -14px rgba(0, 0, 0, 0.8);
+}
+:root[data-design="velvet-paper"] .bookmark-chip {
+  border-radius: 999px;
+  background: var(--vp-raise);
+}
+
+/* ── Right-hand column: Ask your notes, your notes, System, Trail ─────── */
+:root[data-design="velvet-paper"] .connect-rail {
+  padding: 6px var(--vp-gap) var(--vp-gap) 0;
+  gap: 18px;
+}
+:root[data-design="velvet-paper"] .connect-ask {
+  flex: none;
+  height: 44px;
+  margin-top: 10px;
+  border: none;
+  border-radius: 999px;
+  background: var(--vp-satin);
+  color: #1a1020;
+  font-weight: 600;
+  box-shadow: 0 10px 26px -12px rgba(201, 181, 255, 0.18);
+}
+:root[data-design="velvet-paper"] .connect-ask:hover {
+  filter: brightness(1.05);
+}
+:root[data-design="velvet-paper"] .connect-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 26px 12px 12px;
+}
+/* The card's title says what the head did; keep only its refresh button. */
+:root[data-design="velvet-paper"] .connect-head > span {
+  display: none;
+}
+:root[data-design="velvet-paper"] .connect-head {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  padding: 0;
+}
+:root[data-design="velvet-paper"] .connect-list {
+  overflow-y: auto;
+  min-height: 0;
+}
+:root[data-design="velvet-paper"] .connect-item {
+  border-radius: 18px;
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .sysmon,
+:root[data-design="velvet-paper"] .connect-rail .trailmini {
+  padding: 26px 14px 14px;
+  margin: 0;
+}
+
+/* ── Other columns ────────────────────────────────────────────────────── */
+:root[data-design="velvet-paper"] .rightstack {
+  padding: var(--vp-gap) var(--vp-gap) var(--vp-gap) 0;
+  gap: 12px;
+}
+:root[data-design="velvet-paper"] .agent-inner {
+  border-radius: var(--vp-r);
+  border: 1.5px solid var(--vp-edge);
+  background: var(--vp-paper);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--vp-shadow);
+}
+/* The thin rail of Flux pages and terminal apps. */
+:root[data-design="velvet-paper"] .bars-col {
+  padding: var(--vp-gap) 8px var(--vp-gap) 0;
+}
+:root[data-design="velvet-paper"] .pages-bar,
+:root[data-design="velvet-paper"] .tui-bar {
+  border: 1px solid var(--vp-edge);
+  border-radius: 18px;
+  background: #120d16;
+  box-shadow: 0 12px 24px -14px rgba(0, 0, 0, 0.8);
+}
+:root[data-design="velvet-paper"] .pages-chip {
+  border-radius: 12px;
+}
+:root[data-design="velvet-paper"] .dock-card {
+  border-radius: var(--vp-r);
+  border: 1.5px solid var(--vp-edge);
+  background: var(--vp-paper);
+  box-shadow: var(--vp-shadow);
+}
+
+/* ── Floating bits ────────────────────────────────────────────────────── */
+:root[data-design="velvet-paper"] .glass {
+  background: var(--vp-paper-2);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid var(--vp-edge);
+  border-radius: 20px;
+}
+:root[data-design="velvet-paper"] .appdock {
+  border-radius: 22px;
+}
+
+/* ── Start page: raised paper over the hills ──────────────────────────── */
+:root[data-design="velvet-paper"] .start {
+  background:
+    radial-gradient(80% 50% at 50% -8%, rgba(var(--accent-ai-rgb), 0.12), transparent 60%),
+    var(--vp-hills) center bottom / 100% 42% no-repeat;
+}
+:root[data-design="velvet-paper"] .start-card {
+  border-radius: 22px;
+  background: var(--velvet-700);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--rim-rgb), 0.05),
+    inset 0 0 0 1px rgba(var(--rim-rgb), 0.07),
+    0 10px 22px -12px rgba(0, 0, 0, 0.7),
+    0 26px 48px -26px rgba(0, 0, 0, 0.85);
+}
+:root[data-design="velvet-paper"] .start-card::after {
+  display: none;
+}
+
+/* System and Trail: the card's edge carries the name, so their own heads keep
+   only their controls (caret, count, expand), tucked into the top-right. */
+:root[data-design="velvet-paper"] .sysmon-spark,
+:root[data-design="velvet-paper"] .sysmon-label-head,
+:root[data-design="velvet-paper"] .trailmini-spark,
+:root[data-design="velvet-paper"] .trailmini-label {
+  display: none;
+}
+:root[data-design="velvet-paper"] .sysmon-head,
+:root[data-design="velvet-paper"] .trailmini-head {
+  position: absolute;
+  top: 13px;
+  right: 12px;
+  z-index: 1;
+}
+:root[data-design="velvet-paper"] .sysmon-toggle,
+:root[data-design="velvet-paper"] .trailmini-toggle,
+:root[data-design="velvet-paper"] .trailmini-expand {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .trailmini-map {
+  border-radius: 18px;
+  background: var(--vp-paper-2);
+}

@@ -124,6 +124,7 @@ const AppPane = lazy(() => import("./AppPane"));
 const TuiPane = lazy(() => import("./TuiPane"));
 import { fitLayout, LAYOUT_PRESETS, parseLayout, type LayoutPreset, type LayoutState } from "./layout";
 import { tileRects } from "./tiles";
+import { design } from "./design";
 import type { PaletteContext } from "./paletteActions";
 import { LinkMenu } from "./linkMenu";
 // Lazy-loaded: not shown on a fresh window, so they stay out of the boot bundle
@@ -283,6 +284,18 @@ const App: Component = () => {
     if (connPersist) localStorage.setItem("flux.connect.open", v ? "1" : "0");
     connPersist = true;
   });
+  // Velvet Paper's right-hand column is this rail (system, your notes, the
+  // Trail), so picking that design brings it up. Only on the switch: closing it
+  // afterwards sticks.
+  createEffect(
+    on(
+      design,
+      (d) => {
+        if (d === "velvet-paper") setConnectOpen(true);
+      },
+      { defer: true },
+    ),
+  );
   // Floating music bubble (#196) — on by default; toggled via the palette.
   // The Indexer orb took the music bubble's place (#196), and its on/off setting.
   const [orbOn, setOrbOn] = createSignal(

@@ -17,6 +17,12 @@
       try {
         var t = localStorage.getItem("flux.theme");
         if (t && t !== "velvet") document.documentElement.setAttribute("data-theme", t);
+        // The design's stylesheet too (design.ts), so its layout is the first frame.
+        var d = localStorage.getItem("flux.design");
+        if (d === "velvet-paper") {
+          document.documentElement.setAttribute("data-design", d);
+          document.write('<link id="flux-design-css" rel="stylesheet" href="/designs/' + d + '.css" />');
+        }
         if (localStorage.getItem("flux.window.acrylic") === "1") document.documentElement.classList.add("window-acrylic");
       } catch (e) {}
     </script>

@@ -93,6 +93,7 @@ const ClockAlarm = lazy(() => import("./ClockAlarm")); // mounted once App has l
 const TerminalView = lazy(() => import("./TerminalView"));
 const EditorColumn = lazy(() => import("./EditorColumn")); // the permanent nvim split (#174)
 import InternalPage from "./InternalPage";
+import { design } from "./design";
 const ReaderView = lazy(() => import("./ReaderView"));
 const BookmarkBar = lazy(() => import("./BookmarkBar"));
 // ─── Content card ─────────────────────────────────────────────────────────
@@ -117,6 +118,21 @@ const ContentArea: Component<{
   let rowEl!: HTMLDivElement;
   // Once started, keep the editor alive while layouts temporarily hide it.
   const editorMounted = createMemo((was: boolean) => was || props.editorVisible, false);
+
+  /** The page card's tab label in Velvet Paper: a web page's host and path, or
+   *  the title of anything that isn't one (Flux pages, terminals, files). */
+  const pageLegend = (): string => {
+    const t = activeTab();
+    if (!t) return "Flux";
+    try {
+      const u = new URL(t.url);
+      if (u.protocol === "http:" || u.protocol === "https:")
+        return (u.host.replace(/^www\./, "") + u.pathname).replace(/\/$/, "");
+    } catch {
+      /* not a URL — fall through to the title */
+    }
+    return t.title || "Flux";
+  };
 
   /** Drag the seam between the page and the editor. Sets `splitDragging` for the
    *  duration: a native webview is an OS layer that would otherwise swallow the
@@ -308,6 +324,14 @@ const ContentArea: Component<{
         id and box, so the native webview still tiles to exactly the page half —
         shrinking the card is all the editor column has to do. */}
       <div class="content-row" ref={rowEl}>
+        {/* Velvet Paper (design.ts): the page's address as a paper tab on the
+            card's top edge. Above the card, never on it — the native webview
+            covers the card's whole box. */}
+        <Show when={design() !== "classic"}>
+          <span class="page-legend" title={activeTab()?.url}>
+            {pageLegend()}
+          </span>
+        </Show>
         <div class="card" id="flux-web-area">
           {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
           <Show when={readerOpen()}>

@@ -964,6 +964,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
   return (
     <nav
       class="sidebar"
+      // Velvet Paper (design.ts) sets this into the pane's top edge.
+      data-legend={`Tabs · ${activeWorkspaceName()}`}
       classList={{
         "with-apps": !props.collapsed && panels().length > 0 && appRailOpen(),
         collapsed: props.collapsed,

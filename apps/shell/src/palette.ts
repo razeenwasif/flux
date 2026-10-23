@@ -12,6 +12,7 @@
  */
 import { createEffect } from "solid-js";
 
+import { design } from "./design";
 import { theme } from "./themes";
 
 export type Rgb = [number, number, number];
@@ -58,14 +59,16 @@ const parseHex = (v: string, fallback: Rgb): Rgb => {
 };
 
 let cached: Palette | null = null;
-/** The `data-theme` the cache was read under (null: the default theme). */
+/** The `data-theme` and `data-design` the cache was read under. */
 let cachedFor: string | null = null;
 
 export const palette = (): Palette => {
   // Checked against the attribute, not just invalidated by watchPalette: an
   // effect on `theme()` can run before that one in the same flush, and would
   // otherwise get (or cache) the previous theme's colours.
-  const current = globalThis.document?.documentElement.getAttribute("data-theme") ?? null;
+  const root = globalThis.document?.documentElement;
+  // A design (design.ts) brings its own palette, so it is part of the key.
+  const current = `${root?.getAttribute("data-theme") ?? ""}|${root?.getAttribute("data-design") ?? ""}`;
   if (cached && cachedFor === current) return cached;
   cachedFor = current;
   try {
@@ -98,10 +101,11 @@ export const unit = (c: Rgb): Rgb => [c[0] / 255, c[1] / 255, c[2] / 255];
 let gen = 0;
 export const paletteGeneration = (): number => gen;
 
-/** Drop the cache when the theme changes. Call once, at app start. */
+/** Drop the cache when the theme or design changes. Call once, at app start. */
 export const watchPalette = (): void => {
   createEffect(() => {
     theme();
+    design();
     cached = null;
     gen++;
   });

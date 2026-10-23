@@ -17,6 +17,7 @@ import type { ShieldsStatus } from "./ipc";
 import { Row, Toggle } from "./SettingsControls";
 import SettingsNavigator, { Section } from "./SettingsNavigator";
 import { visibleInterval } from "./poll";
+import { DESIGNS, design, setDesign } from "./design";
 import { THEMES, setTheme, theme } from "./themes";
 import {
   ARCHIVE_URL,
@@ -807,9 +808,34 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               <option value="comfortable">Comfortable</option>
             </select>
           </Row>
+          <Row
+            label="Design"
+            hint="The shape of the interface: layout, materials and type. Applies immediately."
+          >
+            <div class="theme-picker">
+              <For each={DESIGNS}>
+                {(d) => (
+                  <button
+                    classList={{ "theme-chip": true, on: design() === d.id }}
+                    title={d.blurb}
+                    onClick={() => void setDesign(d.id)}
+                  >
+                    <span class="theme-name">{d.name}</span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </Row>
           {/* Swatches rather than a dropdown: a colour theme is the one setting
               you can't evaluate from its name. */}
-          <Row label="Theme" hint="Colours the whole of Flux. Applies immediately.">
+          <Row
+            label="Theme"
+            hint={
+              design() === "classic"
+                ? "Colours the whole of Flux. Applies immediately."
+                : "This design brings its own colours; the theme applies to the Classic design."
+            }
+          >
             <div class="theme-picker">
               <For each={THEMES}>
                 {(t) => (
