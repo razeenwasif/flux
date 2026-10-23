@@ -3824,3 +3824,56 @@
   left: auto;
   transform: none;
 }
+
+/* ── Depth instead of halos ───────────────────────────────────────────────
+   The satin foil rings are gone (every one is drawn through --vp-foil, so it
+   is simply made clear). The cards get their weight from light instead: a lit
+   top edge and a soft sheen under it, the paper darkening toward its lower
+   edge, and a deeper, layered drop shadow. Inner shadows, so they suit any
+   card's paper tone; on the titled cards they go on the paper layer (::before),
+   which starts 10px down, so nothing lights the strip the title sits in. */
+:root[data-design="velvet-paper"] {
+  --vp-foil: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0));
+  --vp-depth:
+    inset 0 1px 0 rgba(246, 237, 228, 0.07), inset 0 26px 34px -28px rgba(246, 237, 228, 0.06),
+    inset 0 -30px 40px -32px rgba(0, 0, 0, 0.6);
+  --vp-shadow:
+    0 3px 6px -2px rgba(0, 0, 0, 0.45), 0 16px 26px -12px rgba(0, 0, 0, 0.65),
+    0 38px 64px -30px rgba(0, 0, 0, 0.88);
+}
+:root[data-design="velvet-paper"] .sidebar::before,
+:root[data-design="velvet-paper"] .connect-notes::before,
+:root[data-design="velvet-paper"] .sysmon::before,
+:root[data-design="velvet-paper"] .trailmini::before,
+:root[data-design="velvet-paper"] .agent-inner::before,
+:root[data-design="velvet-paper"] .mail-pane::before,
+:root[data-design="velvet-paper"] .cal-pane.docked::before,
+:root[data-design="velvet-paper"] .start-card::before,
+:root[data-design="velvet-paper"] .palette::before,
+:root[data-design="velvet-paper"] .spot::before,
+:root[data-design="velvet-paper"] .idx-panel::before,
+:root[data-design="velvet-paper"] .idx-card::before,
+:root[data-design="velvet-paper"] .files-rail::before,
+:root[data-design="velvet-paper"] .files-main::before,
+:root[data-design="velvet-paper"] .files-preview::before,
+:root[data-design="velvet-paper"] .set-nav::before,
+:root[data-design="velvet-paper"] .set-card::before,
+:root[data-design="velvet-paper"] .idx-sheet-card::before,
+:root[data-design="velvet-paper"] .idx-sheet-tuning::before {
+  box-shadow: var(--vp-depth);
+}
+:root[data-design="velvet-paper"] .card,
+:root[data-design="velvet-paper"] .trail-graph,
+:root[data-design="velvet-paper"] .trail-detail,
+:root[data-design="velvet-paper"] .trail-scrub,
+:root[data-design="velvet-paper"] .semfind,
+:root[data-design="velvet-paper"] .idx-sheet {
+  box-shadow: var(--vp-depth), var(--vp-shadow);
+}
+/* The page's address tab: no outline either, the same lit edge. */
+:root[data-design="velvet-paper"] .page-legend {
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(246, 237, 228, 0.07),
+    0 -6px 14px -10px rgba(0, 0, 0, 0.8);
+}
