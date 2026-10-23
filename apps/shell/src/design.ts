@@ -3,11 +3,11 @@
  *
  * A theme (`themes.ts`) recolours Flux; a design re-lays and re-materials it:
  * spacing, card shapes, type, which surfaces float and how titles sit on them.
- * "Classic" is Flux as it has always looked and needs no attribute, exactly like
- * the default theme. Every other design is a stylesheet in `public/designs/`,
- * keyed on `<html data-design="…">`, so a design costs nothing until it's picked:
- * the classic boot path never downloads it, and it stays out of the entry CSS
- * budget (`npm run perf`).
+ * "Classic" is Flux as it looked before the redesign and needs no attribute.
+ * Velvet Paper is the default; every design but Classic is a stylesheet in
+ * `public/designs/`,
+ * keyed on `<html data-design="…">`, so the Classic boot path never downloads it
+ * and it stays out of the entry CSS budget (`npm run perf`).
  *
  * **Applied before first paint**, like the theme (see `index.html`): the inline
  * script sets the attribute and adds the stylesheet link, so a Velvet Paper
@@ -34,13 +34,17 @@ const LINK_ID = "flux-design-css";
 
 const isDesign = (v: string | null): v is DesignId => DESIGNS.some((d) => d.id === v);
 
-/** What's stored, defaulting to Classic for anything unrecognised. */
+/** The design a fresh install (or an unreadable store) gets. */
+export const DEFAULT_DESIGN: DesignId = "velvet-paper";
+
+/** What's stored, defaulting to Velvet Paper for anything unrecognised. Keep in
+ *  step with the pre-paint script in index.html. */
 export const storedDesign = (): DesignId => {
   try {
     const v = localStorage.getItem(KEY);
-    return isDesign(v) ? v : "classic";
+    return isDesign(v) ? v : DEFAULT_DESIGN;
   } catch {
-    return "classic";
+    return DEFAULT_DESIGN;
   }
 };
 

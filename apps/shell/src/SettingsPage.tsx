@@ -272,6 +272,11 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
       })
       .catch((e) => setStoreMsg(String(e)));
   };
+  /** A storage group's size as a percentage of the largest group's (for the meters). */
+  const storeShare = (bytes: number): number => {
+    const max = Math.max(1, ...(store()?.entries.map((x) => x.bytes) ?? [1]));
+    return Math.max(2, Math.round((bytes / max) * 100));
+  };
   const mb = (n: number) =>
     n >= 1024 * 1024 * 1024 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.round(n / 1024 / 1024)} MB`;
 
@@ -820,7 +825,15 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                     title={d.blurb}
                     onClick={() => void setDesign(d.id)}
                   >
+                    {/* Velvet Paper draws the pickers as tiles: a preview of
+                        each design over its name and blurb. */}
+                    <Show when={design() !== "classic"}>
+                      <span class="design-swatch" data-design-swatch={d.id} aria-hidden="true" />
+                    </Show>
                     <span class="theme-name">{d.name}</span>
+                    <Show when={design() !== "classic"}>
+                      <span class="theme-note">{d.blurb}</span>
+                    </Show>
                   </button>
                 )}
               </For>
@@ -848,6 +861,9 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                       <For each={t.swatch}>{(c) => <i style={{ background: c }} />}</For>
                     </span>
                     <span class="theme-name">{t.name}</span>
+                    <Show when={design() !== "classic"}>
+                      <span class="theme-note">{t.blurb}</span>
+                    </Show>
                   </button>
                 )}
               </For>
@@ -964,6 +980,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                       onChange={() => togglePick(e.key)}
                     />
                     <span class="store-label">{e.label}</span>
+                    {/* Velvet Paper: each group's share of the largest, as a meter. */}
+                    <Show when={design() !== "classic"}>
+                      <span class="store-meter" aria-hidden="true">
+                        <span style={{ width: `${storeShare(e.bytes)}%` }} />
+                      </span>
+                    </Show>
                     <span class="store-size">{mb(e.bytes)}</span>
                     <Show when={e.warn}>
                       <span class="store-flag">⚠</span>

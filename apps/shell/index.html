@@ -18,7 +18,8 @@
         var t = localStorage.getItem("flux.theme");
         if (t && t !== "velvet") document.documentElement.setAttribute("data-theme", t);
         // The design's stylesheet too (design.ts), so its layout is the first frame.
-        var d = localStorage.getItem("flux.design");
+        // Velvet Paper unless Classic was picked (DEFAULT_DESIGN in design.ts).
+        var d = localStorage.getItem("flux.design") || "velvet-paper";
         if (d === "velvet-paper") {
           document.documentElement.setAttribute("data-design", d);
           document.write('<link id="flux-design-css" rel="stylesheet" href="/designs/' + d + '.css" />');

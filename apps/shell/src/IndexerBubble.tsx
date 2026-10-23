@@ -16,9 +16,11 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  lazy,
   on,
   onCleanup,
   onMount,
+  Suspense,
   type Component,
 } from "solid-js";
 
@@ -35,6 +37,9 @@ import {
   type IndexerScope,
   type IndexerStatus,
 } from "./indexer";
+import { design } from "./design";
+// Velvet Paper's sheet: loaded on first open, so Classic (and boot) never pay for it.
+const IndexerSheet = lazy(() => import("./IndexerSheet"));
 import { indexerPanelOpen, setIndexerPanelOpen } from "./indexerOpen";
 import { pdfViewerUrl, voiceTranscribe } from "./ipc";
 import { openTab } from "./store";
@@ -520,31 +525,73 @@ const IndexerBubble: Component = () => {
     }
   };
 
+  const busyLine = () =>
+    busy() === "listening"
+      ? "Listening… pause when you're done"
+      : busy() === "transcribing"
+        ? "Transcribing…"
+        : busy() === "searching"
+          ? "Searching…"
+          : statusLine();
+
   return (
     <>
-      <button
-        classList={{
-          "idx-orb": true,
-          dragging: dragging(),
-          open: indexerPanelOpen(),
-          listening: busy() === "listening",
-          thinking: busy() === "transcribing" || busy() === "searching" || busy() === "deciding",
-        }}
-        style={{ left: `${pos().x}px`, top: `${pos().y}px`, "--lvl": level().toFixed(3) }}
-        title="Indexer — ask your notes (drag to move)"
-        aria-label="Indexer: ask your notes"
-        aria-expanded={indexerPanelOpen()}
-        onPointerDown={onOrbDown}
-        onKeyDown={(e) => {
-          if (e.key !== "Enter" && e.key !== " ") return;
-          e.preventDefault();
-          setIndexerPanelOpen(!indexerPanelOpen());
-        }}
-      >
-        <OrbArt />
-      </button>
+      {/* Velvet Paper (design.ts) has no orb: "Ask your notes" in the right-hand
+          column opens the panel, which App keeps mounted for that design. */}
+      <Show when={design() !== "velvet-paper"}>
+        <button
+          classList={{
+            "idx-orb": true,
+            dragging: dragging(),
+            open: indexerPanelOpen(),
+            listening: busy() === "listening",
+            thinking: busy() === "transcribing" || busy() === "searching" || busy() === "deciding",
+          }}
+          style={{ left: `${pos().x}px`, top: `${pos().y}px`, "--lvl": level().toFixed(3) }}
+          title="Indexer — ask your notes (drag to move)"
+          aria-label="Indexer: ask your notes"
+          aria-expanded={indexerPanelOpen()}
+          onPointerDown={onOrbDown}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            setIndexerPanelOpen(!indexerPanelOpen());
+          }}
+        >
+          <OrbArt />
+        </button>
+      </Show>
 
-      <Show when={indexerPanelOpen()}>
+      <Show when={indexerPanelOpen() && design() === "velvet-paper"}>
+        <Suspense>
+          <IndexerSheet
+            query={query}
+            setQuery={setQuery}
+            ask={(q) => void ask(q)}
+            inputRef={(el) => (input = el)}
+            scope={scope}
+            setScope={setScope}
+            status={status}
+            reindex={() => void refreshStatus(true)}
+            statusText={busyLine}
+            note={note}
+            listening={() => busy() === "listening"}
+            listen={() => void listen()}
+            close={() => setIndexerPanelOpen(false)}
+            results={results}
+            order={order}
+            page={page}
+            setPage={setPage}
+            current={current}
+            pickedHere={pickedHere}
+            verdict={verdict}
+            copied={copied}
+            copy={(t) => void copy(t)}
+            open={openMatch}
+          />
+        </Suspense>
+      </Show>
+      <Show when={indexerPanelOpen() && design() !== "velvet-paper"}>
         <section class="idx-panel glass" style={panelStyle()} role="dialog" aria-label="Indexer">
           <form
             class="idx-ask"
@@ -617,15 +664,7 @@ const IndexerBubble: Component = () => {
               ↻
             </button>
           </div>
-          <div class="idx-status">
-            {busy() === "listening"
-              ? "Listening… pause when you're done"
-              : busy() === "transcribing"
-                ? "Transcribing…"
-                : busy() === "searching"
-                  ? "Searching…"
-                  : statusLine()}
-          </div>
+          <div class="idx-status">{busyLine()}</div>
           <Show when={status()?.notice}>
             <div class="idx-status">{status()?.notice}</div>
           </Show>

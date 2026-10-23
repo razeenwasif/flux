@@ -59,10 +59,14 @@ afterEach(() => {
 });
 
 describe("stored design", () => {
-  it("is Classic when nothing (or nonsense) is stored", async () => {
-    expect((await import("./design")).storedDesign()).toBe("classic");
+  it("is Velvet Paper when nothing (or nonsense) is stored", async () => {
+    expect((await import("./design")).storedDesign()).toBe("velvet-paper");
     stored["flux.design"] = "art-deco";
     vi.resetModules();
+    expect((await import("./design")).storedDesign()).toBe("velvet-paper");
+  });
+  it("keeps Classic when that was picked", async () => {
+    stored["flux.design"] = "classic";
     expect((await import("./design")).storedDesign()).toBe("classic");
   });
 });

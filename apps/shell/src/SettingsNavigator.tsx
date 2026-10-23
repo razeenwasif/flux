@@ -71,10 +71,16 @@ const SettingsNavigator: Component<{ children: JSX.Element }> = (props) => {
     observer.observe(body, { childList: true, subtree: true });
     onCleanup(() => observer.disconnect());
   });
+  /** Back to the top. The body scrolls in Classic; Velvet Paper lays the cards
+   *  out in columns, so there the results column scrolls instead. */
+  const toTop = () => {
+    body.scrollTop = 0;
+    if (body.parentElement) body.parentElement.scrollTop = 0;
+  };
   const select = (title: string) => {
     setQuery("");
     setSelected(title);
-    body.scrollTop = 0;
+    toTop();
   };
   return (
     <>
@@ -87,7 +93,7 @@ const SettingsNavigator: Component<{ children: JSX.Element }> = (props) => {
           value={query()}
           onInput={(e) => {
             setQuery(e.currentTarget.value);
-            body.scrollTop = 0;
+            toTop();
           }}
           onKeyDown={(e) => {
             if (e.key === "Escape" && query()) {

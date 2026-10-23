@@ -1156,6 +1156,10 @@ export const webviewOpen = (tabId: number, url: string, r: Rect) =>
   invoke<void>("webview_open", { tabId, url, x: r.x, y: r.y, width: r.width, height: r.height });
 export const webviewSetBounds = (tabId: number, r: Rect) =>
   invoke<void>("webview_set_bounds", { tabId, x: r.x, y: r.y, width: r.width, height: r.height });
+/** Round every page webview to the page card (logical px); null restores the
+ *  platform's own default. Set by the design (design.ts) — see App. */
+export const webviewSetCornerRadius = (radius: number | null) =>
+  invoke<void>("webview_set_corner_radius", { radius });
 export const webviewShow = (tabId: number) => invoke<void>("webview_show", { tabId });
 export const webviewHide = (tabId: number) => invoke<void>("webview_hide", { tabId });
 /** Log a shell boot milestone in flux.log, on the same clock as Rust's marks.
@@ -1712,6 +1716,12 @@ export const fsListStream = (path: string, onMsg: (m: ListMsg) => void): Promise
   ch.onmessage = onMsg;
   return invoke<void>("fs_list_stream", { path, onMsg: ch });
 };
+/** Size and modified time for one listed entry; hand-mirrors Rust's `EntryMeta`. */
+export type EntryMeta = { name: string; size: number | null; modified: number | null };
+/** The slow half of a listing: stat named entries of `dir` once they're on
+ *  screen (the stream itself skips the per-entry stat). Capped backend-side. */
+export const fsStatEntries = (dir: string, names: string[]) =>
+  invoke<EntryMeta[]>("fs_stat_entries", { dir, names });
 /** Recursive filename search under `root` (#88). Hand-written type (not specta). */
 export type FsHit = { path: string; name: string; is_dir: boolean };
 export const fsSearch = (root: string, query: string, limit = 500, semantic = false) =>

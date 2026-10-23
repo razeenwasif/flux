@@ -15,8 +15,10 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  lazy,
   onCleanup,
   onMount,
+  Suspense,
   type Component,
 } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -63,6 +65,12 @@ import ClockWidget from "./ClockWidget";
 import Converter from "./Converter";
 import { askConfirm } from "./ask";
 import { design } from "./design";
+import { clockRevision, fmtClock, timerRemaining, timerRunning } from "./clocks";
+// Velvet Paper's own cards (design.ts): split out so Classic never loads them and
+// they stay off the boot path (`npm run perf`).
+const VpFocusCard = lazy(() => import("./start/VpFocusCard"));
+const VpMailCard = lazy(() => import("./start/VpMailCard"));
+const VpTodayCard = lazy(() => import("./start/VpTodayCard"));
 
 /** Hostname without `www.`, best-effort. */
 function hostOf(url: string): string {
@@ -223,7 +231,10 @@ const StartPage: Component<{
   const [hiddenWidgets, setHiddenWidgets] = createSignal<string[]>(
     readHidden(localStorage.getItem("flux.start.hidden")),
   );
-  const widgetOn = (k: string) => !hiddenWidgets().includes(k);
+  // Velvet Paper's lead row (Shortcuts · Today · Tasks · Mailbox) is the page's
+  // spine, so its cards show even when a home preset hid them; Classic as ever.
+  const widgetOn = (k: string) =>
+    (design() === "velvet-paper" && (k === "shortcuts" || k === "tasks")) || !hiddenWidgets().includes(k);
   const toggleWidget = (k: string) => {
     const next = widgetOn(k) ? [...hiddenWidgets(), k] : hiddenWidgets().filter((x) => x !== k);
     setHiddenWidgets(next);
@@ -250,7 +261,12 @@ const StartPage: Component<{
   const [widgetOrder, setWidgetOrder] = createSignal<string[]>(
     readOrder(localStorage.getItem("flux.start.order")),
   );
-  const orderOf = (k: string) => widgetOrder().indexOf(k) + 1;
+  /** Velvet Paper (design.ts) leads the card grid with one row — Shortcuts,
+   *  Today, Tasks, Mailbox — ahead of the rest in their usual order. Today and
+   *  Mailbox are that design's own cards (-3, -1); these two are moved up. */
+  const vp = () => design() === "velvet-paper";
+  const VP_LEAD: Record<string, number> = { shortcuts: -4, tasks: -2 };
+  const orderOf = (k: string) => (vp() && k in VP_LEAD ? VP_LEAD[k]! : widgetOrder().indexOf(k) + 1);
   const orderedWidgets = () =>
     widgetOrder()
       .map((k) => WIDGETS.find((w) => w.key === k))
@@ -1105,6 +1121,17 @@ const StartPage: Component<{
     return h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
   };
   const clock = () => now().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // ── Velvet Paper's clock card ────────────────────────────────────────────
+  const userName = (localStorage.getItem("flux.user.name") || "").trim();
+  const vpDateLegend = () =>
+    `${now().toLocaleDateString([], { weekday: "long" })} · ${now().toLocaleDateString([], { day: "numeric", month: "long" })}`;
+  /** The next timed event from now on, today or later. */
+  const nextEvent = () => {
+    const t = todayStr();
+    const hm = `${pad2(now().getHours())}:${pad2(now().getMinutes())}`;
+    return events().find((e) => (e.date === t && e.time !== "" && e.time >= hm) || e.date > t);
+  };
+  const focusLeft = () => (now(), clockRevision(), fmtClock(timerRemaining()));
   const dateStr = () => now().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 
   const submit = async (e: SubmitEvent) => {
@@ -1133,6 +1160,29 @@ const StartPage: Component<{
     tabs().filter(
       (t) => t.kind === "browser" && !t.pinned && t.id !== activeId() && !t.url.startsWith("flux://"),
     );
+
+  /** The search pill and its hint — the same element in either design's hero. */
+  const searchBox = () => (
+    <>
+      <form class="start-search glass" onSubmit={submit}>
+        <span class="start-search-icon">⌕</span>
+        <input
+          value={query()}
+          onInput={(e) => setQuery(e.currentTarget.value)}
+          aria-label="Search the web or enter a URL"
+          placeholder="Search the web or enter a URL"
+          spellcheck={false}
+          autofocus
+        />
+        <Show when={engineName()}>
+          <span class="start-engine">{engineName()}</span>
+        </Show>
+      </form>
+      <div class="start-hint">
+        <kbd>!g</kbd> Google · type a site to go there · everything else searches {engineName()}
+      </div>
+    </>
+  );
 
   return (
     <div class="start" style={bgStyle()}>
@@ -1216,45 +1266,85 @@ const StartPage: Component<{
           />
         </Modal>
       </Show>
-      <header class="start-hero">
-        <div class="start-brand">
-          <span class="start-spark">✦</span> Flux
-        </div>
-        <div class="start-greeting">{greeting()}</div>
+      <Show
+        when={vp()}
+        fallback={
+          <header class="start-hero">
+            <div class="start-brand">
+              <span class="start-spark">✦</span> Flux
+            </div>
+            <div class="start-greeting">{greeting()}</div>
 
-        <form class="start-search glass" onSubmit={submit}>
-          <span class="start-search-icon">⌕</span>
-          <input
-            value={query()}
-            onInput={(e) => setQuery(e.currentTarget.value)}
-            aria-label="Search the web or enter a URL"
-            placeholder="Search the web or enter a URL"
-            spellcheck={false}
-            autofocus
-          />
-          <Show when={engineName()}>
-            <span class="start-engine">{engineName()}</span>
-          </Show>
-        </form>
-        <div class="start-hint">
-          <kbd>!g</kbd> Google · type a site to go there · everything else searches {engineName()}
-        </div>
-        <div class="start-date-strip">
-          <div class="start-date-time">{clock()}</div>
-          <div class="start-date-label">{dateStr()}</div>
-          <Show when={weather()}>
-            {(w) => (
-              <div class="start-weather">
-                {weatherInfo(w().code)[0]} {w().temp}° · {weatherInfo(w().code)[1]}
-                <span class="start-weather-city">{w().city}</span>
+            {searchBox()}
+            <div class="start-date-strip">
+              <div class="start-date-time">{clock()}</div>
+              <div class="start-date-label">{dateStr()}</div>
+              <Show when={weather()}>
+                {(w) => (
+                  <div class="start-weather">
+                    {weatherInfo(w().code)[0]} {w().temp}° · {weatherInfo(w().code)[1]}
+                    <span class="start-weather-city">{w().city}</span>
+                  </div>
+                )}
+              </Show>
+            </div>
+          </header>
+        }
+      >
+        {/* Velvet Paper: the clock and Focus cards, then the search pill. */}
+        <header class="start-hero vp-hero">
+          <div class="vp-hero-row">
+            <section class="glass start-card vp-clock-card" data-legend={vpDateLegend()} aria-label="Clock">
+              <div class="vp-clock-main">
+                <span class="vp-clock">{clock()}</span>
+                <span class="vp-clock-rule" aria-hidden="true" />
               </div>
-            )}
-          </Show>
-        </div>
-      </header>
+              <div class="vp-clock-side">
+                <span class="vp-clock-greet">
+                  {greeting()}
+                  {userName ? `, ${userName}` : ""}
+                </span>
+                <Show when={nextEvent()}>
+                  {(e) => (
+                    <span class="vp-clock-line">
+                      Next · {whenLabel(e())} {e().summary}
+                    </span>
+                  )}
+                </Show>
+                <Show when={timerRunning()}>
+                  <span class="vp-clock-line">Focus · {focusLeft()} left</span>
+                </Show>
+                <Show when={weather()}>
+                  {(w) => (
+                    <span class="vp-clock-line">
+                      {weatherInfo(w().code)[1]} · {w().temp}° · {w().city}
+                    </span>
+                  )}
+                </Show>
+              </div>
+            </section>
+            <Suspense>
+              <VpFocusCard />
+            </Suspense>
+          </div>
+          {searchBox()}
+        </header>
+      </Show>
 
       <div class="start-scroll">
         <section class="start-cards">
+          <Show when={vp()}>
+            <Suspense>
+              <VpTodayCard
+                order={-3}
+                events={events}
+                now={now}
+                todayStr={todayStr}
+                onOpenCalendar={() => setExpandedWidget("calendar")}
+              />
+              <VpMailCard order={-1} />
+            </Suspense>
+          </Show>
           {/* Recent tabs */}
           <div
             class="glass start-card"
@@ -1292,6 +1382,7 @@ const StartPage: Component<{
           <div
             class="glass start-card"
             data-legend="Shortcuts"
+            data-row={vp() ? "lead" : undefined}
             style={{ display: widgetOn("shortcuts") ? undefined : "none", order: orderOf("shortcuts") }}
           >
             <div class="start-card-title">
@@ -1599,6 +1690,7 @@ const StartPage: Component<{
           <div
             class="glass start-card"
             data-legend="Tasks"
+            data-row={vp() ? "lead" : undefined}
             style={{ display: widgetOn("tasks") ? undefined : "none", order: orderOf("tasks") }}
           >
             <div class="start-card-title">

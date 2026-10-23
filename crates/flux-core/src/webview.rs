@@ -104,6 +104,45 @@ mod real {
         format!("tab-{tab}")
     }
 
+    /// The page webviews' corner radius in logical px, as f64 bits; NaN means
+    /// unset, i.e. the platform's default (see [`corner_radius`]).
+    static CORNER_RADIUS: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(u64::MAX);
+
+    /// The radius the shell asked for (`webview_set_corner_radius`), if any.
+    /// Unset keeps what each platform always did: an 18px region on Windows,
+    /// square on macOS.
+    fn corner_radius() -> Option<f64> {
+        let r = f64::from_bits(CORNER_RADIUS.load(std::sync::atomic::Ordering::Relaxed));
+        r.is_finite().then_some(r)
+    }
+
+    /// Round every page webview to the page card's radius, now and for every
+    /// one created later — the shell's design sets it, so a page's corners
+    /// follow the card it sits in. `None` restores the platform default.
+    #[tauri::command]
+    pub fn webview_set_corner_radius(app: AppHandle, radius: Option<f64>) -> Result<(), String> {
+        let bits = match radius {
+            Some(r) if r.is_finite() && r >= 0.0 => r.min(64.0).to_bits(),
+            Some(r) => return Err(format!("bad corner radius {r}")),
+            None => u64::MAX,
+        };
+        CORNER_RADIUS.store(bits, std::sync::atomic::Ordering::Relaxed);
+        let scale = app
+            .get_window(CHROME_WINDOW)
+            .and_then(|w| w.scale_factor().ok())
+            .unwrap_or(1.0);
+        for (name, wv) in app.webviews() {
+            if !(name.starts_with("tab-") || name.starts_with("panel-")) {
+                continue;
+            }
+            let Ok(size) = wv.size() else { continue };
+            let size = size.to_logical::<f64>(scale);
+            round_webview(&wv, size.width, size.height, scale);
+        }
+        Ok(())
+    }
+
     fn parse_url(url: &str) -> Result<Url, String> {
         let u = Url::parse(url).map_err(|e| format!("bad url {url:?}: {e}"))?;
         if super::is_app_origin(&u) {
@@ -1438,11 +1477,11 @@ mod real {
     fn round_webview(wv: &tauri::webview::Webview, width: f64, height: f64, scale: f64) {
         #[cfg(windows)]
         {
-            // Corner radius matches the CSS `--flux-radius-card` (18px); GDI's
-            // rounded-rect ellipse dimension is 2×the radius.
+            // Corner radius matches the CSS `--flux-radius-card` (18px unless the
+            // design set another); GDI's rounded-rect ellipse is 2×the radius.
             let wp = (width * scale).round() as i32;
             let hp = (height * scale).round() as i32;
-            let ellipse = (18.0 * scale * 2.0).round() as i32;
+            let ellipse = (corner_radius().unwrap_or(18.0) * scale * 2.0).round() as i32;
             if wp <= 1 || hp <= 1 {
                 return;
             }
@@ -1457,7 +1496,32 @@ mod real {
                 let _ = SetWindowRgn(hwnd, Some(rgn), true);
             });
         }
-        #[cfg(not(windows))]
+        // macOS: the WKWebView's own layer, clipped. Only once a design has set a
+        // radius — unset, pages stay square as they always were here.
+        #[cfg(target_os = "macos")]
+        {
+            let _ = (width, height, scale);
+            let Some(radius) = corner_radius() else {
+                return;
+            };
+            let _ = wv.with_webview(move |platform| unsafe {
+                use objc::runtime::{Object, NO, YES};
+                use objc::{msg_send, sel, sel_impl};
+                let wk = platform.inner() as *mut Object;
+                if wk.is_null() {
+                    return;
+                }
+                let _: () = msg_send![wk, setWantsLayer: YES];
+                let layer: *mut Object = msg_send![wk, layer];
+                if layer.is_null() {
+                    return;
+                }
+                let _: () = msg_send![layer, setCornerRadius: radius];
+                let clip = if radius > 0.0 { YES } else { NO };
+                let _: () = msg_send![layer, setMasksToBounds: clip];
+            });
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             let _ = (wv, width, height, scale);
         }
@@ -1974,6 +2038,13 @@ mod stub {
                 height,
             })
             .map_err(|e| e.to_string())
+    }
+
+    /// Pages fill the screen on mobile; there is no card to round to.
+    #[tauri::command]
+    pub fn webview_set_corner_radius(radius: Option<f64>) -> Result<(), String> {
+        let _ = radius;
+        Ok(())
     }
 
     #[tauri::command]

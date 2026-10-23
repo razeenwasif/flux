@@ -38,6 +38,7 @@ import {
   isPdfUrl,
   pdfViewerUrl,
   archiveSave,
+  webviewSetCornerRadius,
   SETTINGS_URL,
   pwaInstall,
   agentTranslate,
@@ -284,6 +285,13 @@ const App: Component = () => {
     if (connPersist) localStorage.setItem("flux.connect.open", v ? "1" : "0");
     connPersist = true;
   });
+  // A page is a native view laid over the card, so CSS can't round it: tell the
+  // webview layer the design's card radius (26px less the 1.5px ring).
+  createEffect(
+    on(design, (d) => {
+      void webviewSetCornerRadius(d === "velvet-paper" ? 24.5 : null).catch(() => {});
+    }),
+  );
   // Velvet Paper's right-hand column is this rail (system, your notes, the
   // Trail), so picking that design brings it up. Only on the switch: closing it
   // afterwards sticks.
@@ -1885,7 +1893,9 @@ const App: Component = () => {
         </Suspense>
       </Show>
       {/* The Indexer orb (#196) — position:fixed, lives over the chrome. */}
-      <Show when={orbOn() && !focusMode()}>
+      {/* Velvet Paper has no orb, but its "Ask your notes" button opens the same
+          panel, so the Indexer stays mounted there whatever the orb toggle says. */}
+      <Show when={(orbOn() || design() === "velvet-paper") && !focusMode()}>
         <Suspense>
           <IndexerBubble />
         </Suspense>

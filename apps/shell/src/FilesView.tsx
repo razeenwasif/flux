@@ -33,6 +33,7 @@ import {
   fsDelete,
   attachmentRead,
   fsListStream,
+  fsStatEntries,
   fsSearch,
   fsMove,
   fsOpen,
@@ -43,9 +44,11 @@ import {
   fsUnwatch,
   fsWatch,
   isPdfUrl,
+  tasksDisks,
   onFsChanged,
   pdfViewerUrl,
   type DirListing,
+  type DiskInfo,
   type DroppedAttachment,
   type FileEntry,
   type FsHit,
@@ -53,9 +56,12 @@ import {
 } from "./ipc";
 import { openTab } from "./store";
 import { crumbs, toFileUrl } from "./filepaths";
+import { design } from "./design";
 import "./FilesView.css";
 
 const ROW_H = 30;
+/** The most entries one metadata pass asks for; mirrors `STAT_CAP` in files.rs. */
+const STAT_CAP = 5000;
 /** One collator for every comparison. `a.localeCompare(b, undefined, opts)`
  *  builds a fresh ICU collator per call: sorting 20k names took ~740 ms vs
  *  ~48 ms with this, on every filter keystroke and every streamed chunk. */
@@ -102,11 +108,18 @@ const FilesView: Component<{
   const [filter, setFilter] = createSignal("");
   // Preview pane (#87): when on, the single selected file previews on the right
   // (image thumbnail / text contents; binaries → open in default app).
-  const [previewOpen, setPreviewOpen] = createSignal(localStorage.getItem("flux.files.preview") === "1");
+  // Velvet Paper (design.ts) lays Files out with the preview as a standing
+  // column, so it defaults on there — under its own key, so a Classic "off"
+  // doesn't carry over and hide it.
+  const vp = () => design() === "velvet-paper";
+  const previewKey = vp() ? "flux.files.preview.vp" : "flux.files.preview";
+  const [previewOpen, setPreviewOpen] = createSignal(
+    (localStorage.getItem(previewKey) ?? (vp() ? "1" : "0")) === "1",
+  );
   const togglePreview = () => {
     const v = !previewOpen();
     setPreviewOpen(v);
-    localStorage.setItem("flux.files.preview", v ? "1" : "0");
+    localStorage.setItem(previewKey, v ? "1" : "0");
   };
   type Preview = { state: "loading" | "ok" | "error" } & { att?: DroppedAttachment; err?: string };
   const [preview, setPreview] = createSignal<Preview | null>(null);
@@ -193,6 +206,8 @@ const FilesView: Component<{
           setListing((l) => (l ? { ...l, entries: acc } : l));
         } else if (m.kind === "done") {
           setStreaming(false);
+          const dir = listing()?.path;
+          if (dir) fillMeta(gen, dir, acc);
         } else if (m.kind === "error") {
           setError(m.message);
         }
@@ -209,6 +224,37 @@ const FilesView: Component<{
         }
       }
     }
+  };
+  /**
+   * Size and Modified, filled in once the names are on screen. The listing
+   * skips the per-entry stat (it can hang on cloud- or network-backed folders,
+   * see `fs_stat_entries`), so without this every row read "—". Dropped if
+   * another load has started since.
+   */
+  const fillMeta = (gen: number, dir: string, entries: FileEntry[]) => {
+    if (entries.length === 0) return;
+    void fsStatEntries(
+      dir,
+      entries.slice(0, STAT_CAP).map((e) => e.name),
+    )
+      .then((metas) => {
+        if (gen !== loadGen || metas.length === 0) return;
+        const by = new Map(metas.map((m) => [m.name, m]));
+        setListing((l) =>
+          l && l.path === dir
+            ? {
+                ...l,
+                entries: l.entries.map((e) => {
+                  const m = by.get(e.name);
+                  return m ? { ...e, size: m.size, modified: m.modified } : e;
+                }),
+              }
+            : l,
+        );
+      })
+      .catch(() => {
+        /* the columns keep "—"; the listing itself is unaffected */
+      });
   };
   /** Reload the current directory, optionally selecting a freshly-made entry. */
   const refresh = (selectName?: string) => load(cwd(), selectName);
@@ -231,7 +277,15 @@ const FilesView: Component<{
         if (gen !== loadGen) return;
         if (m.kind === "entries") acc = acc.concat(m.entries);
         else if (m.kind === "done") {
+          // Keep the sizes already shown so a re-list doesn't flash "—", then
+          // re-stat (a change on disk is usually exactly a size or a time).
+          const had = new Map((listing()?.entries ?? []).map((e) => [e.name, e]));
+          acc = acc.map((e) => {
+            const o = had.get(e.name);
+            return o ? { ...e, size: o.size, modified: o.modified } : e;
+          });
           setListing((l) => (l ? { ...l, entries: acc } : l));
+          fillMeta(gen, cwd(), acc);
           const names = new Set(acc.map((e) => e.name));
           setSelected((prev) => new Set([...prev].filter((n) => names.has(n))));
         }
@@ -284,6 +338,7 @@ const FilesView: Component<{
     await load(props.path);
     if (disposed) return;
     setPlaces(await fsQuickLocations().catch(() => []));
+    if (vp()) void tasksDisks().then(setDisks, () => undefined);
     // Live watch: re-list (debounced) when the shown directory changes on disk.
     const un = await onFsChanged((p) => {
       if (p !== cwd()) return;
@@ -782,6 +837,49 @@ const FilesView: Component<{
     navigate(hit.is_dir ? hit.path : dirOf(hit.path));
   };
 
+  // ── Velvet Paper extras ──
+  /** Mounted disks, for the free-space meter at the foot of Places. */
+  const [disks, setDisks] = createSignal<DiskInfo[]>([]);
+  /** The disk the current folder lives on: the longest mount point it's under. */
+  const cwdDisk = createMemo((): DiskInfo | null => {
+    const norm = (x: string) => x.replace(/\\/g, "/").toLowerCase();
+    const p = norm(cwd());
+    let best: DiskInfo | null = null;
+    for (const d of disks()) {
+      const m = norm(d.mount).replace(/\/$/, "");
+      if ((p === m || p.startsWith(m + "/") || m === "") && (!best || d.mount.length > best.mount.length))
+        best = d;
+    }
+    return best && best.total_mb > 0 ? best : null;
+  });
+  /** The folder's files, minus hidden ones unless shown: what the pads and the
+   *  card's count describe (not the filtered view, which they drive). */
+  const folderFiles = createMemo(() =>
+    (listing()?.entries ?? []).filter((e) => !e.is_dir && (showHidden() || !e.name.startsWith("."))),
+  );
+  /** Type pads: the folder's commonest extensions (two or more files each). A
+   *  pad filters the list to its type; again clears it. */
+  const typePads = createMemo(() => {
+    const n = new Map<string, number>();
+    for (const e of folderFiles()) {
+      const x = extOf(e.name);
+      if (x) n.set(x, (n.get(x) ?? 0) + 1);
+    }
+    return [...n]
+      .filter(([, c]) => c >= 2)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 4)
+      .map(([ext, count]) => ({ ext, count }));
+  });
+  /** "25 files · 412 MB" — the size once the metadata pass has filled it in. */
+  const folderMeta = () => {
+    const fs = folderFiles();
+    const known = fs.filter((e) => e.size != null);
+    const total = known.reduce((a, e) => a + (e.size ?? 0), 0);
+    const files = `${fs.length} ${fs.length === 1 ? "file" : "files"}`;
+    return known.length > 0 ? `${files} · ${fmtSize(total, false)}` : files;
+  };
+
   // Preview pane (#87): the single selected file (not a folder), else nothing.
   const previewTarget = createMemo((): FileEntry | null => {
     if (!previewOpen()) return null;
@@ -790,14 +888,17 @@ const FilesView: Component<{
     const e = listing()?.entries.find((x) => x.name === sel[0]);
     return e && !e.is_dir ? e : null;
   });
+  // Keyed on the name, not the entry: filling in sizes (fillMeta) replaces the
+  // entry objects, and that mustn't re-read the file.
+  const previewName = createMemo(() => previewTarget()?.name ?? null);
   let previewTimer: number | undefined;
   createEffect(() => {
-    const t = previewTarget();
-    if (!t) {
+    const name = previewName();
+    if (!name) {
       setPreview(null);
       return;
     }
-    const path = joinPath(cwd(), t.name);
+    const path = joinPath(cwd(), name);
     setPreview({ state: "loading" });
     // False once the selection moves on: a slow read (a 20 MB image is ~53 MB of
     // base64 JSON) must not land over the file selected after it.
@@ -1057,10 +1158,47 @@ const FilesView: Component<{
               )}
             </For>
           </Show>
+          <Show when={vp() && cwdDisk()}>
+            {(d) => (
+              <div class="files-disk" title={`${d().name || d().mount} · ${d().fs}`}>
+                <span class="files-disk-head">
+                  <span class="files-disk-name">{diskLabel(d())}</span>
+                  <span>{fmtGb(d().avail_mb)} free</span>
+                </span>
+                <span class="files-disk-track" aria-hidden="true">
+                  <span
+                    class="files-disk-fill"
+                    style={{ width: `${Math.round(100 - (d().avail_mb / d().total_mb) * 100)}%` }}
+                  />
+                </span>
+              </div>
+            )}
+          </Show>
         </nav>
 
         {/* Listing */}
         <main class="files-main" data-legend={cwd().split(/[\\/]/).filter(Boolean).pop() || cwd()}>
+          <Show when={vp()}>
+            <span class="files-main-meta">{folderMeta()}</span>
+            <Show when={!recursive() && typePads().length > 0}>
+              <div class="files-pads" role="group" aria-label="Filter by type">
+                <For each={typePads()}>
+                  {(p) => (
+                    <button
+                      classList={{ "files-pad": true, on: filter().trim().toLowerCase() === `.${p.ext}` }}
+                      aria-pressed={filter().trim().toLowerCase() === `.${p.ext}`}
+                      onClick={() =>
+                        setFilter((f) => (f.trim().toLowerCase() === `.${p.ext}` ? "" : `.${p.ext}`))
+                      }
+                    >
+                      {p.ext.toUpperCase()}
+                      <span class="files-pad-count">{p.count}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </Show>
           <div class="files-head">
             <button
               classList={{ "files-col": true, name: true, sorted: sort().key === "name" }}
@@ -1226,12 +1364,21 @@ const FilesView: Component<{
                             title={entry.name}
                           >
                             <span class="files-cell name">
-                              <span
-                                class="file-icon"
-                                style={{ color: entry.is_dir ? "var(--flux-violet)" : iconColor(entry.name) }}
+                              <Show
+                                when={vp() && !entry.is_dir}
+                                fallback={
+                                  <span
+                                    class="file-icon"
+                                    style={{
+                                      color: entry.is_dir ? "var(--flux-violet)" : iconColor(entry.name),
+                                    }}
+                                  >
+                                    {entry.is_dir ? <FolderIcon /> : <FileIcon />}
+                                  </span>
+                                }
                               >
-                                {entry.is_dir ? <FolderIcon /> : <FileIcon />}
-                              </span>
+                                <span class="files-type">{extOf(entry.name).slice(0, 4) || "file"}</span>
+                              </Show>
                               <Show
                                 when={renaming() === entry.name}
                                 fallback={<span class="files-name">{entry.name}</span>}
@@ -1290,36 +1437,107 @@ const FilesView: Component<{
         <Show when={previewOpen()}>
           <aside class="files-preview" data-legend="Preview">
             <Show
-              when={preview()}
-              fallback={<div class="files-preview-empty">Select a file to preview.</div>}
+              when={vp()}
+              fallback={
+                <>
+                  <Show
+                    when={preview()}
+                    fallback={<div class="files-preview-empty">Select a file to preview.</div>}
+                  >
+                    {(p) => (
+                      <Switch fallback={<div class="files-preview-empty">Loading…</div>}>
+                        <Match when={p().state === "ok" && p().att?.kind === "image"}>
+                          <img class="files-preview-img" src={p().att!.data_url} alt={p().att!.name} />
+                          <div class="files-preview-name" title={p().att!.name}>
+                            {p().att!.name}
+                          </div>
+                        </Match>
+                        <Match when={p().state === "ok" && p().att?.kind === "text"}>
+                          <pre class="files-preview-text">{p().att!.text.slice(0, 100_000)}</pre>
+                        </Match>
+                        <Match when={p().state === "error"}>
+                          <div class="files-preview-empty">
+                            <div>No inline preview for this file type.</div>
+                            <button
+                              class="files-btn"
+                              onClick={() => {
+                                const t = previewTarget();
+                                if (t)
+                                  void fsOpen(joinPath(cwd(), t.name)).catch((e) => toast(String(e), "err"));
+                              }}
+                            >
+                              Open in default app
+                            </button>
+                          </div>
+                        </Match>
+                      </Switch>
+                    )}
+                  </Show>
+                </>
+              }
             >
-              {(p) => (
-                <Switch fallback={<div class="files-preview-empty">Loading…</div>}>
-                  <Match when={p().state === "ok" && p().att?.kind === "image"}>
-                    <img class="files-preview-img" src={p().att!.data_url} alt={p().att!.name} />
-                    <div class="files-preview-name" title={p().att!.name}>
-                      {p().att!.name}
-                    </div>
-                  </Match>
-                  <Match when={p().state === "ok" && p().att?.kind === "text"}>
-                    <pre class="files-preview-text">{p().att!.text.slice(0, 100_000)}</pre>
-                  </Match>
-                  <Match when={p().state === "error"}>
-                    <div class="files-preview-empty">
-                      <div>No inline preview for this file type.</div>
+              {/* Velvet Paper: a cover, two readouts and the file's three actions. */}
+              <Show
+                when={previewTarget()}
+                fallback={<div class="files-preview-empty">Select a file to preview.</div>}
+              >
+                {(t) => (
+                  <div class="files-pv">
+                    <Show
+                      when={preview()?.state === "ok" && preview()?.att?.kind === "image" && preview()?.att}
+                      fallback={
+                        <div class="files-pv-cover">
+                          <span class="files-pv-kind">{extOf(t().name).toUpperCase() || "FILE"}</span>
+                          <span class="files-pv-title">{stemOf(t().name)}</span>
+                          <span class="files-pv-meta">
+                            {[extOf(t().name), t().size != null ? fmtSize(t().size, false) : ""]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        </div>
+                      }
+                    >
+                      {(att) => <img class="files-pv-img" src={att().data_url} alt={t().name} />}
+                    </Show>
+                    <Show
+                      when={preview()?.state === "ok" && preview()?.att?.kind === "text" && preview()?.att}
+                    >
+                      {(att) => (
+                        <pre class="files-preview-text files-pv-text">{att().text.slice(0, 20_000)}</pre>
+                      )}
+                    </Show>
+                    <dl class="files-pv-readouts">
+                      <div>
+                        <dt>Size</dt>
+                        <dd>{fmtSize(t().size, false)}</dd>
+                      </div>
+                      <div>
+                        <dt>Modified</dt>
+                        <dd>{fmtDate(t().modified)}</dd>
+                      </div>
+                    </dl>
+                    <div class="files-pv-actions">
+                      <button class="files-pv-act primary" onClick={() => openEntry(t())}>
+                        Open
+                      </button>
                       <button
-                        class="files-btn"
-                        onClick={() => {
-                          const t = previewTarget();
-                          if (t) void fsOpen(joinPath(cwd(), t.name)).catch((e) => toast(String(e), "err"));
-                        }}
+                        class="files-pv-act"
+                        title="Summarize this file with Gemma"
+                        onClick={() => summarize(t())}
                       >
-                        Open in default app
+                        Ask
+                      </button>
+                      <button
+                        class="files-pv-act"
+                        title="Open this folder in the system file manager"
+                        onClick={() => void fsOpen(cwd()).catch((e) => toast(String(e), "err"))}
+                      >
+                        Reveal
                       </button>
                     </div>
-                  </Match>
-                </Switch>
-              )}
+                  </div>
+                )}
+              </Show>
             </Show>
           </aside>
         </Show>
@@ -1596,6 +1814,20 @@ function menuStyle(m: { x: number; y: number }): JSX.CSSProperties {
   return { left: `${Math.max(8, x)}px`, top: `${Math.max(8, y)}px` };
 }
 
+/** The name without its extension, for the preview's cover title. */
+function stemOf(name: string): string {
+  const i = name.lastIndexOf(".");
+  return i > 0 ? name.slice(0, i) : name;
+}
+/** A disk for the Places meter: its volume name, else where it's mounted. */
+function diskLabel(d: DiskInfo): string {
+  return d.name && !d.name.startsWith("/dev/") ? d.name : d.mount;
+}
+/** Megabytes as GB (or TB), the way the system card shows free space. */
+function fmtGb(mb: number): string {
+  const gb = mb / 1024;
+  return gb >= 1024 ? `${(gb / 1024).toFixed(1)} TB` : `${gb >= 100 ? Math.round(gb) : gb.toFixed(1)} GB`;
+}
 function fmtSize(n: number | null, isDir: boolean): string {
   if (isDir || n == null) return "—";
   if (n < 1024) return `${n} B`;

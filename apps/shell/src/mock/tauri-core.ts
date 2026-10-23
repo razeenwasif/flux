@@ -852,6 +852,14 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         entries: mockEntries.map((e) => ({ ...e })),
       } as T);
     }
+    case "fs_stat_entries": {
+      const names = new Set((args?.names as string[]) ?? []);
+      return Promise.resolve(
+        mockEntries
+          .filter((e) => names.has(e.name))
+          .map((e) => ({ name: e.name, size: e.is_dir ? null : e.size, modified: e.modified })) as T,
+      );
+    }
     case "fs_create_dir":
     case "fs_create_file": {
       const name = mockBase(String(args?.path ?? ""));

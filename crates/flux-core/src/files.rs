@@ -718,6 +718,71 @@ fn stream_dir(path: &str, on_msg: &Channel<ListMsg>) -> Result<(), String> {
     Ok(())
 }
 
+/// Size and modified time for one listed entry: the slow half of a listing.
+#[derive(Serialize, specta::Type)]
+pub struct EntryMeta {
+    pub name: String,
+    /// Bytes; `None` for directories and anything that couldn't be stat'ed.
+    pub size: Option<u64>,
+    /// Last-modified, Unix epoch milliseconds.
+    pub modified: Option<u64>,
+}
+
+/// The most entries one `fs_stat_entries` call stats. A folder bigger than this
+/// keeps "—" past it rather than tying a blocking thread up for minutes.
+const STAT_CAP: usize = 5000;
+
+/// Stat named entries of one directory, after the listing has already arrived.
+///
+/// The listing itself skips the per-entry `metadata()` call (d7824ac): it can
+/// hang on cloud-, network- or removable-backed folders on Windows, and the list
+/// must never wait on it. But dropping it outright left the Size and Modified
+/// columns blank for every file. So the stat moved here — a second request the
+/// explorer makes once the names are on screen, off the main thread, capped at
+/// `STAT_CAP`. A slow folder only delays its own sizes; the list is already up.
+#[tauri::command]
+pub async fn fs_stat_entries(dir: String, names: Vec<String>) -> Result<Vec<EntryMeta>, String> {
+    tauri::async_runtime::spawn_blocking(move || stat_entries(&dir, &names))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+fn stat_entries(dir: &str, names: &[String]) -> Vec<EntryMeta> {
+    // WSL paths on Windows are listed through the distro, not std::fs; their
+    // sizes would come back as errors anyway.
+    #[cfg(windows)]
+    if is_wsl_path(dir) {
+        return Vec::new();
+    }
+    let dir = if dir.is_empty() || dir == "~" {
+        home_dir()
+    } else {
+        native_path(dir)
+    };
+    let base = Path::new(&dir);
+    names
+        .iter()
+        .take(STAT_CAP)
+        // A name is one path segment; anything else isn't an entry of `dir`.
+        .filter(|n| {
+            !n.is_empty() && !n.chars().any(std::path::is_separator) && *n != ".." && *n != "."
+        })
+        .map(|name| {
+            // `metadata` follows symlinks, so a link to a file reports the file.
+            let meta = std::fs::metadata(base.join(name)).ok();
+            EntryMeta {
+                name: name.clone(),
+                size: meta.as_ref().filter(|m| m.is_file()).map(|m| m.len()),
+                modified: meta
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64),
+            }
+        })
+        .collect()
+}
+
 /// One recursive-search hit (#88). Carries the full path (search results span many
 /// directories). Not specta-generated — the frontend has a matching hand-written type.
 #[derive(Serialize)]
@@ -2096,6 +2161,37 @@ mod bounded_read_tests {
         assert!(text.ends_with(&format!("(truncated; {total} bytes total)")));
         // The edit gate refuses it, again without reading it whole.
         assert!(tauri::async_runtime::block_on(ensure_fully_readable(path)).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod stat_tests {
+    use super::*;
+
+    #[test]
+    fn stats_files_and_leaves_dirs_sizeless() {
+        let base = std::env::temp_dir().join(format!("flux_stat_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("folder")).unwrap();
+        std::fs::write(base.join("book.pdf"), vec![0u8; 1234]).unwrap();
+        let dir = base.to_string_lossy().into_owned();
+        let names = ["book.pdf", "folder", "missing.txt", "../escape"].map(String::from);
+
+        let metas = stat_entries(&dir, &names);
+        let by = |n: &str| metas.iter().find(|m| m.name == n);
+        let book = by("book.pdf").unwrap();
+        assert_eq!(book.size, Some(1234));
+        assert!(book.modified.is_some());
+        // A directory has a modified time but no size; a vanished entry neither.
+        let folder = by("folder").unwrap();
+        assert_eq!(folder.size, None);
+        assert!(folder.modified.is_some());
+        let gone = by("missing.txt").unwrap();
+        assert_eq!((gone.size, gone.modified), (None, None));
+        // Only single path segments are entries of the directory.
+        assert!(by("../escape").is_none());
+
         let _ = std::fs::remove_dir_all(&base);
     }
 }
