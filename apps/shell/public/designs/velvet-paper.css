@@ -3563,3 +3563,230 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* ── New tab, take two: smaller cards, three to a row ─────────────────────
+   Hero row: Clock · Focus · Shortcuts (StartPage seats the speed dial there).
+   Then every other card — Today, Tasks, Mailbox first — three to a row,
+   two below 760px of card, one on a phone. These come last so they replace
+   the earlier lead-row grid rather than fighting it. */
+:root[data-design="velvet-paper"] .vp-hero-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 20px;
+  align-items: stretch;
+}
+:root[data-design="velvet-paper"] .vp-hero-row > .start-card {
+  flex: none;
+  height: 262px;
+  min-height: 0;
+}
+:root[data-design="velvet-paper"] .vp-hero-row .vp-clock-card {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+:root[data-design="velvet-paper"] .vp-hero-row .vp-clock {
+  font-size: clamp(56px, 7.5cqi, 104px);
+}
+:root[data-design="velvet-paper"] .vp-hero-row .vp-clock-side {
+  text-align: left;
+}
+:root[data-design="velvet-paper"] .vp-hero-row .start-dial {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+:root[data-design="velvet-paper"] .vp-hero-row .start-tile {
+  aspect-ratio: auto;
+  height: 52px;
+  border-radius: 16px;
+}
+:root[data-design="velvet-paper"] .start-cards {
+  width: min(1240px, 96%);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: none;
+  grid-auto-rows: 236px;
+  gap: 24px 20px;
+}
+:root[data-design="velvet-paper"] .start-card,
+:root[data-design="velvet-paper"] .start-card[data-row="lead"] {
+  grid-column: auto;
+  height: auto;
+  min-height: 0;
+}
+@container (max-width: 980px) {
+  :root[data-design="velvet-paper"] .vp-hero-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  :root[data-design="velvet-paper"] .vp-hero-row .vp-clock-card {
+    grid-column: 1 / -1;
+    height: 200px;
+  }
+}
+@container (max-width: 760px) {
+  :root[data-design="velvet-paper"] .start-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (max-width: 520px) {
+  :root[data-design="velvet-paper"] .vp-hero-row,
+  :root[data-design="velvet-paper"] .start-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* The speed dial carries an inline `order` for the card grid; in the hero row
+   it simply follows Focus. */
+:root[data-design="velvet-paper"] .vp-hero-row > .start-card {
+  order: 0 !important;
+}
+
+/* ── Files listing: real columns, and a sideways scroll when they don't fit ──
+   Classic's columns are `1fr 104px 180px` with a name cell that may shrink to
+   nothing, so in a narrow card the two fixed columns took the whole width and
+   every name vanished (and the headers pushed out of the card). Give the name
+   a floor and let the columns scroll sideways inside the card instead. */
+:root[data-design="velvet-paper"] .files {
+  --files-col: minmax(220px, 1fr) 92px 172px;
+}
+:root[data-design="velvet-paper"] .files-hscroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+/* The head, the inline create row and the (vertically virtualised) list all
+   share one width, so they scroll sideways together. 220 + 92 + 172 plus the
+   rows' padding and inset. */
+:root[data-design="velvet-paper"] .files-hscroll > .files-head,
+:root[data-design="velvet-paper"] .files-hscroll > .files-create,
+:root[data-design="velvet-paper"] .files-hscroll > .files-list {
+  min-width: 532px;
+}
+:root[data-design="velvet-paper"] .files-col {
+  white-space: nowrap;
+}
+:root[data-design="velvet-paper"] .files-cell.size,
+:root[data-design="velvet-paper"] .files-cell.modified {
+  white-space: nowrap;
+}
+
+/* The three panes in a narrow card: the earlier `210px minmax(0, 1fr)
+   minmax(250px, 330px)` served Places and Preview first, so the listing could
+   be squeezed to nothing. The listing now keeps a working floor (it scrolls
+   sideways past that), Places and Preview give way first, and when even that
+   doesn't fit, Preview steps aside. The context menu is portalled to <body>,
+   so containment here can't move it. */
+:root[data-design="velvet-paper"] .files {
+  container: vpfiles / inline-size;
+}
+:root[data-design="velvet-paper"] .files-body {
+  grid-template-columns: minmax(160px, 210px) minmax(260px, 1fr);
+}
+:root[data-design="velvet-paper"] .files-body.preview-on {
+  /* fr for both, so the listing takes twice Preview's share rather than
+     Preview filling to a fixed max first. */
+  grid-template-columns: minmax(160px, 210px) minmax(260px, 2fr) minmax(220px, 1fr);
+}
+@container vpfiles (max-width: 720px) {
+  :root[data-design="velvet-paper"] .files-body.preview-on {
+    grid-template-columns: minmax(160px, 200px) minmax(0, 1fr);
+  }
+  :root[data-design="velvet-paper"] .files-body.preview-on .files-preview {
+    display: none;
+  }
+}
+
+/* ── Indexer: the Tuning card (always shown) and its minimum-match handle ──
+   Merged after the Indexer sheet block. The card now carries its title through
+   data-legend like the other sheet cards; the scale gains ticks, a shaded
+   "below the minimum" region and a draggable handle, and matches under the
+   minimum are dimmed (paging skips them). */
+:root[data-design="velvet-paper"] .idx-sheet-tuning {
+  padding: 30px 30px 16px;
+}
+:root[data-design="velvet-paper"] .idx-sheet-tuning-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .idx-sheet-tuning-floor {
+  font-family: var(--vp-mono);
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+}
+:root[data-design="velvet-paper"] .idx-sheet-scale.empty {
+  height: 36px;
+}
+:root[data-design="velvet-paper"] .idx-sheet-ticks {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 20px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(240, 222, 250, 0.16) 0 1px,
+    transparent 1px calc(100% / 50)
+  );
+  -webkit-mask: linear-gradient(transparent 0 6px, #000 6px 14px, transparent 14px);
+  mask: linear-gradient(transparent 0 6px, #000 6px 14px, transparent 14px);
+  pointer-events: none;
+}
+/* Everything left of the handle: what the minimum hides from paging. */
+:root[data-design="velvet-paper"] .idx-sheet-floor-shade {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 28px;
+  border-radius: 10px 0 0 10px;
+  background: transparent;
+  pointer-events: none;
+  transition: width 0.08s linear;
+}
+:root[data-design="velvet-paper"] .idx-sheet-floor-shade.on {
+  background: linear-gradient(90deg, rgba(10, 8, 14, 0.55), rgba(10, 8, 14, 0.35));
+  box-shadow: inset -1px 0 0 rgba(243, 182, 211, 0.35);
+}
+/* The handle: a pearl knob on a short stem, astride the track. */
+:root[data-design="velvet-paper"] .idx-sheet-floor {
+  position: absolute;
+  top: -2px;
+  z-index: 2;
+  width: 18px;
+  height: 32px;
+  margin-left: -9px;
+  border-radius: 9px;
+  cursor: ew-resize;
+  touch-action: none;
+  background:
+    linear-gradient(#f6ede4, #f6ede4) center 4px / 2px 24px no-repeat,
+    radial-gradient(circle at 50% 8px, #f6ede4 0 5px, transparent 5.5px);
+  opacity: 0.55;
+}
+:root[data-design="velvet-paper"] .idx-sheet-floor.on,
+:root[data-design="velvet-paper"] .idx-sheet-floor:hover,
+:root[data-design="velvet-paper"] .idx-sheet-floor:focus-visible {
+  opacity: 1;
+}
+:root[data-design="velvet-paper"] .idx-sheet-floor:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.7);
+  outline-offset: 2px;
+}
+/* Under the minimum: still there to click, but quiet and skipped by paging. */
+:root[data-design="velvet-paper"] .idx-sheet-dot.dim {
+  opacity: 0.35;
+}
+:root[data-design="velvet-paper"] .idx-sheet-station.dim:not(.on) {
+  opacity: 0.45;
+}
+:root[data-design="velvet-paper"] .idx-sheet-tuning-hint {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--flux-text-mute);
+}

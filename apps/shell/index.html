@@ -17,18 +17,27 @@
       try {
         var t = localStorage.getItem("flux.theme");
         if (t && t !== "velvet") document.documentElement.setAttribute("data-theme", t);
-        // The design's stylesheet too (design.ts), so its layout is the first frame.
+        // The design too (design.ts), so its layout is the first frame.
         // Velvet Paper unless Classic was picked (DEFAULT_DESIGN in design.ts).
+        // Its stylesheet is linked from <body> below, not here.
         var d = localStorage.getItem("flux.design") || "velvet-paper";
-        if (d === "velvet-paper") {
-          document.documentElement.setAttribute("data-design", d);
-          document.write('<link id="flux-design-css" rel="stylesheet" href="/designs/' + d + '.css" />');
-        }
+        if (d === "velvet-paper") document.documentElement.setAttribute("data-design", d);
         if (localStorage.getItem("flux.window.acrylic") === "1") document.documentElement.classList.add("window-acrylic");
       } catch (e) {}
     </script>
   </head>
   <body>
+    <!-- The design's stylesheet (design.ts). In <body> on purpose: the build
+         injects the theme's stylesheet at the end of <head>, and the design has
+         to come after it to win the rules they share. A stylesheet here still
+         holds the paint of everything below it, so the first frame has it. -->
+    <script>
+      try {
+        var dd = document.documentElement.getAttribute("data-design");
+        if (dd)
+          document.write('<link id="flux-design-css" rel="stylesheet" href="/designs/' + dd + '.css" />');
+      } catch (e) {}
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/index.tsx"></script>
   </body>

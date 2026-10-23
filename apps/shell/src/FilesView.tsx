@@ -874,6 +874,11 @@ const FilesView: Component<{
   /** "25 files · 412 MB" — the size once the metadata pass has filled it in. */
   const folderMeta = () => {
     const fs = folderFiles();
+    // A folder of folders said "0 files", which read as empty.
+    if (fs.length === 0) {
+      const d = counts().dirs;
+      return d > 0 ? `${d} ${d === 1 ? "folder" : "folders"}` : "Empty";
+    }
     const known = fs.filter((e) => e.size != null);
     const total = known.reduce((a, e) => a + (e.size ?? 0), 0);
     const files = `${fs.length} ${fs.length === 1 ? "file" : "files"}`;
@@ -1199,237 +1204,242 @@ const FilesView: Component<{
               </div>
             </Show>
           </Show>
-          <div class="files-head">
-            <button
-              classList={{ "files-col": true, name: true, sorted: sort().key === "name" }}
-              onClick={() => toggleSort("name")}
-            >
-              Name {sortCaret(sort(), "name")}
-            </button>
-            <button
-              classList={{ "files-col": true, size: true, sorted: sort().key === "size" }}
-              onClick={() => toggleSort("size")}
-            >
-              Size {sortCaret(sort(), "size")}
-            </button>
-            <button
-              classList={{ "files-col": true, modified: true, sorted: sort().key === "modified" }}
-              onClick={() => toggleSort("modified")}
-            >
-              Modified {sortCaret(sort(), "modified")}
-            </button>
-          </div>
+          {/* Velvet Paper scrolls the columns sideways when the card is too narrow
+              for them (head and rows together). In Classic this box is
+              `display: contents`, i.e. not there. */}
+          <div class="files-hscroll" style={vp() ? undefined : { display: "contents" }}>
+            <div class="files-head">
+              <button
+                classList={{ "files-col": true, name: true, sorted: sort().key === "name" }}
+                onClick={() => toggleSort("name")}
+              >
+                Name {sortCaret(sort(), "name")}
+              </button>
+              <button
+                classList={{ "files-col": true, size: true, sorted: sort().key === "size" }}
+                onClick={() => toggleSort("size")}
+              >
+                Size {sortCaret(sort(), "size")}
+              </button>
+              <button
+                classList={{ "files-col": true, modified: true, sorted: sort().key === "modified" }}
+                onClick={() => toggleSort("modified")}
+              >
+                Modified {sortCaret(sort(), "modified")}
+              </button>
+            </div>
 
-          {/* Inline create row */}
-          <Show when={creating()}>
-            {(c) => (
-              <div class="files-create">
-                <span
-                  class="file-icon"
-                  style={{ color: c().kind === "dir" ? "var(--flux-violet)" : "var(--flux-teal)" }}
-                >
-                  {c().kind === "dir" ? <FolderIcon /> : <FileIcon />}
-                </span>
-                <input
-                  class="files-rename-input"
-                  autofocus
-                  placeholder={c().kind === "dir" ? "New folder name" : "New file name"}
-                  value={c().value}
-                  onInput={(e) => setCreating({ kind: c().kind, value: e.currentTarget.value })}
-                  onBlur={() => void commitCreate()}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === "Enter") void commitCreate();
-                    else if (e.key === "Escape") setCreating(null);
-                  }}
-                />
-              </div>
-            )}
-          </Show>
-
-          <div
-            class="files-list"
-            ref={scroller}
-            onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
-            onMouseDown={onListMouseDown}
-            onClick={(e) => {
-              if (
-                e.target === e.currentTarget ||
-                (e.target as HTMLElement).classList.contains("files-spacer")
-              )
-                clearSel();
-            }}
-            onContextMenu={(e) => {
-              if (e.target === scroller || (e.target as HTMLElement).classList.contains("files-spacer"))
-                openMenu(e, null);
-            }}
-            onDragOver={(e) => {
-              if (dragPaths.length) {
-                e.preventDefault();
-                setDropTarget(cwd());
-              }
-            }}
-            onDrop={(e) => {
-              if (dragPaths.length) {
-                e.preventDefault();
-                setDropTarget(null);
-                void doMove(dragPaths, cwd());
-              }
-            }}
-          >
-            <Show when={searchMode()}>
-              <Show when={!searching()} fallback={<div class="files-empty">Searching…</div>}>
-                <Show
-                  when={searchHits().length > 0}
-                  fallback={<div class="files-empty">No matches under this folder.</div>}
-                >
-                  <For each={searchHits()}>
-                    {(hit) => (
-                      <div class="files-hit" title={hit.path} onClick={() => openHit(hit)}>
-                        <span
-                          class="file-icon"
-                          style={{ color: hit.is_dir ? "var(--flux-violet)" : "var(--flux-teal)" }}
-                        >
-                          {hit.is_dir ? <FolderIcon /> : <FileIcon />}
-                        </span>
-                        <span class="files-hit-name">{hit.name}</span>
-                        <span class="files-hit-path">{relDir(hit.path)}</span>
-                      </div>
-                    )}
-                  </For>
-                </Show>
-              </Show>
+            {/* Inline create row */}
+            <Show when={creating()}>
+              {(c) => (
+                <div class="files-create">
+                  <span
+                    class="file-icon"
+                    style={{ color: c().kind === "dir" ? "var(--flux-violet)" : "var(--flux-teal)" }}
+                  >
+                    {c().kind === "dir" ? <FolderIcon /> : <FileIcon />}
+                  </span>
+                  <input
+                    class="files-rename-input"
+                    autofocus
+                    placeholder={c().kind === "dir" ? "New folder name" : "New file name"}
+                    value={c().value}
+                    onInput={(e) => setCreating({ kind: c().kind, value: e.currentTarget.value })}
+                    onBlur={() => void commitCreate()}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Enter") void commitCreate();
+                      else if (e.key === "Escape") setCreating(null);
+                    }}
+                  />
+                </div>
+              )}
             </Show>
-            <Show
-              when={!searchMode() && !loading()}
-              fallback={
-                <Show when={!searchMode()}>
-                  <div class="files-empty">Loading…</div>
-                </Show>
-              }
+
+            <div
+              class="files-list"
+              ref={scroller}
+              onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+              onMouseDown={onListMouseDown}
+              onClick={(e) => {
+                if (
+                  e.target === e.currentTarget ||
+                  (e.target as HTMLElement).classList.contains("files-spacer")
+                )
+                  clearSel();
+              }}
+              onContextMenu={(e) => {
+                if (e.target === scroller || (e.target as HTMLElement).classList.contains("files-spacer"))
+                  openMenu(e, null);
+              }}
+              onDragOver={(e) => {
+                if (dragPaths.length) {
+                  e.preventDefault();
+                  setDropTarget(cwd());
+                }
+              }}
+              onDrop={(e) => {
+                if (dragPaths.length) {
+                  e.preventDefault();
+                  setDropTarget(null);
+                  void doMove(dragPaths, cwd());
+                }
+              }}
             >
-              <Show when={!error()} fallback={<div class="files-empty files-err">{error()}</div>}>
-                <Show
-                  when={view().length > 0}
-                  fallback={<div class="files-empty">This folder is empty.</div>}
-                >
-                  <div class="files-spacer" style={{ height: `${view().length * ROW_H}px` }}>
-                    <For each={slice()}>
-                      {(entry, i) => {
-                        const idx = () => start() + i();
-                        return (
-                          <div
-                            classList={{
-                              "files-row": true,
-                              selected: selected().has(entry.name),
-                              cut: isCut(entry.name),
-                              drop: entry.is_dir && dropTarget() === joinPath(cwd(), entry.name),
-                            }}
-                            style={{ top: `${idx() * ROW_H}px` }}
-                            draggable={!renaming()}
-                            onClick={(e) => onRowClick(idx(), e)}
-                            onDblClick={() => openEntry(entry)}
-                            onContextMenu={(e) => {
-                              if (!selected().has(entry.name)) selectOnly(idx());
-                              openMenu(e, entry);
-                            }}
-                            onDragStart={(e) => {
-                              if (!selected().has(entry.name)) selectOnly(idx());
-                              dragPaths = selectedPaths();
-                              if (e.dataTransfer) {
-                                e.dataTransfer.effectAllowed = "move";
-                                e.dataTransfer.setData("text/plain", dragPaths.join("\n"));
-                              }
-                            }}
-                            onDragEnd={() => {
-                              dragPaths = [];
-                              setDropTarget(null);
-                            }}
-                            onDragOver={(e) => {
-                              if (entry.is_dir && dragPaths.length) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setDropTarget(joinPath(cwd(), entry.name));
-                              }
-                            }}
-                            onDrop={(e) => {
-                              if (entry.is_dir && dragPaths.length) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                const dest = joinPath(cwd(), entry.name);
-                                setDropTarget(null);
-                                void doMove(dragPaths, dest);
-                              }
-                            }}
-                            title={entry.name}
+              <Show when={searchMode()}>
+                <Show when={!searching()} fallback={<div class="files-empty">Searching…</div>}>
+                  <Show
+                    when={searchHits().length > 0}
+                    fallback={<div class="files-empty">No matches under this folder.</div>}
+                  >
+                    <For each={searchHits()}>
+                      {(hit) => (
+                        <div class="files-hit" title={hit.path} onClick={() => openHit(hit)}>
+                          <span
+                            class="file-icon"
+                            style={{ color: hit.is_dir ? "var(--flux-violet)" : "var(--flux-teal)" }}
                           >
-                            <span class="files-cell name">
-                              <Show
-                                when={vp() && !entry.is_dir}
-                                fallback={
-                                  <span
-                                    class="file-icon"
-                                    style={{
-                                      color: entry.is_dir ? "var(--flux-violet)" : iconColor(entry.name),
-                                    }}
-                                  >
-                                    {entry.is_dir ? <FolderIcon /> : <FileIcon />}
-                                  </span>
-                                }
-                              >
-                                <span class="files-type">{extOf(entry.name).slice(0, 4) || "file"}</span>
-                              </Show>
-                              <Show
-                                when={renaming() === entry.name}
-                                fallback={<span class="files-name">{entry.name}</span>}
-                              >
-                                <input
-                                  class="files-rename-input"
-                                  autofocus
-                                  value={entry.name}
-                                  ref={(el) =>
-                                    queueMicrotask(() => {
-                                      el.focus();
-                                      el.select();
-                                    })
-                                  }
-                                  onClick={(e) => e.stopPropagation()}
-                                  onBlur={(e) => void commitRename(entry.name, e.currentTarget.value)}
-                                  onKeyDown={(e) => {
-                                    e.stopPropagation();
-                                    if (e.key === "Enter")
-                                      void commitRename(entry.name, e.currentTarget.value);
-                                    else if (e.key === "Escape") setRenaming(null);
-                                  }}
-                                />
-                              </Show>
-                              <Show when={entry.symlink}>
-                                <span class="files-link">↗</span>
-                              </Show>
-                            </span>
-                            <span class="files-cell size">{fmtSize(entry.size, entry.is_dir)}</span>
-                            <span class="files-cell modified">{fmtDate(entry.modified)}</span>
-                          </div>
-                        );
-                      }}
-                    </For>
-                    <Show when={marquee()}>
-                      {(m) => (
-                        <div
-                          class="files-marquee"
-                          style={{
-                            left: `${Math.min(m().x1, m().x2)}px`,
-                            top: `${Math.min(m().y1, m().y2)}px`,
-                            width: `${Math.abs(m().x2 - m().x1)}px`,
-                            height: `${Math.abs(m().y2 - m().y1)}px`,
-                          }}
-                        />
+                            {hit.is_dir ? <FolderIcon /> : <FileIcon />}
+                          </span>
+                          <span class="files-hit-name">{hit.name}</span>
+                          <span class="files-hit-path">{relDir(hit.path)}</span>
+                        </div>
                       )}
-                    </Show>
-                  </div>
+                    </For>
+                  </Show>
                 </Show>
               </Show>
-            </Show>
+              <Show
+                when={!searchMode() && !loading()}
+                fallback={
+                  <Show when={!searchMode()}>
+                    <div class="files-empty">Loading…</div>
+                  </Show>
+                }
+              >
+                <Show when={!error()} fallback={<div class="files-empty files-err">{error()}</div>}>
+                  <Show
+                    when={view().length > 0}
+                    fallback={<div class="files-empty">This folder is empty.</div>}
+                  >
+                    <div class="files-spacer" style={{ height: `${view().length * ROW_H}px` }}>
+                      <For each={slice()}>
+                        {(entry, i) => {
+                          const idx = () => start() + i();
+                          return (
+                            <div
+                              classList={{
+                                "files-row": true,
+                                selected: selected().has(entry.name),
+                                cut: isCut(entry.name),
+                                drop: entry.is_dir && dropTarget() === joinPath(cwd(), entry.name),
+                              }}
+                              style={{ top: `${idx() * ROW_H}px` }}
+                              draggable={!renaming()}
+                              onClick={(e) => onRowClick(idx(), e)}
+                              onDblClick={() => openEntry(entry)}
+                              onContextMenu={(e) => {
+                                if (!selected().has(entry.name)) selectOnly(idx());
+                                openMenu(e, entry);
+                              }}
+                              onDragStart={(e) => {
+                                if (!selected().has(entry.name)) selectOnly(idx());
+                                dragPaths = selectedPaths();
+                                if (e.dataTransfer) {
+                                  e.dataTransfer.effectAllowed = "move";
+                                  e.dataTransfer.setData("text/plain", dragPaths.join("\n"));
+                                }
+                              }}
+                              onDragEnd={() => {
+                                dragPaths = [];
+                                setDropTarget(null);
+                              }}
+                              onDragOver={(e) => {
+                                if (entry.is_dir && dragPaths.length) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setDropTarget(joinPath(cwd(), entry.name));
+                                }
+                              }}
+                              onDrop={(e) => {
+                                if (entry.is_dir && dragPaths.length) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const dest = joinPath(cwd(), entry.name);
+                                  setDropTarget(null);
+                                  void doMove(dragPaths, dest);
+                                }
+                              }}
+                              title={entry.name}
+                            >
+                              <span class="files-cell name">
+                                <Show
+                                  when={vp() && !entry.is_dir}
+                                  fallback={
+                                    <span
+                                      class="file-icon"
+                                      style={{
+                                        color: entry.is_dir ? "var(--flux-violet)" : iconColor(entry.name),
+                                      }}
+                                    >
+                                      {entry.is_dir ? <FolderIcon /> : <FileIcon />}
+                                    </span>
+                                  }
+                                >
+                                  <span class="files-type">{extOf(entry.name).slice(0, 4) || "file"}</span>
+                                </Show>
+                                <Show
+                                  when={renaming() === entry.name}
+                                  fallback={<span class="files-name">{entry.name}</span>}
+                                >
+                                  <input
+                                    class="files-rename-input"
+                                    autofocus
+                                    value={entry.name}
+                                    ref={(el) =>
+                                      queueMicrotask(() => {
+                                        el.focus();
+                                        el.select();
+                                      })
+                                    }
+                                    onClick={(e) => e.stopPropagation()}
+                                    onBlur={(e) => void commitRename(entry.name, e.currentTarget.value)}
+                                    onKeyDown={(e) => {
+                                      e.stopPropagation();
+                                      if (e.key === "Enter")
+                                        void commitRename(entry.name, e.currentTarget.value);
+                                      else if (e.key === "Escape") setRenaming(null);
+                                    }}
+                                  />
+                                </Show>
+                                <Show when={entry.symlink}>
+                                  <span class="files-link">↗</span>
+                                </Show>
+                              </span>
+                              <span class="files-cell size">{fmtSize(entry.size, entry.is_dir)}</span>
+                              <span class="files-cell modified">{fmtDate(entry.modified)}</span>
+                            </div>
+                          );
+                        }}
+                      </For>
+                      <Show when={marquee()}>
+                        {(m) => (
+                          <div
+                            class="files-marquee"
+                            style={{
+                              left: `${Math.min(m().x1, m().x2)}px`,
+                              top: `${Math.min(m().y1, m().y2)}px`,
+                              width: `${Math.abs(m().x2 - m().x1)}px`,
+                              height: `${Math.abs(m().y2 - m().y1)}px`,
+                            }}
+                          />
+                        )}
+                      </Show>
+                    </div>
+                  </Show>
+                </Show>
+              </Show>
+            </div>
           </div>
         </main>
 

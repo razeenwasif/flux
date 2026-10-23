@@ -286,6 +286,66 @@ const IndexerBubble: Component = () => {
     const i = order()[page()];
     return i == null ? undefined : results()?.matches[i];
   });
+  // ── tuning (Velvet Paper) ──────────────────────────────────────────────────
+  // A minimum match the reader drags on the sheet's Tuning scale: weaker matches
+  // stay visible there, dimmed, but paging skips them. The backend has no floor
+  // of its own — indexer.rs always returns its top k and only uses SURE (.55) to
+  // decide when to ask System 1 — so this is a reading filter, applied here, and
+  // it never changes what is searched or what System 1 is shown. The scale's
+  // left end (.50) means "no minimum". Classic has no scale, so it never filters.
+  const FLOOR_KEY = "flux.indexer.floor";
+  const FLOOR_OFF = 0.5;
+  const [floor, setFloorRaw] = createSignal<number>(
+    (() => {
+      try {
+        const v = Number(localStorage.getItem(FLOOR_KEY));
+        return Number.isFinite(v) && v >= FLOOR_OFF && v <= 0.95 ? v : FLOOR_OFF;
+      } catch {
+        return FLOOR_OFF;
+      }
+    })(),
+  );
+  const setFloor = (v: number) => {
+    const f = Math.round(Math.max(FLOOR_OFF, Math.min(0.95, v)) * 100) / 100;
+    setFloorRaw(f);
+    try {
+      localStorage.setItem(FLOOR_KEY, String(f));
+    } catch {
+      /* private mode — it just won't stick */
+    }
+  };
+  const floorOn = () => design() === "velvet-paper" && floor() > FLOOR_OFF;
+  /** Display positions (indices into `order`) whose match clears the floor. */
+  const shown = createMemo(() => {
+    const r = results();
+    const ord = order();
+    if (!r) return [];
+    const all = ord.map((_, pos) => pos);
+    if (!floorOn()) return all;
+    return all.filter((pos) => (r.matches[ord[pos]!]?.confidence ?? 0) >= floor());
+  });
+  /** Page by one, skipping matches under the floor (all of them pass when it's off). */
+  const stepPage = (dir: 1 | -1) => {
+    const list = shown();
+    if (!list.length) return;
+    const i = list.indexOf(page());
+    if (i >= 0) {
+      setPage(list[(i + dir + list.length) % list.length]!);
+      return;
+    }
+    // On a match under the floor (picked from the scale): the next one above it.
+    const ahead = dir > 0 ? list.find((x) => x > page()) : [...list].reverse().find((x) => x < page());
+    setPage(ahead ?? (dir > 0 ? list[0]! : list[list.length - 1]!));
+  };
+  // Raising the floor past the card on screen moves to the best card left.
+  createEffect(
+    on([floor, results], () => {
+      if (!floorOn() || !results()) return;
+      const list = shown();
+      if (list.length && !list.includes(page())) setPage(list[0]!);
+    }),
+  );
+
   /** Laya chose the card on screen, decisively. */
   const pickedHere = () => {
     const p = pick();
@@ -499,8 +559,8 @@ const IndexerBubble: Component = () => {
     }
     const typing = document.activeElement === input;
     const n = order().length;
-    if (!typing && n > 1 && e.key === "ArrowRight") setPage((p) => (p + 1) % n);
-    if (!typing && n > 1 && e.key === "ArrowLeft") setPage((p) => (p - 1 + n) % n);
+    if (!typing && n > 1 && e.key === "ArrowRight") stepPage(1);
+    if (!typing && n > 1 && e.key === "ArrowLeft") stepPage(-1);
   };
   onMount(() => {
     window.addEventListener("keydown", onKey);
@@ -582,6 +642,11 @@ const IndexerBubble: Component = () => {
             order={order}
             page={page}
             setPage={setPage}
+            stepPage={stepPage}
+            floor={floor}
+            setFloor={setFloor}
+            floorOn={floorOn}
+            shown={shown}
             current={current}
             pickedHere={pickedHere}
             verdict={verdict}

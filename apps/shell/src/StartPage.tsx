@@ -1184,6 +1184,56 @@ const StartPage: Component<{
     </>
   );
 
+  /** The editable speed dial. Velvet Paper seats it in the hero row beside
+   *  Focus; Classic keeps it in the card grid. */
+  const shortcutsCard = () => (
+    <div
+      class="glass start-card"
+      data-legend="Shortcuts"
+      data-row={vp() ? "lead" : undefined}
+      style={{ display: widgetOn("shortcuts") ? undefined : "none", order: orderOf("shortcuts") }}
+    >
+      <div class="start-card-title">
+        Shortcuts
+        <button
+          class="start-card-link"
+          title="Expand shortcuts"
+          onClick={() => setExpandedWidget("shortcuts")}
+        >
+          ⤢ Expand
+        </button>
+      </div>
+      <div class="start-card-body">
+        <div class="start-dial">
+          <For each={shortcuts().slice(0, 5)}>
+            {(s, i) => (
+              <div class="start-tile-wrap">
+                <button
+                  class="start-tile"
+                  style={{ "--tint": s.tint }}
+                  onClick={() => props.onNavigate(s.url)}
+                  title={s.url}
+                >
+                  {s.label}
+                </button>
+                <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>
+                  ×
+                </button>
+              </div>
+            )}
+          </For>
+          <button
+            class="start-tile start-tile-add"
+            title="Add shortcut"
+            onClick={() => setExpandedWidget("shortcuts")}
+          >
+            +
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div class="start" style={bgStyle()}>
       <button class="start-customize" title="Customize home" onClick={() => setCustomizing((v) => !v)}>
@@ -1326,6 +1376,7 @@ const StartPage: Component<{
             <Suspense>
               <VpFocusCard />
             </Suspense>
+            {shortcutsCard()}
           </div>
           {searchBox()}
         </header>
@@ -1378,52 +1429,8 @@ const StartPage: Component<{
             </Show>
           </div>
 
-          {/* Editable speed dial */}
-          <div
-            class="glass start-card"
-            data-legend="Shortcuts"
-            data-row={vp() ? "lead" : undefined}
-            style={{ display: widgetOn("shortcuts") ? undefined : "none", order: orderOf("shortcuts") }}
-          >
-            <div class="start-card-title">
-              Shortcuts
-              <button
-                class="start-card-link"
-                title="Expand shortcuts"
-                onClick={() => setExpandedWidget("shortcuts")}
-              >
-                ⤢ Expand
-              </button>
-            </div>
-            <div class="start-card-body">
-              <div class="start-dial">
-                <For each={shortcuts().slice(0, 5)}>
-                  {(s, i) => (
-                    <div class="start-tile-wrap">
-                      <button
-                        class="start-tile"
-                        style={{ "--tint": s.tint }}
-                        onClick={() => props.onNavigate(s.url)}
-                        title={s.url}
-                      >
-                        {s.label}
-                      </button>
-                      <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>
-                        ×
-                      </button>
-                    </div>
-                  )}
-                </For>
-                <button
-                  class="start-tile start-tile-add"
-                  title="Add shortcut"
-                  onClick={() => setExpandedWidget("shortcuts")}
-                >
-                  +
-                </button>
-              </div>
-            </div>
-          </div>
+          {/* Editable speed dial (in the hero row under Velvet Paper) */}
+          <Show when={!vp()}>{shortcutsCard()}</Show>
 
           {/* Top sites */}
           <Show when={widgetOn("topsites") && topSites().length > 0}>

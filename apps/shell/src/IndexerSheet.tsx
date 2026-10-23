@@ -1,9 +1,9 @@
 /**
  * The Indexer's panel in the Velvet Paper design (design.ts): a paper sheet over
  * the page card instead of Classic's box beside the orb, laid out like the
- * design board — a header with the scope and Reindex, the big question field, a
- * "tuning" scale with every match placed by its score, the answer card, and the
- * sources and model the answers came from.
+ * design board — a header with the scope and Reindex, the big question field, the
+ * Tuning card (every match placed by its score, and a draggable minimum match),
+ * the answer card, and the sources and model the answers came from.
  *
  * It owns no state. IndexerBubble does the asking, listening, paging and
  * opening, and hands all of it in, so the two layouts can never disagree about
@@ -33,6 +33,14 @@ export type IndexerSheetProps = {
   order: () => number[];
   page: () => number;
   setPage: (p: number) => void;
+  /** Page by one, skipping matches under the minimum. */
+  stepPage: (dir: 1 | -1) => void;
+  /** The minimum match (.50 = none); `floorOn` when it's above that. */
+  floor: () => number;
+  setFloor: (v: number) => void;
+  floorOn: () => boolean;
+  /** Display positions whose match clears the minimum, in display order. */
+  shown: () => number[];
   current: () => IndexerMatch | undefined;
   /** System 1 chose the card on screen, decisively. */
   pickedHere: () => boolean;
@@ -75,6 +83,64 @@ const IndexerSheet: Component<IndexerSheetProps> = (p) => {
       .sort((a, b) => a.m.confidence - b.m.confidence)
       .map((s, i) => ({ ...s, x: at(s.m.confidence), row: i % 2 }));
   });
+  const below = (c: number) => p.floorOn() && c < p.floor();
+
+  // ── the minimum-match handle ──────────────────────────────────────────────
+  let scaleEl: HTMLDivElement | undefined;
+  /** Pointer x on the scale → a score on the .50–1.0 axis. */
+  const scoreAt = (clientX: number) => {
+    const r = scaleEl?.getBoundingClientRect();
+    if (!r || r.width <= 0) return p.floor();
+    return 0.5 + 0.5 * Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+  };
+  const drag = (e: PointerEvent) => {
+    e.preventDefault();
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    el.focus();
+    p.setFloor(scoreAt(e.clientX));
+    const move = (ev: PointerEvent) => p.setFloor(scoreAt(ev.clientX));
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  };
+  const floorKey = (e: KeyboardEvent) => {
+    const step = e.shiftKey ? 0.05 : 0.01;
+    const to =
+      e.key === "ArrowRight" || e.key === "ArrowUp"
+        ? p.floor() + step
+        : e.key === "ArrowLeft" || e.key === "ArrowDown"
+          ? p.floor() - step
+          : e.key === "Home"
+            ? 0.5
+            : e.key === "End"
+              ? 0.95
+              : null;
+    if (to == null) return;
+    // The sheet pages through matches with ←/→; on the handle they move it.
+    e.preventDefault();
+    e.stopPropagation();
+    p.setFloor(to);
+  };
+  const floorText = () => (p.floorOn() ? `Minimum match ${score(p.floor())}` : "No minimum match");
+  /** "3 of 5 above .70" once there are matches and a minimum. */
+  const countText = () => {
+    const n = p.order().length;
+    if (!n) return "";
+    if (!p.floorOn()) return `${n} match${n === 1 ? "" : "es"}`;
+    return `${p.shown().length} of ${n} above ${score(p.floor())}`;
+  };
+  /** Where the card on screen sits among the matches that clear the minimum. */
+  const pagerText = () => {
+    const list = p.shown();
+    const i = list.indexOf(p.page());
+    return i >= 0 ? `${i + 1} of ${list.length}` : `under ${score(p.floor())}`;
+  };
 
   const cardLegend = () => {
     const m = p.current();
@@ -247,53 +313,86 @@ const IndexerSheet: Component<IndexerSheetProps> = (p) => {
           <div class="idx-sheet-note">{p.note()}</div>
         </Show>
 
-        <Show when={stations().length > 0}>
-          <section class="idx-sheet-tuning" aria-label="Matches placed by score">
-            <div class="idx-sheet-axis" aria-hidden="true">
-              <span>.50</span>
-              <span>.60</span>
-              <span>.70</span>
-              <span>.80</span>
-              <span>.90</span>
-              <span>1.0</span>
-            </div>
-            <div class="idx-sheet-scale">
-              <span class="idx-sheet-track" aria-hidden="true" />
-              <For each={stations()}>
-                {(s) => {
-                  const on = () => s.pos === p.page();
-                  return (
-                    <>
-                      <span
-                        classList={{ "idx-sheet-dot": true, on: on() }}
-                        style={{ left: `${(s.x * 100).toFixed(2)}%` }}
-                        aria-hidden="true"
-                      />
-                      <button
-                        classList={{ "idx-sheet-station": true, on: on(), low: s.row === 1 }}
-                        style={{ left: `${(s.x * 100).toFixed(2)}%` }}
-                        title={s.m.question}
-                        aria-pressed={on()}
-                        onClick={() => p.setPage(s.pos)}
-                      >
-                        {short(s.m.question)} · {score(s.m.confidence)}
-                      </button>
-                    </>
-                  );
-                }}
-              </For>
-              <Show when={stations().find((s) => s.pos === p.page())}>
-                {(s) => (
-                  <span
-                    class="idx-sheet-needle"
-                    style={{ left: `${(s().x * 100).toFixed(2)}%` }}
-                    aria-hidden="true"
-                  />
-                )}
-              </Show>
-            </div>
-          </section>
-        </Show>
+        <section class="idx-sheet-card idx-sheet-tuning" data-legend="Tuning" aria-label="Tuning">
+          <div class="idx-sheet-tuning-head">
+            <span class="idx-sheet-tuning-count">{countText()}</span>
+            <span class="idx-sheet-tuning-floor">{floorText()}</span>
+          </div>
+          <div class="idx-sheet-axis" aria-hidden="true">
+            <span>.50</span>
+            <span>.60</span>
+            <span>.70</span>
+            <span>.80</span>
+            <span>.90</span>
+            <span>1.0</span>
+          </div>
+          <div classList={{ "idx-sheet-scale": true, empty: !stations().length }} ref={scaleEl}>
+            <span class="idx-sheet-track" aria-hidden="true" />
+            <span class="idx-sheet-ticks" aria-hidden="true" />
+            <span
+              classList={{ "idx-sheet-floor-shade": true, on: p.floorOn() }}
+              style={{ width: `${(at(p.floor()) * 100).toFixed(2)}%` }}
+              aria-hidden="true"
+            />
+            <For each={stations()}>
+              {(s) => {
+                const on = () => s.pos === p.page();
+                return (
+                  <>
+                    <span
+                      classList={{ "idx-sheet-dot": true, on: on(), dim: below(s.m.confidence) }}
+                      style={{ left: `${(s.x * 100).toFixed(2)}%` }}
+                      aria-hidden="true"
+                    />
+                    <button
+                      classList={{
+                        "idx-sheet-station": true,
+                        on: on(),
+                        low: s.row === 1,
+                        dim: below(s.m.confidence),
+                      }}
+                      style={{ left: `${(s.x * 100).toFixed(2)}%` }}
+                      title={s.m.question}
+                      aria-pressed={on()}
+                      onClick={() => p.setPage(s.pos)}
+                    >
+                      {short(s.m.question)} · {score(s.m.confidence)}
+                    </button>
+                  </>
+                );
+              }}
+            </For>
+            <Show when={stations().find((s) => s.pos === p.page())}>
+              {(s) => (
+                <span
+                  class="idx-sheet-needle"
+                  style={{ left: `${(s().x * 100).toFixed(2)}%` }}
+                  aria-hidden="true"
+                />
+              )}
+            </Show>
+            <span
+              classList={{ "idx-sheet-floor": true, on: p.floorOn() }}
+              style={{ left: `${(at(p.floor()) * 100).toFixed(2)}%` }}
+              role="slider"
+              tabindex="0"
+              aria-label="Minimum match"
+              aria-valuemin={50}
+              aria-valuemax={95}
+              aria-valuenow={Math.round(p.floor() * 100)}
+              aria-valuetext={floorText()}
+              title="Drag to hide weaker matches (←/→, Shift for bigger steps)"
+              onPointerDown={drag}
+              onKeyDown={floorKey}
+            />
+          </div>
+          <Show when={!stations().length}>
+            <p class="idx-sheet-tuning-hint">
+              Ask something and every match lands here by how closely it fits. Drag the handle to set a
+              minimum: weaker matches are dimmed and skipped when you page.
+            </p>
+          </Show>
+        </section>
 
         <div class="idx-sheet-row">
           <Show
@@ -308,11 +407,17 @@ const IndexerSheet: Component<IndexerSheetProps> = (p) => {
           >
             {(r) => (
               <Show
-                when={p.current()}
+                when={
+                  p.floorOn() && r().matches.length > 0 && p.shown().length === 0 ? undefined : p.current()
+                }
                 fallback={
                   <article class="idx-sheet-card idx-sheet-answer" data-legend="Answer">
                     <p class="idx-sheet-empty">
-                      {r().matches.length ? "" : "Nothing in your notes or books matches that."}
+                      {!r().matches.length
+                        ? "Nothing in your notes or books matches that."
+                        : p.floorOn() && p.shown().length === 0
+                          ? `No match reaches ${score(p.floor())}. Lower the minimum in Tuning to see the closest ones.`
+                          : ""}
                     </p>
                   </article>
                 }
@@ -341,22 +446,20 @@ const IndexerSheet: Component<IndexerSheetProps> = (p) => {
                       <button class="idx-sheet-btn" onClick={() => p.copy(m().answer)}>
                         {p.copied() ? "Copied" : "Copy"}
                       </button>
-                      <Show when={p.order().length > 1}>
+                      <Show when={p.shown().length > 1 || (p.order().length > 1 && !p.floorOn())}>
                         <div class="idx-sheet-pager">
                           <button
                             title="Previous match (←)"
                             aria-label="Previous match"
-                            onClick={() => p.setPage((p.page() - 1 + p.order().length) % p.order().length)}
+                            onClick={() => p.stepPage(-1)}
                           >
                             ‹
                           </button>
-                          <span>
-                            {p.page() + 1} of {p.order().length}
-                          </span>
+                          <span>{pagerText()}</span>
                           <button
                             title="Next match (→)"
                             aria-label="Next match"
-                            onClick={() => p.setPage((p.page() + 1) % p.order().length)}
+                            onClick={() => p.stepPage(1)}
                           >
                             ›
                           </button>

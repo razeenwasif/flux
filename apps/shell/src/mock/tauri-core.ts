@@ -1505,6 +1505,51 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve([] as T);
     case "set_window_acrylic":
       return Promise.resolve(undefined as T);
+    // The Indexer, so its sheet (and the Tuning scale) has something to show.
+    case "indexer_status":
+    case "indexer_reindex":
+      return Promise.resolve({
+        cards: 37532,
+        notes: 966,
+        books: 26,
+        building: false,
+        files_done: 0,
+        files_todo: 0,
+        current: null,
+        embed_model: "embeddinggemma-2:270m",
+        semantic: true,
+        pending: 0,
+        sources: ["/Users/preview/OnyxVault", "/Users/preview/Documents/Books"],
+        notice: null,
+        error: null,
+      } as T);
+    case "indexer_search": {
+      const card = (question: string, confidence: number, book = false) => ({
+        label: question,
+        question,
+        answer: `What your notes say about ${question.toLowerCase()}.`,
+        key_points: [],
+        source: book ? "Books > Deep Learning" : "Onyx > ML",
+        category: "",
+        path: book ? "/Users/preview/Documents/Books/dl.pdf" : "/Users/preview/OnyxVault/ml.md",
+        book,
+        page: book ? 214 : null,
+        confidence,
+        semantic: confidence,
+        keyword: confidence,
+      });
+      return Promise.resolve({
+        matches: [
+          card("Positional encodings", 0.91),
+          card("Sinusoids", 0.84),
+          card("Week 6 · attention", 0.77, true),
+          card("Relative position", 0.69),
+          card("Sequence models before attention", 0.58, true),
+        ],
+        ambiguous: false,
+        semantic: true,
+      } as T);
+    }
     default:
       return Promise.resolve(undefined as T);
   }
