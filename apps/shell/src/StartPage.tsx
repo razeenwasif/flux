@@ -62,6 +62,7 @@ import Calculator from "./Calculator";
 import ClockWidget from "./ClockWidget";
 import Converter from "./Converter";
 import { askConfirm } from "./ask";
+import { design } from "./design";
 
 /** Hostname without `www.`, best-effort. */
 function hostOf(url: string): string {
@@ -1257,6 +1258,7 @@ const StartPage: Component<{
           {/* Recent tabs */}
           <div
             class="glass start-card"
+            data-legend="Open tabs"
             style={{ display: widgetOn("recent") ? undefined : "none", order: orderOf("recent") }}
           >
             <div class="start-card-title">
@@ -1289,6 +1291,7 @@ const StartPage: Component<{
           {/* Editable speed dial */}
           <div
             class="glass start-card"
+            data-legend="Shortcuts"
             style={{ display: widgetOn("shortcuts") ? undefined : "none", order: orderOf("shortcuts") }}
           >
             <div class="start-card-title">
@@ -1333,7 +1336,7 @@ const StartPage: Component<{
 
           {/* Top sites */}
           <Show when={widgetOn("topsites") && topSites().length > 0}>
-            <div class="glass start-card" style={{ order: orderOf("topsites") }}>
+            <div class="glass start-card" data-legend="Top sites" style={{ order: orderOf("topsites") }}>
               <div class="start-card-title">
                 Top sites
                 <button
@@ -1366,6 +1369,7 @@ const StartPage: Component<{
           {/* Feed headlines (#72) */}
           <div
             class="glass start-card"
+            data-legend="Headlines"
             style={{ display: widgetOn("headlines") ? undefined : "none", order: orderOf("headlines") }}
           >
             <div class="start-card-title">
@@ -1411,6 +1415,7 @@ const StartPage: Component<{
           {/* Daily briefing (#71) — local agent summary of the headlines */}
           <div
             class="glass start-card"
+            data-legend="Daily briefing"
             style={{ display: widgetOn("briefing") ? undefined : "none", order: orderOf("briefing") }}
           >
             <div class="start-card-title">
@@ -1458,6 +1463,7 @@ const StartPage: Component<{
           {/* Scratchpad */}
           <div
             class="glass start-card"
+            data-legend="Scratchpad"
             style={{ display: widgetOn("scratchpad") ? undefined : "none", order: orderOf("scratchpad") }}
           >
             <div class="start-card-title">
@@ -1483,6 +1489,7 @@ const StartPage: Component<{
           {/* Calendar (Google via ICS, #114) + world clocks */}
           <div
             class="glass start-card"
+            data-legend={monthLabel()}
             style={{ display: widgetOn("calendar") ? undefined : "none", order: orderOf("calendar") }}
           >
             <div class="start-card-title">
@@ -1591,6 +1598,7 @@ const StartPage: Component<{
           {/* Tasks (#114) — local, on-device */}
           <div
             class="glass start-card"
+            data-legend="Tasks"
             style={{ display: widgetOn("tasks") ? undefined : "none", order: orderOf("tasks") }}
           >
             <div class="start-card-title">
@@ -1655,6 +1663,7 @@ const StartPage: Component<{
             running timer / your alarms persist after you leave the start page. */}
           <div
             class="glass start-card"
+            data-legend="Time"
             style={{ display: widgetOn("clocks") ? undefined : "none", order: orderOf("clocks") }}
           >
             <div class="start-card-title">Time</div>
@@ -1665,6 +1674,7 @@ const StartPage: Component<{
 
           <div
             class="glass start-card"
+            data-legend="Calculator"
             style={{ display: widgetOn("calc") ? undefined : "none", order: orderOf("calc") }}
           >
             <div class="start-card-title">
@@ -1685,6 +1695,7 @@ const StartPage: Component<{
           {/* Unit converter (#130) — length/mass/temp/…; expands with currency. */}
           <div
             class="glass start-card"
+            data-legend="Unit converter"
             style={{ display: widgetOn("convert") ? undefined : "none", order: orderOf("convert") }}
           >
             <div class="start-card-title">
@@ -1729,6 +1740,7 @@ const StartPage: Component<{
           {/* Omni index glance (#97) */}
           <div
             class="glass start-card"
+            data-legend="Omni index"
             style={{ display: widgetOn("omni") ? undefined : "none", order: orderOf("omni") }}
           >
             <div class="start-card-title">
@@ -1773,6 +1785,7 @@ const StartPage: Component<{
           {/* Quick actions */}
           <div
             class="glass start-card"
+            data-legend="Quick actions"
             style={{ display: widgetOn("actions") ? undefined : "none", order: orderOf("actions") }}
           >
             <div class="start-card-title">
@@ -2048,8 +2061,10 @@ const StartPage: Component<{
       {/* Backdrop (#77): the WebGL particle-liquid, or — when it's toggled off,
           unsupported, or the shader fails — the cheap SMIL flowing wave. The
           liquid only animates while this (the active) tab is visible + focused. */}
+      {/* Velvet Paper's backdrop is its paper hills (design.ts), so the shader
+          isn't mounted there at all rather than running behind them. */}
       <Show
-        when={liquidBg() && liquidOk()}
+        when={liquidBg() && liquidOk() && design() === "classic"}
         fallback={
           <svg class="start-wave" viewBox="0 0 1440 220" preserveAspectRatio="none" aria-hidden="true">
             <g>

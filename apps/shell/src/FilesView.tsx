@@ -1009,7 +1009,8 @@ const FilesView: Component<{
 
       <div classList={{ "files-body": true, "preview-on": previewOpen() }}>
         {/* Quick-access rail (also drop targets for move) */}
-        <nav class="files-rail">
+        {/* data-legend: the card titles Velvet Paper (design.ts) sets into each pane's edge. */}
+        <nav class="files-rail" data-legend="Places">
           <div class="files-rail-section">Quick access</div>
           <For each={places().filter((p) => p.kind === "home" || p.kind === "folder")}>
             {(p) => (
@@ -1059,7 +1060,7 @@ const FilesView: Component<{
         </nav>
 
         {/* Listing */}
-        <main class="files-main">
+        <main class="files-main" data-legend={cwd().split(/[\\/]/).filter(Boolean).pop() || cwd()}>
           <div class="files-head">
             <button
               classList={{ "files-col": true, name: true, sorted: sort().key === "name" }}
@@ -1287,7 +1288,7 @@ const FilesView: Component<{
 
         {/* Preview pane (#87) — the single selected file */}
         <Show when={previewOpen()}>
-          <aside class="files-preview">
+          <aside class="files-preview" data-legend="Preview">
             <Show
               when={preview()}
               fallback={<div class="files-preview-empty">Select a file to preview.</div>}

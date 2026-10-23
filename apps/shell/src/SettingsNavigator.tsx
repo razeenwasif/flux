@@ -20,7 +20,10 @@ export const Section: Component<{ title: string; sub?: string; children: JSX.Ele
           <span class="set-section-sub">{props.sub}</span>
         </Show>
       </div>
-      <div class="set-card">{props.children}</div>
+      {/* data-legend: Velvet Paper (design.ts) sets the title into the card's edge. */}
+      <div class="set-card" data-legend={props.title}>
+        {props.children}
+      </div>
     </section>
   );
 };
@@ -106,7 +109,7 @@ const SettingsNavigator: Component<{ children: JSX.Element }> = (props) => {
         </Show>
       </div>
       <div class="set-layout">
-        <nav class="set-nav" aria-label="Settings categories">
+        <nav class="set-nav" aria-label="Settings categories" data-legend="Settings">
           <For each={["All settings", ...sections().map((s) => s.dataset.section!)]}>
             {(title) => (
               <button

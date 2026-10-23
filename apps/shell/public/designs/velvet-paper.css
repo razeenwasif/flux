@@ -164,8 +164,11 @@
 :root[data-design="velvet-paper"] .sidebar.with-apps {
   padding-left: 46px;
 }
+/* Collapsed, it's the thin rail: keep Classic's inner width (the tool grid is
+   laid out for it) by taking the gutter out of the margin and padding instead. */
 :root[data-design="velvet-paper"] .sidebar.collapsed {
-  padding: 24px 8px 12px;
+  margin-left: 8px;
+  padding: 22px 4px 10px;
 }
 /* A collapsed pane is a rail: no room for a title. */
 :root[data-design="velvet-paper"] .sidebar.collapsed::after {
@@ -474,4 +477,1682 @@
 :root[data-design="velvet-paper"] .trailmini-map {
   border-radius: 18px;
   background: var(--vp-paper-2);
+}
+
+/* ── Agent, terminal, dock column, floating panes ─────────────────────────
+   Merge AFTER the chrome rules in public/designs/velvet-paper.css: these
+   override its interim `.agent-inner` and `.terminal-surface` treatment.
+
+   Velvet Paper surfaces are opaque paper, so the frosted ambient layers go:
+   the agent's aurora shader and the terminal's liquid backdrop are hidden (a
+   hidden canvas paints nothing), and the agent's "working" edge current stays
+   but at a fraction of its glow. */
+
+/* The agent column and terminal column drop their own frame padding: the
+   right stack already holds them off the window edge. */
+:root[data-design="velvet-paper"] .agent,
+:root[data-design="velvet-paper"] .terminal-col {
+  padding: 0;
+  max-width: none;
+  margin: 0;
+}
+
+/* ── Titled cards: Agent, Mail, the docked Calendar ───────────────────── */
+:root[data-design="velvet-paper"] .agent-inner,
+:root[data-design="velvet-paper"] .mail-pane,
+:root[data-design="velvet-paper"] .cal-pane.docked {
+  position: relative;
+  isolation: isolate;
+  background: none;
+  border: none;
+  border-radius: var(--vp-r);
+  box-shadow: var(--vp-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-design="velvet-paper"] .agent-inner::before,
+:root[data-design="velvet-paper"] .mail-pane::before,
+:root[data-design="velvet-paper"] .cal-pane.docked::before {
+  content: "";
+  position: absolute;
+  inset: 10px 0 0;
+  z-index: -1;
+  border-radius: var(--vp-r);
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--vp-paper), var(--vp-paper)) padding-box,
+    var(--vp-foil) border-box;
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .agent-inner::after,
+:root[data-design="velvet-paper"] .mail-pane::after,
+:root[data-design="velvet-paper"] .cal-pane.docked::after,
+:root[data-design="velvet-paper"] .terminal-col::after {
+  position: absolute;
+  top: 1px;
+  left: 22px;
+  z-index: 5;
+  padding: 0 10px;
+  background: linear-gradient(rgba(0, 0, 0, 0) 9px, var(--vp-paper) 9px);
+  font:
+    600 11px/18px "Figtree",
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--flux-text);
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .agent-inner::after {
+  content: "Agent";
+}
+:root[data-design="velvet-paper"] .mail-pane::after {
+  content: "Mail";
+}
+:root[data-design="velvet-paper"] .cal-pane.docked::after {
+  content: "Calendar";
+}
+:root[data-design="velvet-paper"] .terminal-col::after {
+  content: "Terminal";
+  /* The terminal slab is a shade darker than the cards. */
+  background: linear-gradient(rgba(0, 0, 0, 0) 9px, #120d16 9px);
+}
+
+/* ── Agent ────────────────────────────────────────────────────────────── */
+:root[data-design="velvet-paper"] .agent-inner {
+  padding: 30px 14px 14px;
+  gap: 12px;
+}
+/* The edge carries the name; the header keeps the status dot and controls. */
+:root[data-design="velvet-paper"] .agent-inner > header > strong {
+  display: none;
+}
+:root[data-design="velvet-paper"] .agent-fx {
+  inset: 10px 0 0;
+}
+:root[data-design="velvet-paper"] .agent-fx > canvas {
+  display: none;
+}
+:root[data-design="velvet-paper"] .agent-fx.busy::before {
+  padding: 1.5px;
+  filter: blur(0.6px) drop-shadow(0 0 5px rgba(var(--accent-ai-rgb), 0.14)) opacity(0.55);
+}
+:root[data-design="velvet-paper"] .ai-thinking {
+  box-shadow: 0 0 8px -2px rgba(var(--accent-ai2-rgb), 0.3);
+}
+:root[data-design="velvet-paper"] .agent-model-btn,
+:root[data-design="velvet-paper"] .agent-voice-toggle {
+  border-radius: 999px;
+  border: 1px solid var(--vp-edge);
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .agent-model-menu {
+  background: var(--vp-paper-2);
+  border: 1px solid var(--vp-edge);
+  border-radius: 18px;
+  padding: 6px;
+  box-shadow: var(--vp-shadow);
+}
+:root[data-design="velvet-paper"] .agent-model-item {
+  border-radius: 12px;
+}
+
+/* Messages: the user's question raised and right, the agent's answer a
+   darker well on the left; actions, plans and errors keep their meaning. */
+:root[data-design="velvet-paper"] .agent-feed {
+  gap: 10px;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+:root[data-design="velvet-paper"] .agent-msg {
+  max-width: 90%;
+  padding: 11px 14px;
+  border-radius: 18px;
+}
+:root[data-design="velvet-paper"] .agent-user {
+  background: var(--vp-raise);
+  border: 1px solid var(--vp-edge);
+  border-bottom-right-radius: 6px;
+}
+:root[data-design="velvet-paper"] .agent-assistant {
+  background: var(--vp-paper-2);
+  border: 1px solid rgba(240, 222, 250, 0.06);
+  border-bottom-left-radius: 6px;
+}
+:root[data-design="velvet-paper"] .agent-action {
+  color: rgb(var(--accent-hot-rgb));
+  background: rgba(var(--accent-hot-rgb), 0.06);
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.2);
+}
+/* A plan waiting for approval: a lilac-edged slip, dashed like a draft. */
+:root[data-design="velvet-paper"] .agent-plan {
+  color: var(--flux-text);
+  background: rgba(var(--accent-ai-rgb), 0.06);
+  border: 1px dashed rgba(var(--accent-ai-rgb), 0.32);
+}
+:root[data-design="velvet-paper"] .agent-shell {
+  font-family: var(--vp-mono);
+  background: #120d16;
+  border: 1px solid var(--vp-edge);
+}
+:root[data-design="velvet-paper"] .agent-error {
+  color: #ffb3bd;
+  background: rgba(255, 122, 138, 0.08);
+  border: 1px solid rgba(255, 122, 138, 0.28);
+}
+:root[data-design="velvet-paper"] .agent-note,
+:root[data-design="velvet-paper"] .agent-task-bar {
+  border-radius: 18px;
+  border: 1px solid var(--vp-edge);
+  background: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .agent-diff {
+  border-radius: 14px;
+}
+:root[data-design="velvet-paper"] .agent-approve {
+  gap: 8px;
+  margin-top: 10px;
+}
+:root[data-design="velvet-paper"] .agent-approve-yes,
+:root[data-design="velvet-paper"] .agent-approve-no {
+  height: 36px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-size: 12.5px;
+}
+:root[data-design="velvet-paper"] .agent-approve-yes {
+  color: #1a1020;
+  background: var(--vp-satin);
+  border: none;
+}
+:root[data-design="velvet-paper"] .agent-approve-yes:hover {
+  background: var(--vp-satin);
+  filter: brightness(1.05);
+}
+:root[data-design="velvet-paper"] .agent-approve-no {
+  color: var(--flux-text);
+  background: var(--vp-raise);
+  border: 1px solid var(--vp-edge);
+}
+
+/* Scope switch and quick chips. */
+:root[data-design="velvet-paper"] .agent-scope,
+:root[data-design="velvet-paper"] .agent-chip,
+:root[data-design="velvet-paper"] .agent-ctxchip,
+:root[data-design="velvet-paper"] .agent-cite {
+  border-radius: 999px;
+  border: 1px solid var(--vp-edge);
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .agent-scope.on {
+  color: var(--flux-text);
+  background: var(--vp-wash);
+  border-color: rgba(var(--accent-ai-rgb), 0.3);
+}
+:root[data-design="velvet-paper"] .agent-scope-n {
+  color: #1a1020;
+  background: rgb(var(--accent-ai-rgb));
+}
+
+/* The composer: one dark well holding attach, the field and send. */
+:root[data-design="velvet-paper"] .agent-input-row {
+  gap: 6px;
+  padding: 5px;
+  border: 1.5px solid transparent;
+  border-radius: 22px;
+  background:
+    linear-gradient(#120d16, #120d16) padding-box,
+    var(--vp-foil-line) border-box;
+}
+:root[data-design="velvet-paper"] .agent-input-row input,
+:root[data-design="velvet-paper"] .agent-input-row textarea {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+:root[data-design="velvet-paper"] .agent-attach-btn {
+  border-radius: 14px;
+}
+:root[data-design="velvet-paper"] .agent-attach {
+  border-radius: 16px;
+  border: 1px solid var(--vp-edge);
+  background: var(--vp-raise);
+}
+/* While working, the composer's edge drifts through the satin — softly. */
+:root[data-design="velvet-paper"] .ai-thinking-border {
+  border-radius: 22px;
+  background: linear-gradient(
+    115deg,
+    rgba(243, 182, 211, 0.5),
+    rgba(201, 181, 255, 0.5) 35%,
+    rgba(169, 230, 236, 0.5) 70%,
+    rgba(243, 182, 211, 0.5)
+  );
+  background-size: 300% 300%;
+}
+:root[data-design="velvet-paper"] .ai-thinking-border > * {
+  background: #120d16;
+  border-radius: 20px;
+}
+
+/* ── Terminal ─────────────────────────────────────────────────────────── */
+/* Room above the first slab for the "Terminal" title in its edge. */
+:root[data-design="velvet-paper"] .term-col-panes {
+  padding-top: 10px;
+  gap: 10px;
+}
+:root[data-design="velvet-paper"] .terminal-surface {
+  border-radius: var(--vp-r);
+  border: 1.5px solid var(--vp-edge);
+  background: #120d16;
+  box-shadow: var(--vp-shadow);
+}
+:root[data-design="velvet-paper"] .term-pane.active .terminal-surface {
+  border-color: rgba(var(--accent-ai-rgb), 0.3);
+  box-shadow:
+    var(--vp-shadow),
+    0 0 0 1px rgba(var(--accent-ai-rgb), 0.1);
+}
+/* The liquid backdrop is glass; paper has none. */
+:root[data-design="velvet-paper"] .terminal-surface .start-liquid,
+:root[data-design="velvet-paper"] .tuipane-body .start-liquid {
+  display: none;
+}
+:root[data-design="velvet-paper"] .term-col-bar {
+  top: 20px;
+  right: 12px;
+}
+:root[data-design="velvet-paper"] .term-col-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  color: var(--flux-text-dim);
+  background: var(--vp-raise);
+  border: 1px solid var(--vp-edge);
+}
+:root[data-design="velvet-paper"] .term-seam:hover {
+  background: rgba(var(--accent-ai-rgb), 0.18);
+}
+/* "Exit 101 — explain / fix" and the agent's answer over the terminal. */
+:root[data-design="velvet-paper"] .term-fail,
+:root[data-design="velvet-paper"] .term-ai {
+  font-family: "Figtree", system-ui, sans-serif;
+  background: var(--vp-paper-2);
+  border: 1px solid var(--vp-edge);
+  border-radius: 18px;
+  box-shadow: var(--vp-shadow);
+}
+:root[data-design="velvet-paper"] .term-fail-x {
+  color: #ffb3bd;
+}
+:root[data-design="velvet-paper"] .term-fail-btn {
+  border-radius: 999px;
+  color: var(--flux-text);
+  background: var(--vp-raise);
+  border: 1px solid var(--vp-edge);
+}
+:root[data-design="velvet-paper"] .term-fail-btn:hover {
+  background: var(--vp-wash);
+}
+:root[data-design="velvet-paper"] .term-ai-head {
+  color: rgb(var(--accent-ai-rgb));
+  border-bottom-color: var(--vp-edge);
+}
+:root[data-design="velvet-paper"] .term-ai-body {
+  color: var(--flux-text);
+}
+
+/* ── Dock column: mail and the docked calendar ────────────────────────── */
+:root[data-design="velvet-paper"] .mail-pane {
+  padding: 30px 14px 14px;
+  gap: 10px;
+}
+:root[data-design="velvet-paper"] .mail-title {
+  display: none;
+}
+:root[data-design="velvet-paper"] .mail-count {
+  color: #1a1020;
+  background: var(--vp-satin);
+  border-radius: 999px;
+}
+:root[data-design="velvet-paper"] .mail-btn {
+  border-radius: 999px;
+  border-color: var(--vp-edge);
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .mail-msg {
+  border-radius: 16px;
+  border-color: transparent;
+  background: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .mail-msg:hover {
+  border-color: var(--vp-edge);
+}
+:root[data-design="velvet-paper"] .cal-pane.docked {
+  padding: 30px 12px 12px;
+}
+
+/* ── Floating panes: pinned apps and terminal apps ────────────────────── */
+:root[data-design="velvet-paper"] .apppane {
+  border-radius: 22px;
+  border: 1.5px solid var(--vp-edge);
+  background: var(--vp-paper);
+  box-shadow: var(--vp-shadow);
+}
+:root[data-design="velvet-paper"] .apppane-head {
+  background: var(--vp-paper-2);
+  border-bottom-color: var(--vp-edge);
+}
+:root[data-design="velvet-paper"] .apppane-btn {
+  border-radius: 10px;
+}
+:root[data-design="velvet-paper"] .apppane-btn:hover {
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .tuipane-body {
+  background: #120d16;
+}
+:root[data-design="velvet-paper"] .appdock-btn {
+  border-radius: 16px;
+  border: 1px solid var(--vp-edge);
+  background: var(--vp-paper);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 10px 20px -12px rgba(0, 0, 0, 0.8);
+}
+:root[data-design="velvet-paper"] .appdock-btn:hover {
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .tui-chip:hover {
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .tui-modal {
+  background: var(--vp-paper-2);
+  border: 1px solid var(--vp-edge);
+  border-radius: 22px;
+}
+
+/* ── Start page (new tab) ─────────────────────────────────────────────────
+   The diorama: a Fraunces greeting and clock over a satin-edged search pill,
+   and every widget a titled paper card. Each card names itself through
+   `data-legend` (StartPage.tsx), set into its top edge like the chrome's cards;
+   the card's own title row keeps only its controls (Expand, nav, counts),
+   tucked into the top-right corner. The cards clip their overflow, so they use
+   the same inset-paper technique as the sidebar. */
+:root[data-design="velvet-paper"] .start {
+  gap: 24px;
+}
+:root[data-design="velvet-paper"] .start-wave {
+  display: none; /* the paper hills are this design's horizon */
+}
+:root[data-design="velvet-paper"] .start-hero {
+  gap: 12px;
+}
+:root[data-design="velvet-paper"] .start-brand {
+  font-family: var(--vp-display);
+  font-weight: 400;
+  font-size: 30px;
+  letter-spacing: 0;
+  background: var(--vp-satin);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+:root[data-design="velvet-paper"] .start-greeting {
+  margin-top: -2px;
+  font-family: var(--vp-display);
+  font-style: italic;
+  font-size: 20px;
+  color: var(--flux-text);
+}
+:root[data-design="velvet-paper"] .start-search {
+  padding: 14px 22px;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--vp-paper-2), var(--vp-paper-2)) padding-box,
+    var(--vp-foil-line) border-box;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--vp-shadow);
+}
+:root[data-design="velvet-paper"] .start-search::before {
+  display: none; /* the glass rim; the satin edge replaces it */
+}
+:root[data-design="velvet-paper"] .start-search:focus-within {
+  box-shadow:
+    0 0 0 3px rgba(var(--accent-rgb), 0.12),
+    var(--vp-shadow);
+}
+:root[data-design="velvet-paper"] .start-search input {
+  font-size: 15.5px;
+}
+:root[data-design="velvet-paper"] .start-search-icon {
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .start-engine {
+  background: var(--vp-raise);
+  color: #e8a7c4;
+  border: 1px solid var(--vp-edge);
+}
+:root[data-design="velvet-paper"] .start-hint kbd {
+  border-radius: 6px;
+  background: var(--vp-raise);
+}
+/* The clock is the hero's headline. */
+:root[data-design="velvet-paper"] .start-date-strip {
+  align-items: baseline;
+  column-gap: 16px;
+}
+:root[data-design="velvet-paper"] .start-date-time {
+  font-family: var(--vp-display);
+  font-weight: 300;
+  font-size: 46px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+:root[data-design="velvet-paper"] .start-date-label {
+  font-size: 13px;
+  color: var(--flux-text-dim);
+}
+
+/* Titled paper cards. One more row of height for the 10px legend inset. */
+:root[data-design="velvet-paper"] .start-cards {
+  gap: 26px 20px;
+  grid-auto-rows: 232px;
+}
+:root[data-design="velvet-paper"] .start-card,
+:root[data-design="velvet-paper"] .start-card:hover {
+  position: relative;
+  isolation: isolate;
+  padding: 30px 16px 16px;
+  border: none;
+  border-radius: var(--vp-r);
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--vp-shadow);
+}
+:root[data-design="velvet-paper"] .start-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 26px 34px -14px rgba(0, 0, 0, 0.75),
+    0 44px 64px -34px rgba(0, 0, 0, 0.9);
+}
+:root[data-design="velvet-paper"] .start-card::before {
+  content: "";
+  position: absolute;
+  inset: 10px 0 0;
+  z-index: -1;
+  padding: 0;
+  border-radius: var(--vp-r);
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--vp-paper), var(--vp-paper)) padding-box,
+    var(--vp-foil) border-box;
+  -webkit-mask: none;
+  mask: none;
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .start-card::after {
+  display: block;
+  content: attr(data-legend);
+  inset: auto;
+  position: absolute;
+  top: 1px;
+  left: 20px;
+  z-index: 1;
+  max-width: calc(100% - 120px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0 10px;
+  border-radius: 0;
+  background: linear-gradient(rgba(0, 0, 0, 0) 9px, var(--vp-paper) 9px);
+  font:
+    600 11px/18px "Figtree",
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--flux-text);
+  pointer-events: none;
+}
+/* The title row's text is the legend now; its controls stay, top-right. */
+:root[data-design="velvet-paper"] .start-card-title {
+  position: absolute;
+  top: 15px;
+  right: 14px;
+  z-index: 1;
+  font-size: 0;
+  letter-spacing: 0;
+  gap: 6px;
+}
+:root[data-design="velvet-paper"] .start-card-title > * {
+  font-size: 11px;
+}
+:root[data-design="velvet-paper"] .start-card-link {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--vp-raise);
+  color: #e8a7c4;
+  font-size: 11px;
+}
+:root[data-design="velvet-paper"] .start-card-link:hover {
+  background: var(--velvet-500);
+}
+
+/* Widget insides: soft rounded rows and wells. */
+:root[data-design="velvet-paper"] .start-row {
+  border-radius: 14px;
+}
+:root[data-design="velvet-paper"] .start-row:hover {
+  background: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .start-fav {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--vp-chip);
+  color: #e8ddf0;
+}
+:root[data-design="velvet-paper"] .start-tile {
+  border-radius: 16px;
+}
+:root[data-design="velvet-paper"] .start-action {
+  border-radius: 16px;
+  border-color: var(--vp-edge);
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .start-action:hover {
+  background: var(--velvet-500);
+}
+:root[data-design="velvet-paper"] .start-scratch {
+  border-radius: 16px;
+  border-color: var(--vp-edge);
+  background: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .start-empty {
+  color: var(--flux-text-mute);
+}
+:root[data-design="velvet-paper"] .start-customize {
+  border-radius: 999px;
+  background: var(--vp-raise);
+  border: 1px solid var(--vp-edge);
+}
+
+/* ── Command palette and search spotlight ────────────────────────────────
+   Paper dialogs over a velvet dim, each with its name in the top edge; the
+   selected result gets the foil wash. Both clip, so: inset paper again. */
+:root[data-design="velvet-paper"] .palette-backdrop {
+  background: rgba(9, 7, 11, 0.55);
+}
+:root[data-design="velvet-paper"] .palette,
+:root[data-design="velvet-paper"] .spot {
+  position: relative;
+  isolation: isolate;
+  border: none;
+  border-radius: var(--vp-r);
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow:
+    0 30px 60px -20px rgba(0, 0, 0, 0.85),
+    0 0 80px -30px rgba(201, 181, 255, 0.08);
+}
+:root[data-design="velvet-paper"] .palette {
+  padding-top: 18px;
+}
+:root[data-design="velvet-paper"] .spot {
+  padding: 30px 14px 14px;
+}
+:root[data-design="velvet-paper"] .palette::before,
+:root[data-design="velvet-paper"] .spot::before {
+  content: "";
+  position: absolute;
+  inset: 10px 0 0;
+  z-index: -1;
+  padding: 0;
+  border-radius: var(--vp-r);
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--vp-paper), var(--vp-paper)) padding-box,
+    var(--vp-foil) border-box;
+  -webkit-mask: none;
+  mask: none;
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .palette::after,
+:root[data-design="velvet-paper"] .spot::after {
+  position: absolute;
+  top: 1px;
+  left: 22px;
+  z-index: 1;
+  padding: 0 10px;
+  background: linear-gradient(rgba(0, 0, 0, 0) 9px, var(--vp-paper) 9px);
+  font:
+    600 11px/18px "Figtree",
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--flux-text);
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .palette::after {
+  content: "Command · ⌘K";
+}
+:root[data-design="velvet-paper"] .spot::after {
+  content: "Search the web";
+}
+:root[data-design="velvet-paper"] .palette-input {
+  margin: 8px 14px 6px;
+  padding: 0 20px;
+  height: 50px;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--vp-paper-2), var(--vp-paper-2)) padding-box,
+    var(--vp-foil-line) border-box;
+  font-size: 16px;
+}
+:root[data-design="velvet-paper"] .palette-input:focus {
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
+}
+:root[data-design="velvet-paper"] .palette-list {
+  padding: 6px 12px 12px;
+  gap: 2px;
+}
+:root[data-design="velvet-paper"] .palette-item {
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+:root[data-design="velvet-paper"] .palette-item:hover {
+  background: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .palette-item.sel {
+  background: var(--vp-wash);
+  box-shadow: inset 0 0 0 1px rgba(201, 181, 255, 0.16);
+}
+:root[data-design="velvet-paper"] .palette-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--vp-chip);
+  opacity: 1;
+}
+:root[data-design="velvet-paper"] .palette-item.sel .palette-icon {
+  background: #f3b6d3;
+  color: #22121b;
+}
+:root[data-design="velvet-paper"] .palette-sub {
+  font-family: var(--vp-mono);
+  font-size: 11px;
+}
+:root[data-design="velvet-paper"] .spot-field {
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--vp-paper-2), var(--vp-paper-2)) padding-box,
+    var(--vp-foil-line) border-box;
+}
+:root[data-design="velvet-paper"] .spot-btn,
+:root[data-design="velvet-paper"] .spot-tool {
+  border-radius: 12px;
+}
+:root[data-design="velvet-paper"] .spot-btn.primary {
+  border-radius: 999px;
+  background: var(--vp-satin);
+  color: #1a1020;
+}
+
+/* ── Trail page (flux://trail) ────────────────────────────────────────────
+   The graph and the detail pane are paper cards. Their titles hang off
+   .trail-body (data-legend-graph / -detail), lined up with the cards' top
+   edges: the graph clips (its canvas is sized from the wrapper's client box,
+   so it can't take the inset-paper treatment) and the detail pane scrolls. */
+:root[data-design="velvet-paper"] .trail {
+  padding: 20px 22px 22px;
+}
+:root[data-design="velvet-paper"] .trail-brand {
+  font-family: var(--vp-display);
+  font-size: 26px;
+  font-weight: 400;
+  font-variation-settings:
+    "SOFT" 100,
+    "opsz" 48;
+}
+:root[data-design="velvet-paper"] .trail-spark {
+  display: none;
+}
+:root[data-design="velvet-paper"] .trail-sub {
+  font-family: "Figtree", system-ui, sans-serif;
+  font-size: 12.5px;
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .trail-window {
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--vp-edge);
+  background: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .trail-win-btn {
+  padding: 5px 14px;
+  font-size: 12px;
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .trail-win-btn.on {
+  background: var(--vp-satin);
+  color: #1a1020;
+  font-weight: 600;
+}
+:root[data-design="velvet-paper"] .trail-forget {
+  border-radius: 999px;
+  border-color: rgba(var(--accent-rgb), 0.35);
+  color: #e8a7c4;
+}
+:root[data-design="velvet-paper"] .trail-reload {
+  border-radius: 999px;
+  background: var(--vp-raise);
+}
+
+/* The scrubber: a strip of paper with its name in the edge. */
+:root[data-design="velvet-paper"] .trail-scrub {
+  position: relative;
+  margin: 6px 0 22px;
+  padding: 14px 16px 12px;
+  border: 1.5px solid transparent;
+  border-radius: 20px;
+  background:
+    linear-gradient(var(--vp-paper), var(--vp-paper)) padding-box,
+    var(--vp-foil) border-box;
+  box-shadow: 0 12px 24px -16px rgba(0, 0, 0, 0.8);
+}
+:root[data-design="velvet-paper"] .trail-scrub::after {
+  content: "Scrub through time";
+  position: absolute;
+  top: -10px;
+  left: 22px;
+  padding: 0 10px;
+  background: linear-gradient(rgba(0, 0, 0, 0) 9px, var(--vp-paper) 9px);
+  font:
+    600 11px/18px "Figtree",
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--flux-text);
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .trail-scrub-hist {
+  border-radius: 10px;
+  border-color: var(--vp-edge);
+  background: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .trail-scrub-slider::-webkit-slider-thumb {
+  width: 6px;
+  border-radius: 3px;
+  background: #f6ede4;
+  box-shadow: 0 0 6px rgba(246, 237, 228, 0.35);
+}
+:root[data-design="velvet-paper"] .trail-scrub-label {
+  font-family: var(--vp-mono);
+  font-size: 11px;
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .trail-scrub-now {
+  border-color: var(--vp-edge);
+  background: var(--vp-raise);
+  color: var(--flux-text);
+}
+:root[data-design="velvet-paper"] .trail-scrub-reopen {
+  border: none;
+  border-radius: 999px;
+  background: var(--vp-satin);
+  color: #1a1020;
+  font-weight: 600;
+}
+
+/* Graph + detail. */
+:root[data-design="velvet-paper"] .trail-body {
+  position: relative;
+  gap: 18px;
+  padding-top: 10px;
+}
+:root[data-design="velvet-paper"] .trail-body::before,
+:root[data-design="velvet-paper"] .trail-body::after {
+  position: absolute;
+  top: 1px;
+  z-index: 2;
+  max-width: 260px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0 10px;
+  background: linear-gradient(rgba(0, 0, 0, 0) 9px, var(--vp-paper) 9px);
+  font:
+    600 11px/18px "Figtree",
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--flux-text);
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .trail-body::before {
+  content: attr(data-legend-graph);
+  left: 24px;
+}
+/* The detail pane is a fixed 320px on the right. */
+:root[data-design="velvet-paper"] .trail-body::after {
+  content: attr(data-legend-detail);
+  left: calc(100% - 320px + 22px);
+}
+:root[data-design="velvet-paper"] .trail-graph,
+:root[data-design="velvet-paper"] .trail-detail {
+  border: 1.5px solid transparent;
+  border-radius: var(--vp-r);
+  background:
+    linear-gradient(var(--vp-paper), var(--vp-paper)) padding-box,
+    var(--vp-foil) border-box;
+  box-shadow: var(--vp-shadow);
+}
+/* A faint plum bloom behind the nodes, like the boards' map. */
+:root[data-design="velvet-paper"] .trail-graph {
+  background:
+    radial-gradient(70% 70% at 45% 40%, rgba(201, 181, 255, 0.06), rgba(201, 181, 255, 0) 70%) padding-box,
+    linear-gradient(var(--vp-paper), var(--vp-paper)) padding-box,
+    var(--vp-foil) border-box;
+}
+:root[data-design="velvet-paper"] .trail-hud {
+  top: 16px;
+  left: auto;
+  right: 16px;
+  background: var(--vp-raise);
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .trail-hud-sem {
+  color: #a9e6ec;
+}
+:root[data-design="velvet-paper"] .trail-hud-cite {
+  color: #f3b6d3;
+}
+:root[data-design="velvet-paper"] .trail-detail {
+  padding: 22px 18px 18px;
+  gap: 10px;
+}
+:root[data-design="velvet-paper"] .trail-detail-title {
+  font-family: var(--vp-display);
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1.08;
+  font-variation-settings:
+    "SOFT" 100,
+    "opsz" 72;
+  color: var(--flux-text);
+}
+:root[data-design="velvet-paper"] .trail-detail-url {
+  font-family: var(--vp-mono);
+  font-size: 11.5px;
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .trail-detail-meta,
+:root[data-design="velvet-paper"] .trail-detail-why {
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .trail-entity {
+  border-color: var(--vp-edge);
+  background: var(--vp-raise);
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .trail-entity.primary {
+  background: var(--vp-wash);
+  border-color: rgba(201, 181, 255, 0.24);
+  color: var(--flux-text);
+}
+:root[data-design="velvet-paper"] .trail-detail-snap,
+:root[data-design="velvet-paper"] .trail-draft {
+  border-radius: 16px;
+  background: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .trail-chat {
+  border-top-color: rgba(240, 222, 250, 0.06);
+}
+:root[data-design="velvet-paper"] .trail-chat-msg {
+  border-radius: 14px;
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .trail-chat-msg.user {
+  background: var(--vp-wash);
+}
+:root[data-design="velvet-paper"] .trail-chat-input {
+  border-radius: 999px;
+  border-color: var(--vp-edge);
+  background: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .trail-chat-send {
+  border-radius: 999px;
+  background: var(--vp-satin);
+  color: #1a1020;
+}
+:root[data-design="velvet-paper"] .trail-detail-open {
+  border: none;
+  border-radius: 999px;
+  background: var(--vp-satin);
+  color: #1a1020;
+  font-weight: 600;
+}
+:root[data-design="velvet-paper"] .trail-detail-forget {
+  border-radius: 999px;
+  border-color: rgba(var(--accent-rgb), 0.35);
+  background: transparent;
+  color: #e8a7c4;
+}
+
+/* ── Indexer (the orb and its panel) ─────────────────────────────────────
+   The panel is a titled paper card (inset-paper + legend, like the chrome's);
+   the best match is a second card inside it with a Fraunces question. */
+:root[data-design="velvet-paper"] .idx-orb {
+  box-shadow:
+    0 0 0 1.5px rgba(201, 181, 255, 0.28),
+    0 14px 28px -12px rgba(0, 0, 0, 0.75);
+}
+:root[data-design="velvet-paper"] .idx-orb.open {
+  box-shadow:
+    0 0 0 2px rgba(243, 182, 211, 0.55),
+    0 14px 28px -12px rgba(0, 0, 0, 0.75);
+}
+:root[data-design="velvet-paper"] .idx-panel,
+:root[data-design="velvet-paper"] .idx-card {
+  position: relative;
+  isolation: isolate;
+}
+:root[data-design="velvet-paper"] .idx-panel {
+  gap: 10px;
+  padding: 30px 16px 16px;
+  border: none;
+  border-radius: var(--vp-r);
+  background: none;
+  box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.85);
+}
+:root[data-design="velvet-paper"] .idx-panel::before,
+:root[data-design="velvet-paper"] .idx-card::before {
+  content: "";
+  position: absolute;
+  inset: 10px 0 0;
+  z-index: -1;
+  padding: 0;
+  border-radius: var(--vp-r);
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--vp-paper), var(--vp-paper)) padding-box,
+    var(--vp-foil) border-box;
+  /* .glass draws a specular rim on its ::before with a mask; this replaces it. */
+  -webkit-mask: none;
+  mask: none;
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .idx-card::before {
+  border-radius: 20px;
+  background:
+    linear-gradient(var(--vp-paper-2), var(--vp-paper-2)) padding-box,
+    var(--vp-foil) border-box;
+}
+:root[data-design="velvet-paper"] .idx-panel::after,
+:root[data-design="velvet-paper"] .idx-card::after {
+  position: absolute;
+  top: 1px;
+  left: 22px;
+  z-index: 1;
+  padding: 0 10px;
+  font:
+    600 11px/18px "Figtree",
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .idx-panel::after {
+  content: "Indexer · ask your notes";
+  background: linear-gradient(rgba(0, 0, 0, 0) 9px, var(--vp-paper) 9px);
+  color: var(--flux-text);
+}
+:root[data-design="velvet-paper"] .idx-card::after {
+  content: "Best match";
+  left: 18px;
+  /* Its top half sits on the panel's paper, its lower half on the card's. */
+  background: linear-gradient(var(--vp-paper) 9px, var(--vp-paper-2) 9px);
+  color: #f3b6d3;
+}
+:root[data-design="velvet-paper"] .idx-input {
+  height: 44px;
+  padding: 0 18px;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--vp-paper-2), var(--vp-paper-2)) padding-box,
+    var(--vp-foil-line) border-box;
+  font-size: 14.5px;
+}
+:root[data-design="velvet-paper"] .idx-input:focus {
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
+}
+:root[data-design="velvet-paper"] .idx-mic,
+:root[data-design="velvet-paper"] .idx-close,
+:root[data-design="velvet-paper"] .idx-reindex {
+  border-radius: 999px;
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .idx-mic.on {
+  background: var(--vp-wash);
+  box-shadow: inset 0 0 0 1px rgba(243, 182, 211, 0.45);
+}
+:root[data-design="velvet-paper"] .idx-scope {
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--vp-edge);
+  background: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .idx-scope button {
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+:root[data-design="velvet-paper"] .idx-scope button.on {
+  background: var(--vp-satin);
+  color: #1a1020;
+  font-weight: 600;
+}
+:root[data-design="velvet-paper"] .idx-status {
+  font-size: 12px;
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .idx-card {
+  gap: 10px;
+  margin-top: 4px;
+  padding: 26px 16px 14px;
+}
+:root[data-design="velvet-paper"] .idx-verdict {
+  border-radius: 999px;
+}
+:root[data-design="velvet-paper"] .idx-verdict.picked {
+  background: var(--vp-wash);
+  color: var(--flux-text);
+  box-shadow: inset 0 0 0 1px rgba(201, 181, 255, 0.2);
+}
+:root[data-design="velvet-paper"] .idx-q {
+  font-family: var(--vp-display);
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.12;
+  font-variation-settings:
+    "SOFT" 100,
+    "opsz" 72;
+}
+:root[data-design="velvet-paper"] .idx-badge {
+  background: var(--vp-raise);
+  color: #f3b6d3;
+  font-family: var(--vp-mono);
+}
+:root[data-design="velvet-paper"] .idx-source {
+  font-family: var(--vp-mono);
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .idx-points {
+  color: var(--flux-text);
+}
+:root[data-design="velvet-paper"] .idx-answer {
+  border-radius: 16px;
+  background: var(--vp-paper);
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: #e3dae8;
+}
+:root[data-design="velvet-paper"] .idx-pager button {
+  border-radius: 999px;
+}
+:root[data-design="velvet-paper"] .idx-act {
+  border-radius: 999px;
+  border-color: var(--vp-edge);
+  background: var(--vp-raise);
+}
+/* The last action (Open note / Open p. N) is the primary one. */
+:root[data-design="velvet-paper"] .idx-foot .idx-act:last-child {
+  border: none;
+  background: var(--vp-satin);
+  color: #1a1020;
+  font-weight: 600;
+}
+
+/* ── Semantic find (the find-by-meaning modal) ───────────────────────────── */
+:root[data-design="velvet-paper"] .semfind {
+  border-radius: var(--vp-r);
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--vp-paper), var(--vp-paper)) padding-box,
+    var(--vp-foil) border-box;
+  box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.85);
+}
+:root[data-design="velvet-paper"] .semfind::before {
+  content: none;
+}
+:root[data-design="velvet-paper"] .semfind-input {
+  font-family: var(--vp-display);
+  font-size: 18px;
+}
+:root[data-design="velvet-paper"] .semfind-scope {
+  border-radius: 999px;
+}
+:root[data-design="velvet-paper"] .semfind-item {
+  border-radius: 16px;
+}
+
+/* ── Files ────────────────────────────────────────────────────────────────
+   Three paper cards inside the page card (Places, the folder, Preview), each
+   titled in its edge, with a satin-edged path bar above and a pill status bar
+   below. Rows keep their 30px height: the listing is virtualised on it. */
+:root[data-design="velvet-paper"] .files {
+  padding: 14px 16px 12px;
+  gap: 14px;
+  --vp-card: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .files-toolbar {
+  gap: 8px;
+  padding: 0;
+  border-bottom: none;
+}
+:root[data-design="velvet-paper"] .files-nav,
+:root[data-design="velvet-paper"] .files-act {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: var(--vp-raise);
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .files-nav:hover:not(:disabled),
+:root[data-design="velvet-paper"] .files-act:hover {
+  background: var(--velvet-500);
+  color: var(--flux-text);
+}
+:root[data-design="velvet-paper"] .files-act.on,
+:root[data-design="velvet-paper"] .files-search-toggle.on {
+  color: var(--flux-text);
+  background: var(--vp-wash);
+  box-shadow: inset 0 0 0 1px rgba(201, 181, 255, 0.18);
+}
+/* The path: a satin-edged well with the folder chain in mono. */
+:root[data-design="velvet-paper"] .files-crumbs {
+  height: 40px;
+  padding: 0 12px;
+  gap: 2px;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--vp-paper-2), var(--vp-paper-2)) padding-box,
+    var(--vp-foil-line) border-box;
+}
+:root[data-design="velvet-paper"] .files-crumb {
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-family: var(--vp-mono);
+  font-size: 12px;
+}
+:root[data-design="velvet-paper"] .files-crumb:hover {
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .files-search {
+  width: 200px;
+  height: 40px;
+  padding: 0 16px;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--vp-paper-2), var(--vp-paper-2)) padding-box,
+    var(--vp-foil-line) border-box;
+}
+
+/* The body's cells become separate cards with a gutter between them. */
+:root[data-design="velvet-paper"] .files-body {
+  gap: 14px;
+  overflow: visible;
+  grid-template-columns: 210px minmax(0, 1fr);
+}
+:root[data-design="velvet-paper"] .files-body.preview-on {
+  grid-template-columns: 210px minmax(0, 1fr) minmax(250px, 330px);
+}
+:root[data-design="velvet-paper"] .files-rail,
+:root[data-design="velvet-paper"] .files-main,
+:root[data-design="velvet-paper"] .files-preview {
+  position: relative;
+  isolation: isolate;
+  border: none;
+  border-radius: 22px;
+  background: none;
+  box-shadow: 0 14px 24px -16px rgba(0, 0, 0, 0.75);
+}
+:root[data-design="velvet-paper"] .files-rail::before,
+:root[data-design="velvet-paper"] .files-main::before,
+:root[data-design="velvet-paper"] .files-preview::before {
+  content: "";
+  position: absolute;
+  inset: 10px 0 0;
+  z-index: -1;
+  border-radius: 22px;
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--vp-card), var(--vp-card)) padding-box,
+    var(--vp-foil) border-box;
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .files-rail::after,
+:root[data-design="velvet-paper"] .files-main::after,
+:root[data-design="velvet-paper"] .files-preview::after {
+  content: attr(data-legend);
+  position: absolute;
+  top: 1px;
+  left: 20px;
+  z-index: 1;
+  max-width: calc(100% - 40px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0 10px;
+  background: linear-gradient(rgba(0, 0, 0, 0) 9px, var(--vp-card) 9px);
+  font:
+    600 11px/18px "Figtree",
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--flux-text);
+  pointer-events: none;
+}
+/* The folder card's title is a path, so it keeps its case and goes mono. */
+:root[data-design="velvet-paper"] .files-main::after {
+  font: 12px/18px var(--vp-mono);
+  letter-spacing: 0;
+  text-transform: none;
+}
+:root[data-design="velvet-paper"] .files-rail {
+  padding: 24px 10px 12px;
+  gap: 2px;
+}
+:root[data-design="velvet-paper"] .files-main {
+  padding: 22px 6px 8px;
+}
+/* The preview's text and images scroll inside it; the card itself doesn't,
+   so its paper never slides out from under the title. */
+:root[data-design="velvet-paper"] .files-preview {
+  overflow: hidden;
+  padding: 26px 14px 14px;
+}
+:root[data-design="velvet-paper"] .files-preview-img {
+  border-radius: 14px;
+  background: var(--vp-paper);
+}
+:root[data-design="velvet-paper"] .files-preview-text {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--vp-paper);
+  font-family: var(--vp-mono);
+}
+:root[data-design="velvet-paper"] .files-rail-section {
+  padding: 12px 10px 4px;
+  letter-spacing: 0.14em;
+}
+:root[data-design="velvet-paper"] .files-loc {
+  padding: 9px 10px;
+  border-radius: 14px;
+  font-size: 13px;
+}
+:root[data-design="velvet-paper"] .files-loc:hover {
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .files-loc.active {
+  background: var(--vp-wash);
+  box-shadow: inset 0 0 0 1px rgba(201, 181, 255, 0.16);
+}
+:root[data-design="velvet-paper"] .files-head {
+  margin: 0 6px;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(240, 222, 250, 0.06);
+}
+:root[data-design="velvet-paper"] .files-col {
+  letter-spacing: 0.12em;
+}
+/* Rows are absolutely placed by the virtualiser; inset them to read as pills. */
+:root[data-design="velvet-paper"] .files-row {
+  left: 6px;
+  right: 6px;
+  padding: 0 12px;
+  border-radius: 12px;
+}
+:root[data-design="velvet-paper"] .files-row:hover {
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .files-row.selected {
+  background: var(--vp-wash);
+  box-shadow: inset 0 0 0 1px rgba(201, 181, 255, 0.18);
+}
+:root[data-design="velvet-paper"] .files-row.drop,
+:root[data-design="velvet-paper"] .files-loc.drop,
+:root[data-design="velvet-paper"] .files-crumb.drop {
+  background: rgba(var(--accent-rgb), 0.12);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.55);
+}
+:root[data-design="velvet-paper"] .files-marquee {
+  border-radius: 8px;
+  background: rgba(var(--accent-ai-rgb), 0.12);
+  border-color: rgba(var(--accent-ai-rgb), 0.5);
+}
+:root[data-design="velvet-paper"] .files-cell.size,
+:root[data-design="velvet-paper"] .files-cell.modified {
+  font-family: var(--vp-mono);
+  font-size: 11.5px;
+}
+:root[data-design="velvet-paper"] .files-hit {
+  border-radius: 12px;
+  margin: 0 6px;
+}
+:root[data-design="velvet-paper"] .files-statusbar {
+  padding: 9px 16px;
+  border-top: none;
+  border-radius: 999px;
+  background: var(--vp-paper-2);
+  box-shadow: inset 0 0 0 1px rgba(240, 222, 250, 0.06);
+}
+:root[data-design="velvet-paper"] .files-create,
+:root[data-design="velvet-paper"] .files-rename-input {
+  border-radius: 12px;
+}
+:root[data-design="velvet-paper"] .files-menu,
+:root[data-design="velvet-paper"] .files-confirm,
+:root[data-design="velvet-paper"] .files-ai {
+  border-radius: 20px;
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--vp-paper-2), var(--vp-paper-2)) padding-box,
+    var(--vp-foil) border-box;
+  box-shadow: var(--vp-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-design="velvet-paper"] .files-menu-item {
+  border-radius: 10px;
+}
+:root[data-design="velvet-paper"] .files-btn {
+  border-radius: 999px;
+  padding-left: 16px;
+  padding-right: 16px;
+  background: var(--vp-raise);
+  border: 1px solid rgba(240, 222, 250, 0.1);
+}
+:root[data-design="velvet-paper"] .files-btn.primary {
+  background: var(--vp-satin);
+  color: #1a1020;
+  border-color: transparent;
+}
+:root[data-design="velvet-paper"] .files-toast {
+  border-radius: 999px;
+}
+
+/* ── Settings ─────────────────────────────────────────────────────────────
+   A Fraunces heading over the velvet and its hills; the section list is a
+   titled card ("Settings"), and every section is a paper card with its name in
+   the edge. Toggles become soft clay switches: plum when off, satin when on. */
+:root[data-design="velvet-paper"] .set-page {
+  --vp-card: var(--vp-paper);
+  padding: 22px 26px 0;
+  gap: 18px;
+  background:
+    var(--vp-bloom),
+    var(--vp-hills) center bottom / 100% 38% no-repeat,
+    var(--velvet-800);
+}
+:root[data-design="velvet-paper"] .set-page .hist-title {
+  font-family: var(--vp-display);
+  font-variation-settings:
+    "SOFT" 100,
+    "opsz" 96;
+  font-weight: 400;
+  font-size: 34px;
+  letter-spacing: -0.01em;
+}
+:root[data-design="velvet-paper"] .set-search-bar input {
+  height: 44px;
+  padding: 0 18px;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--vp-paper-2), var(--vp-paper-2)) padding-box,
+    var(--vp-foil-line) border-box;
+}
+:root[data-design="velvet-paper"] .set-layout {
+  gap: 26px;
+}
+:root[data-design="velvet-paper"] .set-nav,
+:root[data-design="velvet-paper"] .set-card {
+  position: relative;
+  isolation: isolate;
+  border: none;
+  border-radius: var(--vp-r);
+  background: none;
+  box-shadow: var(--vp-shadow);
+}
+:root[data-design="velvet-paper"] .set-nav::before,
+:root[data-design="velvet-paper"] .set-card::before {
+  content: "";
+  position: absolute;
+  inset: 10px 0 0;
+  z-index: -1;
+  border-radius: var(--vp-r);
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--vp-card), var(--vp-card)) padding-box,
+    var(--vp-foil) border-box;
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .set-nav::after,
+:root[data-design="velvet-paper"] .set-card::after {
+  content: attr(data-legend);
+  position: absolute;
+  top: 1px;
+  left: 22px;
+  z-index: 1;
+  max-width: calc(100% - 44px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0 10px;
+  background: linear-gradient(rgba(0, 0, 0, 0) 9px, var(--vp-card) 9px);
+  font:
+    600 11px/18px "Figtree",
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--flux-text);
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .set-nav {
+  flex-basis: 200px;
+  align-self: flex-start;
+  max-height: 100%;
+  padding: 28px 10px 12px;
+  gap: 4px;
+  /* Ten buttons fit any normal window, so this rarely scrolls; when a short
+     one makes it, the list stays reachable (the paper scrolls along with it). */
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+:root[data-design="velvet-paper"] .set-nav button {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 16px;
+  font-size: 13.5px;
+}
+:root[data-design="velvet-paper"] .set-nav button:hover {
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .set-nav button[aria-current] {
+  border-color: transparent;
+  background: var(--vp-wash);
+  box-shadow: inset 0 0 0 1px rgba(201, 181, 255, 0.16);
+  font-weight: 600;
+}
+:root[data-design="velvet-paper"] .set-body {
+  gap: 30px;
+  max-width: 760px;
+  /* Room above the first card for its title. */
+  padding-top: 2px;
+}
+/* The card's edge carries the section's name; the heading stays for screen
+   readers and the outline, just not on screen. */
+:root[data-design="velvet-paper"] .set-section-head h2 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+:root[data-design="velvet-paper"] .set-section-head {
+  margin: 0 0 4px 24px;
+}
+:root[data-design="velvet-paper"] .set-card {
+  padding: 22px 6px 6px;
+}
+:root[data-design="velvet-paper"] .set-row {
+  padding: 14px 16px;
+  border-bottom-color: rgba(240, 222, 250, 0.06);
+}
+:root[data-design="velvet-paper"] .set-row-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+:root[data-design="velvet-paper"] .set-page select,
+:root[data-design="velvet-paper"] .set-proxy-in,
+:root[data-design="velvet-paper"]
+  .set-row-control
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(240, 222, 250, 0.1);
+  border-radius: 999px;
+  background: var(--vp-paper-2);
+  color: var(--flux-text);
+}
+/* On/Off becomes a clay switch: the label stays the accessible state
+   (role="switch" + aria-checked), the visible text gives way to a knob. */
+:root[data-design="velvet-paper"] .set-page .shields-toggle {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 14px;
+  background: var(--vp-chip);
+  font-size: 0;
+  color: transparent;
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.45),
+    inset 0 -1px 0 rgba(246, 237, 228, 0.05);
+}
+:root[data-design="velvet-paper"] .set-page .shields-toggle::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #9286a0;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transition:
+    transform 0.22s var(--ease-soft),
+    background 0.22s var(--ease-soft);
+}
+:root[data-design="velvet-paper"] .set-page .shields-toggle.on {
+  background: var(--vp-satin);
+}
+:root[data-design="velvet-paper"] .set-page .shields-toggle.on::before {
+  transform: translateX(20px);
+  background: #1a1020;
+}
+:root[data-design="velvet-paper"] .set-page .shields-toggle:active {
+  transform: none;
+}
+/* The theme and design pickers. */
+:root[data-design="velvet-paper"] .theme-chip {
+  min-height: 40px;
+  padding: 0 14px 0 10px;
+  border-radius: 16px;
+  background: var(--vp-raise);
+  border-color: transparent;
+}
+:root[data-design="velvet-paper"] .theme-chip.on {
+  background: var(--vp-wash);
+  box-shadow: inset 0 0 0 1px rgba(201, 181, 255, 0.2);
+  border-color: transparent;
+}
+:root[data-design="velvet-paper"] .theme-swatch {
+  border-radius: 8px;
+}
+:root[data-design="velvet-paper"] .set-link-btn {
+  min-height: 34px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--vp-raise);
+  border-color: rgba(240, 222, 250, 0.1);
+}
+:root[data-design="velvet-paper"] .set-link-btn:hover {
+  color: var(--flux-text);
+  border-color: rgba(201, 181, 255, 0.35);
+}
+:root[data-design="velvet-paper"] .settings-feedback {
+  border-radius: 16px;
+  background: var(--vp-paper-2);
+}
+:root[data-design="velvet-paper"] .store-row {
+  border-radius: 12px;
+}
+/* Narrow: the section list turns into a row of pills, without a card. */
+@container (max-width: 760px) {
+  :root[data-design="velvet-paper"] .set-nav {
+    /* The layout is a column here, so the wide layout's 200px basis would be
+       the row's height: size to the pills instead. */
+    flex: none;
+    align-self: stretch;
+    padding: 0 0 4px;
+    box-shadow: none;
+    overflow-x: auto;
+  }
+  :root[data-design="velvet-paper"] .set-nav button {
+    min-height: 36px;
+  }
+  :root[data-design="velvet-paper"] .set-nav::before,
+  :root[data-design="velvet-paper"] .set-nav::after {
+    display: none;
+  }
+}
+
+/* The start page's backdrop is the hills; the classic wave would sit over them. */
+:root[data-design="velvet-paper"] .start .start-wave {
+  display: none;
+}
+
+/* Files: the view's one grid column sized to its content's minimum, which the
+   paper padding pushed past a narrow card. Let it shrink to the card. */
+:root[data-design="velvet-paper"] .files {
+  grid-template-columns: minmax(0, 1fr);
+}
+:root[data-design="velvet-paper"] .files-main {
+  min-width: 0;
 }

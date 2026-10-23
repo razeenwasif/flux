@@ -731,7 +731,14 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
         </div>
       </Show>
 
-      <div class="trail-body">
+      {/* Velvet Paper (design.ts) hangs the two cards' titles off this row: the
+          graph clips (its canvas is sized from it) and the detail pane scrolls,
+          so neither can carry a title across its own edge. */}
+      <div
+        class="trail-body"
+        data-legend-graph={`Trail · ${stats().nodes} pages`}
+        data-legend-detail={selected() ? "Selected page" : "Page"}
+      >
         <div class="trail-graph" ref={wrap}>
           <canvas
             ref={canvas}
