@@ -16,7 +16,7 @@
  */
 import { createSignal } from "solid-js";
 
-export type ThemeId = "velvet" | "gruvbox" | "ember";
+export type ThemeId = "velvet" | "velvet-paper" | "gruvbox" | "ember";
 
 export const THEMES: { id: ThemeId; name: string; blurb: string; swatch: string[] }[] = [
   {
@@ -24,6 +24,12 @@ export const THEMES: { id: ThemeId; name: string; blurb: string; swatch: string[
     name: "Default (Neutral Dark)",
     blurb: "Clean neutral dark slate with neon accents",
     swatch: ["#0f0f12", "#2ff3ff", "#7b61ff", "#ec4be0"],
+  },
+  {
+    id: "velvet-paper",
+    name: "Velvet Paper",
+    blurb: "Plum velvet cut from thick paper, with a soft satin foil",
+    swatch: ["#0c0a0f", "#e8a7c4", "#c9b5ff", "#a9e6ec"],
   },
   {
     id: "gruvbox",

@@ -217,6 +217,139 @@
   border-color: rgba(235, 219, 178, 0.1) !important;
 }
 
+/* ── Velvet Paper — the velvet's plum dark, cut from thick paper ─────────────
+   Picked from the design explorations. The base tones go back to the velvet's
+   plum; the accents are a pearlescent set (rose, lilac, pearl, aqua) rather than
+   neon. Surfaces stop being frosted glass and become opaque dark paper: layered
+   drop shadows instead of blur, a soft foil ring on the page card, and five
+   cut-paper hills behind everything. Structure is untouched — this is only
+   colour and material, so every control on the tab bar and the pages rail is
+   exactly where it is in the other themes. */
+:root[data-theme="velvet-paper"] {
+  --velvet-900: #09070b; /* deepest */
+  --velvet-800: #0c0a0f; /* base plum-black */
+  --velvet-700: #15101a; /* paper cards */
+  --velvet-600: #1e1823; /* raised paper */
+  --velvet-500: #2b2233; /* hover */
+
+  --accent-rgb: 232, 167, 196; /* primary interactive — dusty rose */
+  --accent-ai-rgb: 201, 181, 255; /* the agent — lilac */
+  --accent-ai2-rgb: 185, 163, 232; /* its softer companion */
+  --accent-hot-rgb: 169, 230, 236; /* attention — pearl aqua */
+  --neutral-rgb: 187, 176, 196; /* borders and thumbs, plum-grey */
+  --rim-rgb: 246, 237, 228; /* paper edge — pearl */
+
+  /* A rose warning would vanish next to a rose accent; failures go amber. */
+  --flux-warn: #ffc66b;
+  --flux-ok: #8ef6c8;
+
+  --flux-text: #f2ebf5;
+  --flux-text-dim: #bbb0c4;
+  --flux-text-mute: #9286a0;
+  --flux-popover-fill: #1a1420;
+
+  /* Paper, not glass: nearly opaque fills, faint pearl edges, stacked shadows. */
+  --glass-fill: rgba(21, 16, 26, 0.94);
+  --glass-fill-soft: rgba(21, 16, 26, 0.9);
+  --glass-rim: rgba(var(--rim-rgb), 0.12);
+  --glass-rim-soft: rgba(var(--rim-rgb), 0.07);
+  --glass-shadow: 0 10px 22px -12px rgba(0, 0, 0, 0.7), 0 26px 48px -26px rgba(0, 0, 0, 0.85);
+  --glass-inset: inset 0 1px 0 0 rgba(var(--rim-rgb), 0.05), inset 0 -1px 0 0 rgba(0, 0, 0, 0.3);
+  --flux-radius-card: 22px;
+
+  /* The satin foil, kept faint: it edges the page card and washes the active tab. */
+  --vp-foil: conic-gradient(
+    from 210deg,
+    rgba(243, 182, 211, 0.28),
+    rgba(201, 181, 255, 0.28),
+    rgba(246, 237, 228, 0.28),
+    rgba(169, 230, 236, 0.28),
+    rgba(243, 182, 211, 0.28)
+  );
+  --vp-wash: linear-gradient(
+    100deg,
+    rgba(243, 182, 211, 0.16),
+    rgba(201, 181, 255, 0.16) 50%,
+    rgba(169, 230, 236, 0.12)
+  );
+  --vp-bloom: radial-gradient(1100px 620px at 18% -12%, #241429 0%, rgba(36, 20, 41, 0) 62%);
+  /* Generated (five Catmull-Rom ridges, each shadowing the one behind). */
+  --vp-hills: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 520' preserveAspectRatio='none'%3E%3Cdefs%3E%3Cfilter id='s' x='-5%25' y='-30%25' width='110%25' height='160%25'%3E%3CfeDropShadow dx='0' dy='-5' stdDeviation='6' flood-color='%23000' flood-opacity='0.6'/%3E%3C/filter%3E%3C/defs%3E%3Cg stroke='%23F3B6D3' stroke-opacity='0.13' stroke-width='1.2'%3E%3Cpath d='M0 520L0 205C27 203 107 194 160 195C213 195 267 204 320 208C373 212 427 214 480 216C533 218 587 217 640 219C693 222 747 227 800 232C853 237 907 250 960 250C1013 250 1067 238 1120 231C1173 225 1227 215 1280 209C1333 204 1387 198 1440 198C1493 199 1573 210 1600 213L1600 520Z' fill='%232A1B30' filter='url%28%23s%29'/%3E%3Cpath d='M0 520L0 260C27 264 107 280 160 283C213 286 267 279 320 280C373 281 427 287 480 290C533 293 587 297 640 299C693 300 747 304 800 299C853 294 907 277 960 271C1013 264 1067 260 1120 260C1173 259 1227 265 1280 267C1333 270 1387 273 1440 275C1493 276 1573 275 1600 276L1600 520Z' fill='%2324182B' filter='url%28%23s%29'/%3E%3Cpath d='M0 520L0 343C27 344 107 349 160 350C213 351 267 345 320 347C373 350 427 363 480 362C533 361 587 350 640 344C693 338 747 332 800 327C853 322 907 315 960 316C1013 318 1067 332 1120 336C1173 339 1227 335 1280 337C1333 338 1387 341 1440 343C1493 346 1573 351 1600 352L1600 520Z' fill='%231E1424' filter='url%28%23s%29'/%3E%3Cpath d='M0 520L0 405C27 406 107 411 160 411C213 411 267 409 320 405C373 402 427 395 480 390C533 385 587 375 640 375C693 375 747 387 800 391C853 394 907 396 960 398C1013 400 1067 404 1120 404C1173 405 1227 401 1280 403C1333 406 1387 418 1440 418C1493 418 1573 407 1600 405L1600 520Z' fill='%2319111E' filter='url%28%23s%29'/%3E%3Cpath d='M0 520L0 463C27 461 107 459 160 455C213 451 267 444 320 441C373 438 427 436 480 438C533 440 587 447 640 451C693 455 747 459 800 461C853 462 907 458 960 458C1013 459 1067 463 1120 464C1173 465 1227 466 1280 465C1333 464 1387 461 1440 457C1493 452 1573 441 1600 438L1600 520Z' fill='%23140E18' filter='url%28%23s%29'/%3E%3C/g%3E%3C/svg%3E");
+}
+:root[data-theme="velvet-paper"] body,
+:root[data-theme="velvet-paper"] .shell {
+  background-color: var(--velvet-800);
+  background-image: var(--vp-bloom), var(--vp-hills);
+  background-repeat: no-repeat;
+  background-position:
+    0 0,
+    center bottom;
+  background-size:
+    auto,
+    100% 46%;
+}
+:root[data-theme="velvet-paper"] .titlebar {
+  background: transparent;
+  border-bottom-color: rgba(var(--rim-rgb), 0.05);
+}
+:root[data-theme="velvet-paper"] .sidebar {
+  background: linear-gradient(180deg, rgba(23, 17, 28, 0.96), rgba(19, 14, 23, 0.96));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-right: 1px solid rgba(var(--rim-rgb), 0.06);
+  box-shadow:
+    inset -1px 0 0 0 rgba(255, 255, 255, 0.02),
+    12px 0 28px -16px rgba(0, 0, 0, 0.75);
+}
+:root[data-theme="velvet-paper"] .card {
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--velvet-700), var(--velvet-700)) padding-box,
+    var(--vp-foil) border-box;
+  box-shadow:
+    inset 0 1px 0 0 rgba(var(--rim-rgb), 0.04),
+    0 12px 24px -12px rgba(0, 0, 0, 0.7),
+    0 30px 60px -30px rgba(0, 0, 0, 0.85);
+}
+:root[data-theme="velvet-paper"] .agent-inner {
+  background: var(--glass-fill);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* The thin rail of Flux pages: a narrower strip of the same paper. */
+:root[data-theme="velvet-paper"] .pages-bar {
+  background: #120d16;
+  border-color: rgba(var(--rim-rgb), 0.07);
+  box-shadow: inset 0 1px 0 0 rgba(var(--rim-rgb), 0.03);
+}
+:root[data-theme="velvet-paper"] .address {
+  background: #1a1420;
+  border-color: rgba(var(--rim-rgb), 0.08);
+}
+:root[data-theme="velvet-paper"] .tab-row.active {
+  background: var(--vp-wash);
+  box-shadow:
+    inset 0 0 0 1px rgba(201, 181, 255, 0.16),
+    0 6px 14px -8px rgba(0, 0, 0, 0.7);
+}
+/* The new tab is the diorama: hills along the bottom, cards as raised paper. */
+:root[data-theme="velvet-paper"] .start {
+  background:
+    radial-gradient(80% 50% at 50% -8%, rgba(var(--accent-ai-rgb), 0.12), transparent 60%),
+    var(--vp-hills) center bottom / 100% 42% no-repeat;
+}
+:root[data-theme="velvet-paper"] .start-card {
+  background: var(--velvet-700);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--rim-rgb), 0.05),
+    inset 0 0 0 1px rgba(var(--rim-rgb), 0.07),
+    0 10px 22px -12px rgba(0, 0, 0, 0.7),
+    0 26px 48px -26px rgba(0, 0, 0, 0.85);
+}
+:root[data-theme="velvet-paper"] .start-card::after {
+  display: none;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
