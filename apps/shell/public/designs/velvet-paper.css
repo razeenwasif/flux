@@ -3790,3 +3790,28 @@
   line-height: 1.5;
   color: var(--flux-text-mute);
 }
+
+/* The hero cards size to their content (the clock card's Next and weather
+   lines ran past a fixed height); 262px is only their floor. */
+:root[data-design="velvet-paper"] .vp-hero-row > .start-card,
+:root[data-design="velvet-paper"] .vp-hero-row .vp-clock-card {
+  height: auto;
+  min-height: 262px;
+}
+@container (max-width: 980px) {
+  :root[data-design="velvet-paper"] .vp-hero-row .vp-clock-card {
+    min-height: 0;
+  }
+}
+
+/* The whole new tab scrolls — hero, search and cards together — rather than
+   Classic's fixed hero over a scrolling widgets box. */
+:root[data-design="velvet-paper"] .start {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+:root[data-design="velvet-paper"] .start-scroll {
+  flex: none;
+  min-height: auto;
+  overflow: visible;
+}
