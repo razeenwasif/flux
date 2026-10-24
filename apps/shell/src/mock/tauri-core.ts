@@ -1104,6 +1104,43 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(undefined as T);
     case "tui_apps_detect":
       return Promise.resolve([] as T);
+    // The connections rail ("From your notes"): your own notes related to the
+    // open page. The real command always answers with a list, empty when
+    // nothing connects; unmocked, it answered undefined and the card showed
+    // the TypeError that `hits().length` threw.
+    case "kb_related":
+      return Promise.resolve(
+        [
+          {
+            source: "onyx",
+            doc_id: "ml/self-attention.md",
+            title: "Self-attention: queries, keys and values",
+            path: "ML/Self-attention.md",
+            snippet:
+              "Each token is projected to a query, a key and a value; the weights are softmax(QKᵀ/√d).",
+            score: 0.86,
+          },
+          {
+            source: "pdf",
+            doc_id: "books/deep-learning.pdf#214",
+            title: "Sequence models before attention",
+            path: "Books/Deep Learning.pdf",
+            snippet: "Recurrent networks carry a hidden state from one step to the next…",
+            score: 0.79,
+          },
+          {
+            source: "onyx",
+            doc_id: "comp4670/week-6.md",
+            title: "Week 6 · Positional encodings",
+            path: "COMP4670/Week 6.md",
+            snippet: "Sinusoids at geometric wavelengths give every position its own code.",
+            score: 0.71,
+          },
+        ].slice(0, Number(args?.limit ?? 6)) as T,
+      );
+    // The ambient watcher's "Seen before": empty on almost every page.
+    case "trace_ambient":
+      return Promise.resolve([] as T);
     case "kb_status":
     case "kb_reindex":
     case "kb_set_source":
