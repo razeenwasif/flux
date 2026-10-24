@@ -17,6 +17,7 @@ import { mailConfig, mailConnect, mailDisconnect, mailFetch, mailMarkAllRead, ty
 import { openTab } from "./store";
 import { askConfirm } from "./ask";
 import { visibleInterval } from "./poll";
+import { setMailUnread } from "./tabMode";
 
 /** Gmail's own app-password host, which is what this is overwhelmingly for. */
 const DEFAULT_HOST = "imap.gmail.com";
@@ -38,7 +39,9 @@ const ago = (ms: number): string => {
     : new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 };
 
-const MailPane: Component = () => {
+/** `inPane`: the tabs pane's Mail mode, narrower than the column, with an
+ *  Unread / All filter, and a row that opens to its actions before leaving. */
+const MailPane: Component<{ inPane?: boolean }> = (props) => {
   const [configured, setConfigured] = createSignal<boolean | null>(null); // null = still loading
   const [msgs, setMsgs] = createSignal<MailMsg[]>([]);
   const [err, setErr] = createSignal("");
@@ -56,6 +59,7 @@ const MailPane: Component = () => {
       .then((m) => {
         setMsgs(m);
         setErr("");
+        setMailUnread(m.filter((x) => x.unread).length);
       })
       // Say why. An empty list and a failed fetch look identical otherwise, and
       // this pane is empty most of the time by design.
@@ -139,6 +143,9 @@ const MailPane: Component = () => {
   };
 
   const unread = () => msgs().filter((m) => m.unread).length;
+  const [onlyUnread, setOnlyUnread] = createSignal(false);
+  const [picked, setPicked] = createSignal<number | null>(null);
+  const listed = () => (props.inPane && onlyUnread() ? msgs().filter((m) => m.unread) : msgs());
 
   return (
     <div class="mail-pane">
@@ -199,27 +206,74 @@ const MailPane: Component = () => {
         </form>
       </Show>
 
+      <Show when={configured() && props.inPane}>
+        <div class="mail-filter" role="tablist" aria-label="Show">
+          <button
+            role="tab"
+            aria-selected={onlyUnread()}
+            classList={{ on: onlyUnread() }}
+            onClick={() => setOnlyUnread(true)}
+          >
+            Unread {unread()}
+          </button>
+          <button
+            role="tab"
+            aria-selected={!onlyUnread()}
+            classList={{ on: !onlyUnread() }}
+            onClick={() => setOnlyUnread(false)}
+          >
+            All
+          </button>
+        </div>
+      </Show>
+
       <Show when={configured()}>
         <div class="mail-list">
           <For
-            each={msgs()}
-            fallback={<div class="mail-dim">{busy() ? "Checking…" : "Inbox is empty."}</div>}
+            each={listed()}
+            fallback={
+              <div class="mail-dim">
+                {busy() ? "Checking…" : onlyUnread() && props.inPane ? "Nothing unread." : "Inbox is empty."}
+              </div>
+            }
           >
             {(m) => (
-              <button
-                classList={{ "mail-msg": true, unread: m.unread }}
-                title={m.message_id ? "Open in Gmail" : m.subject}
-                onClick={() => open(m)}
-              >
-                <span class="mail-msg-top">
-                  <span class="mail-from">{m.from}</span>
-                  <span class="mail-when">{ago(m.date_ms)}</span>
-                </span>
-                <span class="mail-subject">{m.subject}</span>
-              </button>
+              <div classList={{ "mail-item": true, picked: props.inPane && picked() === m.uid }}>
+                <button
+                  classList={{ "mail-msg": true, unread: m.unread }}
+                  title={props.inPane ? m.subject : m.message_id ? "Open in Gmail" : m.subject}
+                  aria-expanded={props.inPane ? picked() === m.uid : undefined}
+                  onClick={() => (props.inPane ? setPicked((p) => (p === m.uid ? null : m.uid)) : open(m))}
+                >
+                  <span class="mail-msg-top">
+                    <span class="mail-from">{m.from}</span>
+                    <span class="mail-when">{ago(m.date_ms)}</span>
+                  </span>
+                  <span class="mail-subject">{m.subject}</span>
+                </button>
+                <Show when={props.inPane && picked() === m.uid}>
+                  <div class="mail-actions">
+                    <span class="mail-dim">
+                      {new Date(m.date_ms).toLocaleString(undefined, {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    <button class="mail-open" disabled={!m.message_id} onClick={() => open(m)}>
+                      Open in Gmail ↗
+                    </button>
+                  </div>
+                </Show>
+              </div>
             )}
           </For>
         </div>
+        <Show when={props.inPane}>
+          <p class="mail-foot">Read-only · looking here never marks mail seen</p>
+        </Show>
       </Show>
     </div>
   );

@@ -1479,13 +1479,111 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         },
         { calendar: "Personal", summary: "Dentist", date: iso(2), time: "14:30", location: "", sort_key: 1 },
         { calendar: "Personal", summary: "Long weekend", date: iso(5), time: "", location: "", sort_key: 2 },
+        // A day around the real today too, for the views that are about today
+        // (the tabs pane's Calendar mode): the fixed dates above are a year back.
+        ...((): unknown[] => {
+          const t = new Date();
+          const day = (off: number) => {
+            const x = new Date(t.getFullYear(), t.getMonth(), t.getDate() + off);
+            return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+          };
+          const ev = (
+            summary: string,
+            date: string,
+            time: string,
+            end: string,
+            location: string,
+            k: number,
+            editable = true,
+          ) => ({
+            calendar: editable ? "Flux" : "ANU timetable",
+            summary,
+            date,
+            time,
+            end,
+            location,
+            sort_key: 100 + k,
+            id: 100 + k,
+            editable,
+            notes: "",
+          });
+          return [
+            ev("Lecture 11 · Sequence models", day(0), "09:00", "10:00", "Manning Clark", 0, false),
+            ev("COMP2310 lab", day(0), "14:00", "16:00", "CSIT N113", 1, false),
+            ev("Gym", day(0), "18:30", "19:30", "", 2),
+            ev("COMP4670 tutorial", day(1), "11:00", "12:00", "Hanna Neumann", 3, false),
+            ev("Assignment 2 due", day(4), "", "", "", 4),
+          ];
+        })(),
       ] as T);
     }
     case "todos_list":
       return Promise.resolve([
         { id: 1, title: "Ship the calendar widget", done: false, created_ms: T0, due: "" },
         { id: 2, title: "Reply to Alice", done: true, created_ms: T0, due: "" },
+        {
+          id: 3,
+          title: "Read the attention paper",
+          done: false,
+          created_ms: T0,
+          due: new Date().toLocaleDateString("sv-SE"), // YYYY-MM-DD, today
+        },
       ] as T);
+    case "mail_config":
+      return Promise.resolve({ email: "razeen@example.com", host: "imap.gmail.com", port: 993 } as T);
+    case "mail_fetch": {
+      const ago = (m: number) => Date.now() - m * 60_000;
+      return Promise.resolve([
+        {
+          uid: 6,
+          from: "ANU Wattle",
+          subject: "COMP2310: Assignment 2 marks released",
+          date_ms: ago(12),
+          unread: true,
+          message_id: "<a@x>",
+        },
+        {
+          uid: 5,
+          from: "GitLab",
+          subject: "Pipeline passed for comp2310-ass2",
+          date_ms: ago(48),
+          unread: true,
+          message_id: "<b@x>",
+        },
+        {
+          uid: 4,
+          from: "Hanna",
+          subject: "Tutorial slides for week 13",
+          date_ms: ago(130),
+          unread: true,
+          message_id: "<c@x>",
+        },
+        {
+          uid: 3,
+          from: "Library",
+          subject: "Your room booking is confirmed",
+          date_ms: ago(300),
+          unread: false,
+          message_id: "<d@x>",
+        },
+        {
+          uid: 2,
+          from: "arXiv",
+          subject: "cs.LG new submissions",
+          date_ms: ago(900),
+          unread: false,
+          message_id: "<e@x>",
+        },
+        {
+          uid: 1,
+          from: "Tauri",
+          subject: "v2.11 release notes",
+          date_ms: ago(2000),
+          unread: false,
+          message_id: "<f@x>",
+        },
+      ] as T);
+    }
     case "todo_add":
       return Promise.resolve({
         id: 9,

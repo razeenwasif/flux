@@ -44,6 +44,10 @@
     if (e.altKey && !mod) {
       if (e.key === "ArrowLeft") return "back";
       if (e.key === "ArrowRight") return "forward";
+      // The tabs pane's modes, by key position (Option+digit is a symbol on a Mac).
+      if (!e.shiftKey && e.code === "Digit1") return "mode-tabs";
+      if (!e.shiftKey && e.code === "Digit2") return "mode-calendar";
+      if (!e.shiftKey && e.code === "Digit3") return "mode-mail";
     }
     if (e.key === "F5") return "reload";
     if (e.key === "F12") return "devtools";

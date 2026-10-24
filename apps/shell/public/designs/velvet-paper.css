@@ -3877,3 +3877,945 @@
     inset 0 1px 0 rgba(246, 237, 228, 0.07),
     0 -6px 14px -10px rgba(0, 0, 0, 0.8);
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   The tabs pane, final (Flux Next): modes, the address field's tray, find
+   inside it, workspace chips, two-line rows (Sidebar.tsx, TabModePanel.tsx)
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* The nav row: its seven buttons fit one line of the pane. */
+:root[data-design="velvet-paper"] .sidebar-controls:not(.collapsed) {
+  gap: 2px;
+  min-height: 28px;
+}
+:root[data-design="velvet-paper"] .sidebar-controls:not(.collapsed) .icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+}
+
+/* ── The mode switch: Tabs · Calendar · Mail ──────────────────────────────
+   A recessed track with a raised paper thumb. Narrow, only the picked
+   segment says its name; the thumb travels on a spring and stretches on its
+   way (Sidebar animates the stretch). */
+:root[data-design="velvet-paper"] .tab-modes {
+  position: relative;
+  flex: none;
+  display: flex;
+  gap: 2px;
+  height: 38px;
+  padding: 3px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: #0f0b13;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.6),
+    inset 0 -1px 0 rgba(246, 237, 228, 0.04);
+  container-type: inline-size;
+}
+:root[data-design="velvet-paper"] .tab-modes-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  border-radius: 999px;
+  background: var(--vp-wash), #2b2233;
+  box-shadow:
+    inset 0 1px 0 rgba(246, 237, 228, 0.08),
+    0 6px 14px -8px rgba(0, 0, 0, 0.7);
+  transition:
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    width 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 120ms ease-out;
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .tab-mode {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--flux-text-mute);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+:root[data-design="velvet-paper"] .tab-mode:hover {
+  color: var(--flux-text);
+}
+:root[data-design="velvet-paper"] .tab-mode.on {
+  flex-grow: 2.6;
+  color: var(--flux-text);
+}
+:root[data-design="velvet-paper"] .tab-mode svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+}
+:root[data-design="velvet-paper"] .tab-mode-label {
+  display: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:root[data-design="velvet-paper"] .tab-mode.on .tab-mode-label {
+  display: inline;
+  animation: vp-fade-in 180ms ease-out 60ms both;
+}
+@container (min-width: 250px) {
+  :root[data-design="velvet-paper"] .tab-mode .tab-mode-label {
+    display: inline;
+  }
+  :root[data-design="velvet-paper"] .tab-mode,
+  :root[data-design="velvet-paper"] .tab-mode.on {
+    flex: 1 1 auto;
+  }
+}
+:root[data-design="velvet-paper"] .tab-mode-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f3b6d3;
+  box-shadow: 0 0 0 2px #0f0b13;
+}
+:root[data-design="velvet-paper"] .tab-mode-count {
+  flex: none;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #f3b6d3;
+  color: #22121b;
+  font-size: 10px;
+  font-weight: 700;
+}
+@keyframes vp-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ── Address field: one recessed pill, the site's tools in a tray ─────────
+   The pill is the row now (so the shields popover can hang from it); the
+   input inside goes bare. Find takes the same place while a search is on. */
+:root[data-design="velvet-paper"] .addr-stack {
+  position: relative;
+  flex: none;
+  display: grid;
+}
+:root[data-design="velvet-paper"] .addr-stack > .address-row,
+:root[data-design="velvet-paper"] .addr-stack > .find-bar {
+  grid-area: 1 / 1;
+  transition:
+    opacity 140ms ease-out,
+    transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+:root[data-design="velvet-paper"] .address-row {
+  height: 42px;
+  padding: 0 4px 0 14px;
+  gap: 4px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: #0f0b13;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.6),
+    inset 0 -1px 0 rgba(246, 237, 228, 0.04);
+}
+:root[data-design="velvet-paper"] .address-row:focus-within {
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.6),
+    0 0 0 3px rgba(var(--accent-rgb), 0.14);
+}
+:root[data-design="velvet-paper"] .address-row .address {
+  height: 40px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: var(--vp-font, "Figtree"), system-ui, sans-serif;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+/* Typing an address is precise work: the full URL goes mono while focused. */
+:root[data-design="velvet-paper"] .address-row .address:focus {
+  font-family: var(--vp-mono);
+  font-size: 12px;
+  font-weight: 400;
+  box-shadow: none;
+}
+/* No padlock for the usual case: only a problem earns a glyph (plain HTTP). */
+:root[data-design="velvet-paper"] .address-row .sec-secure {
+  display: none;
+}
+:root[data-design="velvet-paper"] .address-row .sec {
+  font-size: 11px;
+}
+:root[data-design="velvet-paper"] .addr-tray {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+:root[data-design="velvet-paper"] .addr-tray .icon-btn {
+  width: 28px;
+  height: 30px;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 14px;
+}
+:root[data-design="velvet-paper"] .addr-tray .icon-btn:hover {
+  background: var(--vp-raise);
+  transform: none;
+}
+:root[data-design="velvet-paper"] .addr-tray .icon-btn.active {
+  background: var(--vp-wash);
+}
+:root[data-design="velvet-paper"] .addr-tray .icon-btn svg {
+  width: 15px;
+  height: 15px;
+}
+/* Shields with a count is a chip: shield and number side by side. */
+:root[data-design="velvet-paper"] .addr-tray .icon-btn:has(.shield-badge) {
+  width: auto;
+  display: flex;
+  gap: 4px;
+  padding: 0 8px 0 7px;
+  background: var(--vp-raise);
+  color: #c9b5ff;
+}
+:root[data-design="velvet-paper"] .addr-tray .shield-badge {
+  position: static;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  background: none;
+  color: var(--flux-text);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+/* Hung from the field and opening downward, not up from the footer. */
+:root[data-design="velvet-paper"] .addr-tray .footer-pop {
+  top: calc(100% + 8px);
+  bottom: auto;
+  left: 0;
+  right: 0;
+  max-height: calc(100vh - 180px);
+}
+:root[data-design="velvet-paper"] .addr-stack > .find-bar {
+  margin: 0;
+  height: 42px;
+  box-sizing: border-box;
+  padding: 0 4px 0 14px;
+  border: none;
+  background: #0f0b13;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.6),
+    0 0 0 1.5px rgba(201, 181, 255, 0.28);
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .addr-stack.finding > .find-bar {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+:root[data-design="velvet-paper"] .addr-stack.finding > .address-row {
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+}
+:root[data-design="velvet-paper"] .find-bar .find-input {
+  font-size: 13px;
+}
+
+/* The page's actions, one row of small paper buttons. */
+:root[data-design="velvet-paper"] .page-actions {
+  flex-wrap: nowrap;
+  gap: 2px;
+  margin-top: 0;
+}
+:root[data-design="velvet-paper"] .page-actions .icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+}
+:root[data-design="velvet-paper"] .page-actions .icon-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* The footer's tools, seven to a row like the nav row above. */
+:root[data-design="velvet-paper"] .sidebar-footer:not(.collapsed) {
+  gap: 2px;
+}
+:root[data-design="velvet-paper"] .sidebar-footer:not(.collapsed) .icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+}
+:root[data-design="velvet-paper"] .sidebar-footer:not(.collapsed) .icon-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* ── Workspace chips ──────────────────────────────────────────────────── */
+:root[data-design="velvet-paper"] .ws-chips {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 1px 0;
+}
+:root[data-design="velvet-paper"] .ws-chips::-webkit-scrollbar {
+  display: none;
+}
+:root[data-design="velvet-paper"] .ws-chip {
+  flex: none;
+  height: 30px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 999px;
+  background: var(--vp-raise);
+  color: var(--flux-text-dim);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: inset 0 1px 0 rgba(246, 237, 228, 0.05);
+  cursor: pointer;
+}
+:root[data-design="velvet-paper"] .ws-chip:hover {
+  color: var(--flux-text);
+  background: var(--velvet-500);
+}
+:root[data-design="velvet-paper"] .ws-chip.on {
+  background: #f3b6d3;
+  color: #22121b;
+  font-weight: 600;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 6px 14px -8px rgba(0, 0, 0, 0.7);
+}
+:root[data-design="velvet-paper"] .ws-chip.add {
+  width: 30px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(240, 222, 250, 0.14);
+}
+
+/* ── Tab rows on two lines: the name, then where it is ────────────────── */
+:root[data-design="velvet-paper"] .tab-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  row-gap: 1px;
+  align-items: center;
+  min-height: 52px;
+  padding: 6px 10px;
+  box-sizing: border-box;
+}
+:root[data-design="velvet-paper"] .tab-row .tab-favicon {
+  grid-column: 1;
+  grid-row: 1 / 3;
+}
+:root[data-design="velvet-paper"] .tab-row .title,
+:root[data-design="velvet-paper"] .tab-row .tab-rename {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  min-width: 0;
+}
+:root[data-design="velvet-paper"] .tab-row .tab-where {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: start;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+}
+:root[data-design="velvet-paper"] .tab-row.active .tab-where {
+  color: var(--flux-text-dim);
+}
+:root[data-design="velvet-paper"] .tab-row .tab-moon,
+:root[data-design="velvet-paper"] .tab-row .close {
+  grid-column: 3;
+  grid-row: 1 / 3;
+}
+:root[data-design="velvet-paper"] .tab-row .tab-moon {
+  display: grid;
+  color: var(--flux-text-mute);
+}
+:root[data-design="velvet-paper"] .tab-row .tab-moon svg {
+  width: 15px;
+  height: 15px;
+}
+:root[data-design="velvet-paper"] .tab-row:hover .tab-moon {
+  visibility: hidden;
+}
+/* Asleep: still readable, just quieter; the moon says why. */
+:root[data-design="velvet-paper"] .tab-row.sleeping {
+  opacity: 1;
+}
+:root[data-design="velvet-paper"] .tab-row.sleeping .title {
+  font-style: normal;
+  color: var(--flux-text-mute);
+}
+:root[data-design="velvet-paper"] .tab-row.sleeping .tab-favicon {
+  opacity: 0.5;
+}
+
+/* ── Leaving the tabs: the list fades where it stands ────────────────────
+   It stays laid out underneath (hidden), so the morph can measure every
+   row's favicon; those go at once, since their copies are the ones flying. */
+:root[data-design="velvet-paper"] .sidebar > .addr-stack,
+:root[data-design="velvet-paper"] .sidebar > .page-actions,
+:root[data-design="velvet-paper"] .sidebar > .ws-chips,
+:root[data-design="velvet-paper"] .sidebar > .pin-grid,
+:root[data-design="velvet-paper"] .sidebar > .new-tab-control,
+:root[data-design="velvet-paper"] .sidebar > .tab-list-head,
+:root[data-design="velvet-paper"] .sidebar > .tab-list,
+:root[data-design="velvet-paper"] .sidebar > .folders {
+  transition: opacity 220ms ease-out 60ms;
+}
+:root[data-design="velvet-paper"] .sidebar[data-mode="calendar"] > .addr-stack,
+:root[data-design="velvet-paper"] .sidebar[data-mode="calendar"] > .page-actions,
+:root[data-design="velvet-paper"] .sidebar[data-mode="calendar"] > .ws-chips,
+:root[data-design="velvet-paper"] .sidebar[data-mode="calendar"] > .pin-grid,
+:root[data-design="velvet-paper"] .sidebar[data-mode="calendar"] > .new-tab-control,
+:root[data-design="velvet-paper"] .sidebar[data-mode="calendar"] > .tab-list-head,
+:root[data-design="velvet-paper"] .sidebar[data-mode="calendar"] > .tab-list,
+:root[data-design="velvet-paper"] .sidebar[data-mode="calendar"] > .folders,
+:root[data-design="velvet-paper"] .sidebar[data-mode="mail"] > .addr-stack,
+:root[data-design="velvet-paper"] .sidebar[data-mode="mail"] > .page-actions,
+:root[data-design="velvet-paper"] .sidebar[data-mode="mail"] > .ws-chips,
+:root[data-design="velvet-paper"] .sidebar[data-mode="mail"] > .pin-grid,
+:root[data-design="velvet-paper"] .sidebar[data-mode="mail"] > .new-tab-control,
+:root[data-design="velvet-paper"] .sidebar[data-mode="mail"] > .tab-list-head,
+:root[data-design="velvet-paper"] .sidebar[data-mode="mail"] > .tab-list,
+:root[data-design="velvet-paper"] .sidebar[data-mode="mail"] > .folders {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 120ms cubic-bezier(0.3, 0, 1, 1),
+    visibility 0s linear 120ms;
+}
+:root[data-design="velvet-paper"] .sidebar[data-mode="calendar"] .tab-row .tab-favicon,
+:root[data-design="velvet-paper"] .sidebar[data-mode="calendar"] .pin-tile,
+:root[data-design="velvet-paper"] .sidebar[data-mode="mail"] .tab-row .tab-favicon,
+:root[data-design="velvet-paper"] .sidebar[data-mode="mail"] .pin-tile {
+  visibility: hidden;
+  transition: none;
+}
+
+/* ── The mode panel: a rail of favicons beside Calendar or Mail ───────── */
+:root[data-design="velvet-paper"] .tab-mode-panel {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 120ms cubic-bezier(0.3, 0, 1, 1),
+    visibility 0s linear 120ms;
+}
+:root[data-design="velvet-paper"] .tab-mode-panel.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 160ms ease-out;
+}
+:root[data-design="velvet-paper"] .mode-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 2px 0 6px;
+  border-right: 1px solid rgba(240, 222, 250, 0.06);
+}
+:root[data-design="velvet-paper"] .mode-rail::-webkit-scrollbar {
+  display: none;
+}
+:root[data-design="velvet-paper"] .mode-rail-tile,
+:root[data-design="velvet-paper"] .mode-rail-add {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 11px;
+  background: var(--vp-chip);
+  color: var(--flux-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+:root[data-design="velvet-paper"] .mode-rail-tile:hover {
+  background: var(--velvet-500);
+}
+:root[data-design="velvet-paper"] .mode-rail-tile.on {
+  background: #f3b6d3;
+  color: #22121b;
+  box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.7);
+}
+:root[data-design="velvet-paper"] .mode-rail-tile.asleep {
+  opacity: 0.45;
+}
+:root[data-design="velvet-paper"] .mode-rail-tile .fav-img {
+  width: 16px;
+  height: 16px;
+}
+/* Leaving: the tiles go at once; their copies fly home to the rows. */
+:root[data-design="velvet-paper"] .tab-mode-panel:not(.open) .mode-rail-tile {
+  visibility: hidden;
+}
+:root[data-design="velvet-paper"] .mode-rail-rule {
+  flex: none;
+  width: 18px;
+  height: 1px;
+  margin: 2px 0;
+  background: rgba(240, 222, 250, 0.12);
+}
+:root[data-design="velvet-paper"] .mode-rail-add {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(240, 222, 250, 0.16);
+  color: var(--flux-text-dim);
+  font-size: 16px;
+  font-weight: 400;
+}
+:root[data-design="velvet-paper"] .mode-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+:root[data-design="velvet-paper"] .mode-page {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+:root[data-design="velvet-paper"] .mode-body::-webkit-scrollbar {
+  display: none;
+}
+:root[data-design="velvet-paper"] .mode-page[hidden] {
+  display: none;
+}
+/* The copies in flight, above everything in the pane. */
+:root[data-design="velvet-paper"] .mode-flight {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+
+/* The panel's parts arrive after the marks, top to bottom. */
+:root[data-design="velvet-paper"] .tab-mode-panel.entering .mode-cal > :not(.mode-month),
+:root[data-design="velvet-paper"] .tab-mode-panel.entering .mode-month > * {
+  animation: vp-mode-rise 220ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation-delay: calc(120ms + var(--i, 0) * 28ms);
+}
+:root[data-design="velvet-paper"] .tab-mode-panel.entering .mail-pane > * {
+  animation: vp-mode-rise 220ms cubic-bezier(0.2, 0, 0, 1) 160ms both;
+}
+@keyframes vp-mode-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-design="velvet-paper"] .tab-mode-panel.entering * {
+    animation: none;
+  }
+  :root[data-design="velvet-paper"] .tab-modes-thumb {
+    transition: none;
+  }
+}
+
+/* ── Calendar mode ────────────────────────────────────────────────────── */
+:root[data-design="velvet-paper"] .mode-cal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+:root[data-design="velvet-paper"] .mode-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+:root[data-design="velvet-paper"] .mode-btn {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 9px;
+  background: var(--vp-raise);
+  color: var(--flux-text-dim);
+  font-size: 14px;
+  cursor: pointer;
+}
+:root[data-design="velvet-paper"] .mode-btn:hover {
+  color: var(--flux-text);
+  background: var(--velvet-500);
+}
+:root[data-design="velvet-paper"] .mode-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0 2px;
+  font-family: var(--vp-display);
+  font-size: 15px;
+  font-variation-settings: "SOFT" 100;
+}
+:root[data-design="velvet-paper"] .mode-week {
+  float: right;
+  letter-spacing: 0.1em;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--flux-text-mute);
+}
+:root[data-design="velvet-paper"] .mode-elsewhere {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+:root[data-design="velvet-paper"] .mode-link {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 999px;
+  background: var(--vp-raise);
+  color: var(--flux-text-dim);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+:root[data-design="velvet-paper"] .mode-link:hover {
+  color: var(--flux-text);
+  background: var(--velvet-500);
+}
+:root[data-design="velvet-paper"] .mode-month {
+  display: grid;
+  gap: 2px;
+}
+:root[data-design="velvet-paper"] .mode-dows,
+:root[data-design="velvet-paper"] .mode-weekrow {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+}
+:root[data-design="velvet-paper"] .mode-dows span {
+  text-align: center;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--flux-text-mute);
+}
+:root[data-design="velvet-paper"] .mode-day {
+  position: relative;
+  height: 26px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--flux-text);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+:root[data-design="velvet-paper"] .mode-day:hover {
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .mode-day.out {
+  color: var(--flux-text-mute);
+  opacity: 0.55;
+}
+:root[data-design="velvet-paper"] .mode-day.busy::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: #c9b5ff;
+}
+:root[data-design="velvet-paper"] .mode-day.sel {
+  box-shadow: inset 0 0 0 1.5px rgba(201, 181, 255, 0.55);
+}
+:root[data-design="velvet-paper"] .mode-day.today {
+  background: var(--vp-satin);
+  color: #1a1020;
+  font-weight: 700;
+}
+:root[data-design="velvet-paper"] .mode-day.today.busy::after {
+  background: #1a1020;
+}
+:root[data-design="velvet-paper"] .mode-next {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px 11px 16px;
+  border-radius: 16px;
+  background: var(--vp-raise);
+  box-shadow:
+    inset 0 1px 0 rgba(246, 237, 228, 0.07),
+    0 10px 22px -12px rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+}
+:root[data-design="velvet-paper"] .mode-next::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--vp-satin);
+}
+:root[data-design="velvet-paper"] .mode-next-when {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #f3b6d3;
+}
+:root[data-design="velvet-paper"] .mode-next-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+:root[data-design="velvet-paper"] .mode-next-meta {
+  font-size: 11.5px;
+  color: var(--flux-text-dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+:root[data-design="velvet-paper"] .mode-sub {
+  margin: 2px 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--flux-text-mute);
+}
+:root[data-design="velvet-paper"] .mode-ev {
+  display: grid;
+  gap: 1px;
+  padding: 5px 2px 5px 8px;
+  border-left: 2px solid rgba(201, 181, 255, 0.35);
+}
+:root[data-design="velvet-paper"] .mode-ev + .mode-ev {
+  margin-top: 4px;
+}
+:root[data-design="velvet-paper"] .mode-ev-title {
+  font-size: 12.5px;
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+:root[data-design="velvet-paper"] .mode-ev-time {
+  font-size: 11px;
+  color: var(--flux-text-mute);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+:root[data-design="velvet-paper"] .mode-now {
+  position: relative;
+  height: 0;
+  margin: 4px 0;
+  border-top: 1.5px solid #f3b6d3;
+}
+:root[data-design="velvet-paper"] .mode-now::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: -4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f3b6d3;
+}
+:root[data-design="velvet-paper"] .mode-empty {
+  padding: 2px;
+  font-size: 12px;
+  color: var(--flux-text-mute);
+}
+:root[data-design="velvet-paper"] .mode-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+:root[data-design="velvet-paper"] .mode-task input {
+  accent-color: #c9b5ff;
+}
+:root[data-design="velvet-paper"] .mode-task span:first-of-type {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+:root[data-design="velvet-paper"] .mode-task-late {
+  flex: none;
+  margin-left: auto;
+  font-size: 10px;
+  color: #f3b6d3;
+}
+:root[data-design="velvet-paper"] .mode-add {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #0f0b13;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.6),
+    inset 0 -1px 0 rgba(246, 237, 228, 0.04);
+  color: var(--flux-text-mute);
+}
+:root[data-design="velvet-paper"] .mode-add input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--flux-text);
+  font-size: 12px;
+  outline: none;
+}
+:root[data-design="velvet-paper"] .mode-note {
+  font-size: 11.5px;
+  color: var(--flux-text-dim);
+}
+
+/* ── Mail mode: the inbox, narrower than the column ───────────────────── */
+:root[data-design="velvet-paper"] .tab-mode-panel .mail-pane {
+  isolation: auto;
+  padding: 0;
+  gap: 8px;
+  box-shadow: none;
+}
+:root[data-design="velvet-paper"] .tab-mode-panel .mail-pane::before,
+:root[data-design="velvet-paper"] .tab-mode-panel .mail-pane::after {
+  content: none;
+}
+:root[data-design="velvet-paper"] .mail-filter {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: #0f0b13;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+:root[data-design="velvet-paper"] .mail-filter button {
+  flex: 1;
+  height: 26px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--flux-text-mute);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+:root[data-design="velvet-paper"] .mail-filter button.on {
+  background: #2b2233;
+  color: var(--flux-text);
+  box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.7);
+}
+:root[data-design="velvet-paper"] .tab-mode-panel .mail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+:root[data-design="velvet-paper"] .tab-mode-panel .mail-msg {
+  width: 100%;
+  background: transparent;
+}
+:root[data-design="velvet-paper"] .tab-mode-panel .mail-item.picked {
+  border-radius: 16px;
+  background: var(--vp-raise);
+  box-shadow: 0 10px 22px -12px rgba(0, 0, 0, 0.8);
+}
+:root[data-design="velvet-paper"] .tab-mode-panel .mail-msg.unread .mail-from::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 6px 1px 0;
+  border-radius: 50%;
+  background: var(--vp-satin);
+}
+:root[data-design="velvet-paper"] .mail-actions {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+:root[data-design="velvet-paper"] .mail-open {
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: var(--vp-satin);
+  color: #1a1020;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+:root[data-design="velvet-paper"] .mail-open:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+:root[data-design="velvet-paper"] .mail-foot {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  text-align: center;
+  color: var(--flux-text-mute);
+}

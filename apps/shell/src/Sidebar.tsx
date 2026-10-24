@@ -7,20 +7,13 @@ import { setLauncherOpen } from "./launcherOpen";
  */
 import Downloads from "./Downloads";
 import Shields from "./Shields";
+import type { FooterPanel } from "./SidebarPanels";
 import {
-  SETTINGS_URL,
   calEvents,
   historySearch,
   isStartUrl,
-  PDF_URL,
-  memStatus,
-  noteGet,
-  noteSet,
   omniAnswer,
-  searchDefault,
-  searchEngines,
   searchResolve,
-  searchSetDefault,
   searchSuggest,
   watchAdd,
   watchIsWatched,
@@ -28,9 +21,7 @@ import {
   webviewForward,
   webviewReload,
   webviewStop,
-  type MemInfo,
   type OmniAnswerSource,
-  type SearchEngine,
   type TabGroup,
   type TabMeta,
   type Workspace,
@@ -38,10 +29,9 @@ import {
 import {
   activeId,
   activePanelId,
-  activePanelIdB,
   activeTab,
   activeWorkspace,
-  aiAnswersOn,
+  findOpen,
   archivedTabs,
   archivedBranches,
   calendarPopOpen,
@@ -49,17 +39,11 @@ import {
   setCalendarPopOpen,
   dockOpen,
   toggleDock,
-  restoreBranch,
-  removeBranch,
-  clearArchived,
   clearTile,
   closeTab,
   containerById,
   containerColor,
   containers,
-  createContainer,
-  darkMode,
-  deleteContainer,
   deleteFolder,
   deleteGroup,
   editorColOpen,
@@ -72,13 +56,9 @@ import {
   groupColor,
   groupWithTab,
   groups,
-  hibernateEnabled,
-  hibernateMins,
   isHibernated,
   isLoading,
   kbPanelOpen,
-  memEvict,
-  mouseGestures,
   newFolderWithTab,
   newGroupWithTab,
   omniAutoAnswer,
@@ -86,15 +66,11 @@ import {
   openTabInContainer,
   panelBadges,
   panels,
-  pinPanel,
   pinnedTabs,
   playgroundOpen,
   readerOpen,
-  recolorContainer,
   recolorGroup,
   recolorWorkspace,
-  removeArchived,
-  renameContainer,
   renameFolder,
   renameGroup,
   renameTab,
@@ -103,20 +79,10 @@ import {
   clearWorkspaceRename,
   reorderPanels,
   reorderTabs,
-  restoreArchived,
   searchSuggestOn,
-  setAiAnswersOn,
-  setDarkMode,
-  setHibernateEnabled,
-  setHibernateMins,
-  setMemEvict,
-  setMouseGestures,
-  setOmniAutoAnswer,
-  setSearchSuggestOn,
   setSplitPickerOpen,
   setTabFolder,
   setTabGroup,
-  setVimHints,
   setWatchPanelOpen,
   setTile,
   setTileLayout,
@@ -128,11 +94,8 @@ import {
   tabs,
   toggleGroupCollapsed,
   togglePanel,
-  togglePanelBottom,
   togglePin,
-  unpinPanel,
   unpinnedTabs,
-  vimHints,
   workspaceColor,
   workspaces,
   wsPanelOpen,
@@ -144,6 +107,8 @@ import {
   zoomFor,
 } from "./store";
 import Icon from "./Icon";
+import { design } from "./design";
+import { mailUnread, setTabMode, tabMode, TAB_MODES, type TabMode } from "./tabMode";
 import { visibleInterval } from "./poll";
 import { attachHScroll } from "./hscroll";
 import RailTip, { hideTip, showTip } from "./RailTip";
@@ -168,7 +133,8 @@ import {
 import { Portal } from "solid-js/web";
 
 // Footer panels / overlays — lazy: their chunks load on first open (ADR 0001).
-const Extensions = lazy(() => import("./Extensions"));
+const SidebarPanels = lazy(() => import("./SidebarPanels"));
+const TabModePanel = lazy(() => import("./TabModePanel"));
 const Boosts = lazy(() => import("./Boosts"));
 const Macros = lazy(() => import("./Macros"));
 const Passwords = lazy(() => import("./Passwords"));
@@ -216,7 +182,6 @@ interface SidebarProps {
 
 // NB: full-page destinations (bookmarks/history/sessions/…) live on the
 // PagesBar + ⌘K, not here — the footer holds only act-in-context panels.
-type FooterPanel = "extensions" | "settings" | "webpanels" | "notes" | "archived" | null;
 /** An omnibox suggestion (#32): a local history hit (has `url`) or an engine suggestion. */
 type Suggestion = { kind: "history" | "search"; label: string; sub?: string; url?: string };
 
@@ -316,18 +281,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
       .filter((t) => !query || `${tabLabel(t)} ${t.url} ${splitContext(t)}`.toLowerCase().includes(query))
       .sort((a, b) => lastAccessForUrl(b.url) - lastAccessForUrl(a.url));
   });
-  /** Can this page be pinned as a panel?
-   *
-   *  Web pages get a native webview; Flux's own pages render as DOM through
-   *  `InternalPage`. The one exclusion is the PDF viewer, which resolves its file
-   *  from the *tab* it belongs to — a panel has no tab, so it would open empty.
-   *  Files tabs are excluded by `kind` for the same reason. */
-  const canPinAsPanel = () => {
-    const t = activeTab();
-    if (!t || t.kind !== "browser") return false;
-    return !t.url.startsWith(PDF_URL);
-  };
-
   /** The group holding `id`, if any. Distinct from `tileGroup()`, which is only
    *  the group the *active* tab is in: the tab strip and the context menu have to
    *  reflect every split, not just the one currently on screen. */
@@ -344,6 +297,97 @@ const Sidebar: Component<SidebarProps> = (props) => {
     const t = activeTab();
     return t?.kind === "browser" && !isStartUrl(t.url);
   };
+  // Velvet Paper lays the pane out as its boards draw it: modes at the top, the
+  // site's tools in the address field, find inside it, workspace chips and
+  // two-line rows. Classic keeps the layout it always had.
+  const vp = () => design() === "velvet-paper";
+  /** Just the site, for the address field at rest. */
+  const siteOf = (u: string) => {
+    if (!/^https?:\/\//.test(u)) return u;
+    try {
+      return new URL(u).hostname.replace(/^www\./, "");
+    } catch {
+      return u;
+    }
+  };
+  /** A tab row's second line: where the tab is, and how long it has slept. */
+  const tabWhere = (t: TabMeta) => {
+    const where =
+      t.kind === "terminal"
+        ? "Terminal"
+        : t.kind === "files"
+          ? "Files"
+          : t.url.startsWith("flux://")
+            ? "Flux"
+            : siteOf(t.url);
+    if (!isHibernated(t.id)) return where;
+    const mins = (Date.now() - lastAccessForUrl(t.url)) / 60_000;
+    const ago =
+      mins < 60
+        ? `${Math.max(1, Math.round(mins))} m`
+        : mins < 1440
+          ? `${Math.round(mins / 60)} h`
+          : `${Math.round(mins / 1440)} d`;
+    return lastAccessForUrl(t.url) ? `asleep ${ago} · ${where}` : `asleep · ${where}`;
+  };
+  // Find lives inside the address field: ⌘F (or the actions row's ⌕) turns the
+  // field into the find bar until the search is cleared or the address is asked for.
+  const [findFocus, setFindFocus] = createSignal(false);
+  const finding = () => vp() && (findOpen() || findFocus()) && !addrFocused();
+  const MODE_INFO: Record<TabMode, { label: string; icon: "tabs" | "calendar" | "mail" }> = {
+    tabs: { label: "Tabs", icon: "tabs" },
+    calendar: { label: "Calendar", icon: "calendar" },
+    mail: { label: "Mail", icon: "mail" },
+  };
+  // The legend in the pane's edge names the mode.
+  const legend = () => {
+    const m = tabMode();
+    if (!vp() || m === "tabs") return `Tabs · ${activeWorkspaceName()}`;
+    if (m === "mail") return mailUnread() ? `Mail · Inbox · ${mailUnread()} new` : "Mail · Inbox";
+    return `Calendar · ${new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}`;
+  };
+  // The switch's thumb travels to the picked segment, measured once it's laid out.
+  let modesEl: HTMLDivElement | undefined;
+  const [thumb, setThumb] = createSignal<{ x: number; w: number } | null>(null);
+  const placeThumb = () => {
+    const b = modesEl?.querySelector<HTMLElement>(".tab-mode.on");
+    if (b) setThumb({ x: b.offsetLeft, w: b.offsetWidth });
+  };
+  // After the change has laid out (a timeout, not a frame: a hidden window gets
+  // no frames, and the thumb must still be right when it's shown again).
+  createEffect(on([tabMode, vp, () => props.collapsed], () => setTimeout(placeThumb, 0)));
+  // A change of mode: the thumb stretches like liquid on its way and the
+  // legend's new word fades in. Not on the first shape.
+  let navEl: HTMLElement | undefined;
+  createEffect(
+    on(
+      tabMode,
+      () => {
+        if (!vp() || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        modesEl
+          ?.querySelector(".tab-modes-thumb")
+          ?.animate([{ scale: "1 1" }, { scale: "1.22 0.94", offset: 0.4 }, { scale: "1 1" }], {
+            duration: 220,
+            easing: "ease-out",
+          });
+        try {
+          navEl?.animate([{ opacity: 0 }, { opacity: 1 }], {
+            duration: 220,
+            easing: "ease-out",
+            pseudoElement: "::after",
+          });
+        } catch {
+          /* no pseudo-element animation: the word just changes */
+        }
+      },
+      { defer: true },
+    ),
+  );
+  // Leaving the tabs needs the panel's chunk; it stays mounted after that.
+  const [modesLoaded, setModesLoaded] = createSignal(false);
+  createEffect(() => {
+    if (tabMode() !== "tabs") setModesLoaded(true);
+  });
   /** Tabs currently in the tiling, active tab first — the picker's selection. */
   const tileSel = () => {
     const g = tileGroup();
@@ -398,56 +442,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [boostsLoaded, setBoostsLoaded] = createSignal(false);
   const [macrosLoaded, setMacrosLoaded] = createSignal(false);
   const [passwordsLoaded, setPasswordsLoaded] = createSignal(false);
-  // Per-page notes (#53): the popover edits the active page's note (auto-saved).
-  // It stays open across tab switches and navigation, so the text is tied to the
-  // page it was loaded for: an edit is saved there, and a new page under the
-  // popover gets its own note loaded rather than inheriting the previous text.
-  const [noteText, setNoteText] = createSignal("");
-  // Read-only until the page's note has loaded, so nothing typed can start from
-  // the previous page's text.
-  const [noteLoaded, setNoteLoaded] = createSignal(false);
-  let noteTimer: number | undefined;
-  let noteUrl: string | null = null;
-  let notePending: { url: string; text: string } | null = null;
-  const flushNote = () => {
-    clearTimeout(noteTimer);
-    const p = notePending;
-    notePending = null;
-    if (p) void noteSet(p.url, p.text).catch(() => {});
-  };
-  const loadNote = () => {
-    flushNote(); // the previous page's last edit is written, not dropped
-    const t = activeTab();
-    const url = t?.kind === "browser" && !isStartUrl(t.url) ? t.url : null;
-    noteUrl = url;
-    setNoteLoaded(false);
-    setNoteText("");
-    if (!url) return;
-    const show = (s: string) => {
-      if (noteUrl !== url) return; // the popover has moved to another page since
-      setNoteText(s);
-      setNoteLoaded(true);
-    };
-    void noteGet(url)
-      .then(show)
-      .catch(() => show(""));
-  };
-  const saveNote = (text: string) => {
-    setNoteText(text);
-    if (!noteUrl) return;
-    notePending = { url: noteUrl, text };
-    clearTimeout(noteTimer);
-    noteTimer = window.setTimeout(flushNote, 400);
-  };
-  // Reload whenever the page under the open popover changes. Keyed on the URL
-  // string, so a title tick (a fresh activeTab object) can't reload the note
-  // being typed.
-  const noteTarget = createMemo(() => (panel() === "notes" ? (activeTab()?.url ?? "") : null));
-  createEffect(
-    on(noteTarget, (url) => {
-      if (url != null) loadNote();
-    }),
-  );
   // Active page's per-host zoom (#36), reactive via the zoom store.
   const activeZoom = (): number => {
     const t = activeTab();
@@ -458,9 +452,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
       return 1;
     }
   };
-  const [engines, setEngines] = createSignal<SearchEngine[]>([]);
-  const [defaultEngine, setDefaultEngine] = createSignal("");
-  const [mem, setMem] = createSignal<MemInfo | null>(null);
   // Tab drag-reorder (#30).
   const [dragId, setDragId] = createSignal<number | null>(null);
   const [dropId, setDropId] = createSignal<number | null>(null);
@@ -509,7 +500,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
     setWsPanelOpen(true);
     clearWorkspaceRename();
   });
-  const [editContainer, setEditContainer] = createSignal<number | null>(null);
   const [editFolder, setEditFolder] = createSignal<number | null>(null);
   // The folder whose tabs are showing under the icon strip; one at a time.
   const [openFolderId, setOpenFolderId] = createSignal<number | null>(null);
@@ -676,8 +666,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
           : "drag: top/bottom reorder · middle group · right edge split · right-click for menu"
       }
     >
-      <span class="tab-favicon">
-        {p.tab.private ? "🕶" : isHibernated(p.tab.id) ? "💤" : <Favicon tab={p.tab} />}
+      <span class="tab-favicon" data-tab-id={p.tab.id}>
+        {p.tab.private ? "🕶" : isHibernated(p.tab.id) && !vp() ? "💤" : <Favicon tab={p.tab} />}
       </span>
       <Show
         when={editTab() === p.tab.id}
@@ -694,6 +684,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
         }
       >
         <TabRename tab={p.tab} />
+      </Show>
+      <Show when={vp()}>
+        <span class="tab-where">{tabWhere(p.tab)}</span>
+        <Show when={isHibernated(p.tab.id)}>
+          <span class="tab-moon" title="Sleeping — click to wake">
+            <Icon name="moon" />
+          </span>
+        </Show>
       </Show>
       <button
         class="close"
@@ -737,42 +735,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
    *  second split could never be seen at all — only one row was ever emitted. */
   const ungroupedItems = createMemo((): StripRow<TabMeta>[] => stripRows(ungroupedTabs(), tileGroups()));
 
-  const openPanel = async (p: FooterPanel) => {
-    setPanel((cur) => (cur === p ? null : p));
-    if (p === "settings") {
-      void memStatus()
-        .then(setMem)
-        .catch(() => {});
-      try {
-        const [es, d] = await Promise.all([searchEngines(), searchDefault()]);
-        setEngines(es);
-        setDefaultEngine(d);
-      } catch {
-        /* preview/offline */
-      }
-    }
-  };
-  // Live-ish RAM readout — only polls while the settings panel is actually open
-  // (was an always-on 2.5s timer that ran even with the panel closed).
-  createEffect(() => {
-    if (panel() !== "settings") return;
-    void memStatus()
-      .then(setMem)
-      .catch(() => {});
-    const t = window.setInterval(
-      () =>
-        void memStatus()
-          .then(setMem)
-          .catch(() => {}),
-      2500,
-    );
-    onCleanup(() => clearInterval(t));
-  });
-
-  const pickEngine = async (id: string) => {
-    setDefaultEngine(id);
-    await searchSetDefault(id).catch(() => {});
-  };
+  const openPanel = (p: FooterPanel) => setPanel((cur) => (cur === p ? null : p));
 
   // Seed the address field from the active tab (blank on the start page).
   const currentUrl = () => {
@@ -961,11 +924,41 @@ const Sidebar: Component<SidebarProps> = (props) => {
     if (kind === "terminal" && !props.terminalOpen) props.onToggleTerminal();
   };
 
+  // Files, Playground and Notebook: in the nav row in Classic, with the footer's
+  // tools in Velvet Paper.
+  const pageTools = () => (
+    <>
+      <button
+        classList={{ "icon-btn": true, active: filesPanelOpen() }}
+        title="File explorer"
+        onClick={props.onToggleFilesPanel}
+      >
+        <Icon name="files" />
+      </button>
+      <button
+        classList={{ "icon-btn": true, active: playgroundOpen() }}
+        title="Playground — offline arcade"
+        onClick={props.onOpenPlayground}
+      >
+        <Icon name="playground" />
+      </button>
+      <button
+        classList={{ "icon-btn": true, active: kbPanelOpen() }}
+        title="Notebook — your knowledge base (Onyx + Scroll)"
+        onClick={props.onOpenNotebook}
+      >
+        <Icon name="notebook" />
+      </button>
+    </>
+  );
+
   return (
     <nav
+      ref={navEl}
       class="sidebar"
       // Velvet Paper (design.ts) sets this into the pane's top edge.
-      data-legend={`Tabs · ${activeWorkspaceName()}`}
+      data-legend={legend()}
+      data-mode={vp() && !props.collapsed ? tabMode() : undefined}
       classList={{
         "with-apps": !props.collapsed && panels().length > 0 && appRailOpen(),
         collapsed: props.collapsed,
@@ -1100,27 +1093,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
           >
             ⌂
           </button>
-          <button
-            classList={{ "icon-btn": true, active: filesPanelOpen() }}
-            title="File explorer"
-            onClick={props.onToggleFilesPanel}
-          >
-            <Icon name="files" />
-          </button>
-          <button
-            classList={{ "icon-btn": true, active: playgroundOpen() }}
-            title="Playground — offline arcade"
-            onClick={props.onOpenPlayground}
-          >
-            <Icon name="playground" />
-          </button>
-          <button
-            classList={{ "icon-btn": true, active: kbPanelOpen() }}
-            title="Notebook — your knowledge base (Onyx + Scroll)"
-            onClick={props.onOpenNotebook}
-          >
-            <Icon name="notebook" />
-          </button>
+          {/* Velvet Paper keeps these three with the other tools in the footer. */}
+          <Show when={!vp()}>{pageTools()}</Show>
         </Show>
         {/* Directly after the tools, not pushed to the right end by a flex
             spacer: the row wraps, and a spacer would strand the caret alone on
@@ -1148,167 +1122,254 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </button>
         </Show>
       </div>
-
-      <Show when={!props.collapsed}>
-        {/* Address / search pill */}
-        <form onSubmit={submitAddress} class="address-row">
-          <Show when={security()}>
-            {(s) => (
-              <span class={`sec ${s().cls}`} title={s().title}>
-                {s().icon}
-              </span>
-            )}
-          </Show>
-          <input
-            id="flux-address"
-            class="address"
-            value={address() ?? currentUrl()}
-            onInput={(e) => onAddressInput(e.currentTarget.value)}
-            onFocus={(e) => {
-              e.currentTarget.select();
-              setAddrFocused(true);
-            }}
-            onKeyDown={onAddressKeyDown}
-            onBlur={() => {
-              setAddrFocused(false);
-              setTimeout(closeSuggest, 150);
-            }}
-            placeholder={shortcutLabel("Search or enter address  (Ctrl+L)")}
-            spellcheck={false}
-            autocomplete="off"
+      {/* Modes (Velvet Paper): the pane is the tab list, a calendar or the inbox.
+          The thumb travels to the picked segment; leaving the tabs folds the
+          list into a rail of favicons beside the mode's panel (TabModePanel). */}
+      <Show when={vp() && !props.collapsed}>
+        <div
+          class="tab-modes"
+          role="tablist"
+          aria-label="Tabs pane"
+          ref={(el) => {
+            modesEl = el;
+            const ro = new ResizeObserver(placeThumb);
+            ro.observe(el);
+            onCleanup(() => ro.disconnect());
+          }}
+        >
+          <span
+            class="tab-modes-thumb"
+            aria-hidden="true"
+            style={
+              thumb()
+                ? { transform: `translateX(${thumb()!.x}px)`, width: `${thumb()!.w}px` }
+                : { opacity: 0 }
+            }
           />
-          {/* Per-site zoom (#36): shown only when ≠ 100%; click to reset. */}
-          <Show when={activeZoom() !== 1}>
-            <button
-              type="button"
-              class="zoom-pill"
-              title={shortcutLabel("Reset zoom (Ctrl+0)")}
-              onClick={() => props.onZoomReset()}
-            >
-              {Math.round(activeZoom() * 100)}%
-            </button>
-          </Show>
-          {/* Loading bar: lives in the sidebar, never under the native webview. */}
-          <Show when={isLoading(activeId())}>
-            <div class="addr-progress" />
-          </Show>
-          {/* Live suggestions (#32) — sidebar-resident, so never under the webview.
-              Also hosts the Omni AI answer card + its "Ask" trigger. */}
-          <Show when={omniAns() !== null || ((suggestions().length > 0 || canAsk()) && addrFocused())}>
-            <div class="omni-suggest">
-              {/* Streamed, grounded answer from the Omni index. */}
-              <Show when={omniAns()}>
-                {(a) => (
-                  <div class="omni-answer">
-                    <div class="omni-answer-head">
-                      <span class="spark">✦</span> Omni answer
-                      <Show when={a().streaming}>
-                        <span class="omni-answer-dot" />
-                      </Show>
-                      <button
-                        type="button"
-                        class="omni-answer-close"
-                        title="Dismiss Omni answer"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          clearOmniAns();
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
-                    <div class="omni-answer-body">
-                      <Show when={a().text} fallback={a().streaming ? "Thinking…" : "No answer."}>
-                        <For each={answerParts(a().text)}>
-                          {(part) =>
-                            typeof part === "string" ? (
-                              <span>{part}</span>
-                            ) : a().sources[part.cite - 1] ? (
-                              <sup
-                                class="omni-cite"
-                                title={a().sources[part.cite - 1]!.title}
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  props.onNavigate(a().sources[part.cite - 1]!.url);
-                                }}
-                              >
-                                {part.cite}
-                              </sup>
-                            ) : (
-                              <span>[{part.cite}]</span>
-                            )
-                          }
-                        </For>
-                      </Show>
-                    </div>
-                    <Show when={a().sources.length > 0}>
-                      <div class="omni-answer-src">
-                        <For each={a().sources}>
-                          {(s) => (
-                            <button
-                              type="button"
-                              class="omni-answer-cite"
-                              title={s.url}
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                props.onNavigate(s.url);
-                              }}
-                            >
-                              [{s.n}] {s.title}
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  </div>
-                )}
-              </Show>
-              {/* Ask trigger (until an answer exists for this query). */}
-              <Show when={omniAns() === null && canAsk()}>
-                <button
-                  type="button"
-                  class="omni-sug omni-ask"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    startOmniAnswer(address() ?? "");
-                  }}
-                >
-                  <span class="omni-sug-icon">✦</span>
-                  <span class="omni-sug-text">
-                    <span class="omni-sug-label">Ask Omni: {(address() ?? "").trim()}</span>
-                    <span class="omni-sug-sub">grounded answer from your index · Alt+Enter</span>
-                  </span>
-                </button>
-              </Show>
-              <For each={suggestions()}>
-                {(s, i) => (
+          <For each={TAB_MODES}>
+            {(m, i) => (
+              <button
+                role="tab"
+                classList={{ "tab-mode": true, on: tabMode() === m }}
+                aria-selected={tabMode() === m}
+                title={`${MODE_INFO[m].label} (${shortcutLabel(`Alt+${i() + 1}`)})`}
+                onClick={() => setTabMode(m)}
+              >
+                <Icon name={MODE_INFO[m].icon} />
+                <span class="tab-mode-label">{MODE_INFO[m].label}</span>
+                <Show when={m === "calendar" && calSoon()}>
+                  <span class="tab-mode-dot" title="An event starts within 30 minutes" />
+                </Show>
+                <Show when={m === "mail" && (mailUnread() ?? 0) > 0}>
+                  <span class="tab-mode-count">{mailUnread()! > 99 ? "99+" : mailUnread()}</span>
+                </Show>
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show when={!props.collapsed}>
+        {/* Address / search pill. In Velvet Paper the find bar shares its place:
+            it takes the field over while a search is on (see `finding`). */}
+        <div
+          classList={{ "addr-stack": true, finding: finding() }}
+          style={vp() ? undefined : { display: "contents" }}
+          onFocusIn={(e) => {
+            if ((e.target as HTMLElement).id === "flux-find") setFindFocus(true);
+          }}
+          onFocusOut={(e) => {
+            if ((e.target as HTMLElement).id === "flux-find") setFindFocus(false);
+          }}
+        >
+          <form onSubmit={submitAddress} class="address-row">
+            <Show when={security()}>
+              {(s) => (
+                <span class={`sec ${s().cls}`} title={s().title}>
+                  {s().icon}
+                </span>
+              )}
+            </Show>
+            <input
+              id="flux-address"
+              class="address"
+              value={address() ?? (vp() && !addrFocused() ? siteOf(currentUrl()) : currentUrl())}
+              onInput={(e) => onAddressInput(e.currentTarget.value)}
+              onFocus={(e) => {
+                // Focused first: in Velvet Paper that swaps the site for the full
+                // address, and the selection has to cover what's then in the field.
+                setAddrFocused(true);
+                e.currentTarget.select();
+              }}
+              onKeyDown={onAddressKeyDown}
+              onBlur={() => {
+                setAddrFocused(false);
+                setTimeout(closeSuggest, 150);
+              }}
+              placeholder={shortcutLabel("Search or enter address  (Ctrl+L)")}
+              spellcheck={false}
+              autocomplete="off"
+            />
+            {/* Velvet Paper: the page's own tools sit inside the field. */}
+            <Show when={vp()}>
+              <span class="addr-tray">
+                <Show when={isWebPage()}>
                   <button
                     type="button"
-                    classList={{ "omni-sug": true, sel: selIdx() === i() }}
+                    classList={{ "icon-btn": true, "bm-star": true, active: props.isBookmarked() }}
+                    title={shortcutLabel(
+                      props.isBookmarked()
+                        ? "Bookmarked — click to remove (Ctrl+D)"
+                        : "Bookmark this page (Ctrl+D)",
+                    )}
+                    onClick={() => props.onToggleBookmark()}
+                  >
+                    {props.isBookmarked() ? "★" : "☆"}
+                  </button>
+                  <button
+                    type="button"
+                    classList={{ "icon-btn": true, active: readerOpen() }}
+                    title="Reader mode"
+                    onClick={() => props.onToggleReader()}
+                  >
+                    <Icon name="reader" />
+                  </button>
+                </Show>
+                <Shields onNavigate={props.onNavigate} />
+              </span>
+            </Show>
+            {/* Per-site zoom (#36): shown only when ≠ 100%; click to reset. */}
+            <Show when={activeZoom() !== 1}>
+              <button
+                type="button"
+                class="zoom-pill"
+                title={shortcutLabel("Reset zoom (Ctrl+0)")}
+                onClick={() => props.onZoomReset()}
+              >
+                {Math.round(activeZoom() * 100)}%
+              </button>
+            </Show>
+            {/* Loading bar: lives in the sidebar, never under the native webview. */}
+            <Show when={isLoading(activeId())}>
+              <div class="addr-progress" />
+            </Show>
+            {/* Live suggestions (#32) — sidebar-resident, so never under the webview.
+              Also hosts the Omni AI answer card + its "Ask" trigger. */}
+            <Show when={omniAns() !== null || ((suggestions().length > 0 || canAsk()) && addrFocused())}>
+              <div class="omni-suggest">
+                {/* Streamed, grounded answer from the Omni index. */}
+                <Show when={omniAns()}>
+                  {(a) => (
+                    <div class="omni-answer">
+                      <div class="omni-answer-head">
+                        <span class="spark">✦</span> Omni answer
+                        <Show when={a().streaming}>
+                          <span class="omni-answer-dot" />
+                        </Show>
+                        <button
+                          type="button"
+                          class="omni-answer-close"
+                          title="Dismiss Omni answer"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            clearOmniAns();
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div class="omni-answer-body">
+                        <Show when={a().text} fallback={a().streaming ? "Thinking…" : "No answer."}>
+                          <For each={answerParts(a().text)}>
+                            {(part) =>
+                              typeof part === "string" ? (
+                                <span>{part}</span>
+                              ) : a().sources[part.cite - 1] ? (
+                                <sup
+                                  class="omni-cite"
+                                  title={a().sources[part.cite - 1]!.title}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    props.onNavigate(a().sources[part.cite - 1]!.url);
+                                  }}
+                                >
+                                  {part.cite}
+                                </sup>
+                              ) : (
+                                <span>[{part.cite}]</span>
+                              )
+                            }
+                          </For>
+                        </Show>
+                      </div>
+                      <Show when={a().sources.length > 0}>
+                        <div class="omni-answer-src">
+                          <For each={a().sources}>
+                            {(s) => (
+                              <button
+                                type="button"
+                                class="omni-answer-cite"
+                                title={s.url}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  props.onNavigate(s.url);
+                                }}
+                              >
+                                [{s.n}] {s.title}
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </div>
+                  )}
+                </Show>
+                {/* Ask trigger (until an answer exists for this query). */}
+                <Show when={omniAns() === null && canAsk()}>
+                  <button
+                    type="button"
+                    class="omni-sug omni-ask"
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      void chooseSuggestion(s);
+                      startOmniAnswer(address() ?? "");
                     }}
-                    onMouseEnter={() => setSelIdx(i())}
                   >
-                    <span class="omni-sug-icon">{s.kind === "history" ? "🕘" : "🔍"}</span>
+                    <span class="omni-sug-icon">✦</span>
                     <span class="omni-sug-text">
-                      <span class="omni-sug-label">{s.label}</span>
-                      <Show when={s.sub}>
-                        <span class="omni-sug-sub">{s.sub}</span>
-                      </Show>
+                      <span class="omni-sug-label">Ask Omni: {(address() ?? "").trim()}</span>
+                      <span class="omni-sug-sub">grounded answer from your index · Alt+Enter</span>
                     </span>
                   </button>
-                )}
-              </For>
-            </div>
-          </Show>
-        </form>
+                </Show>
+                <For each={suggestions()}>
+                  {(s, i) => (
+                    <button
+                      type="button"
+                      classList={{ "omni-sug": true, sel: selIdx() === i() }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        void chooseSuggestion(s);
+                      }}
+                      onMouseEnter={() => setSelIdx(i())}
+                    >
+                      <span class="omni-sug-icon">{s.kind === "history" ? "🕘" : "🔍"}</span>
+                      <span class="omni-sug-text">
+                        <span class="omni-sug-label">{s.label}</span>
+                        <Show when={s.sub}>
+                          <span class="omni-sug-sub">{s.sub}</span>
+                        </Show>
+                      </span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </form>
 
-        {/* Find-in-page (#33) — permanently visible under the search bar; the
+          {/* Find-in-page (#33) — permanently visible under the search bar; the
             native webview overlays the card, so it must live here. Lazy chunk
             (fetched right after boot, off the eager bundle). */}
-        <FindBar />
+          <FindBar />
+        </div>
 
         {/* Page actions row, below the address bar. Split view applies to *any*
             page — Flux's own pages, a terminal, a file browser — so the row shows
@@ -1317,7 +1378,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             internal page with no ◫ at all and tileable only from the palette. */}
         <Show when={activeTab()}>
           <div class="page-actions">
-            <Show when={isWebPage()}>
+            <Show when={isWebPage() && !vp()}>
               <button
                 type="button"
                 classList={{ "icon-btn": true, "bm-star": true, active: props.isBookmarked() }}
@@ -1343,15 +1404,27 @@ const Sidebar: Component<SidebarProps> = (props) => {
             >
               <Icon name="split" />
             </button>
-            <Show when={isWebPage()}>
+            <Show when={vp()}>
               <button
                 type="button"
-                classList={{ "icon-btn": true, active: readerOpen() }}
-                title="Reader mode"
-                onClick={() => props.onToggleReader()}
+                class="icon-btn"
+                title={shortcutLabel("Find in page (Ctrl+F)")}
+                onClick={() => document.getElementById("flux-find")?.focus()}
               >
-                <Icon name="reader" />
+                <Icon name="find" />
               </button>
+            </Show>
+            <Show when={isWebPage()}>
+              <Show when={!vp()}>
+                <button
+                  type="button"
+                  classList={{ "icon-btn": true, active: readerOpen() }}
+                  title="Reader mode"
+                  onClick={() => props.onToggleReader()}
+                >
+                  <Icon name="reader" />
+                </button>
+              </Show>
               <button
                 type="button"
                 class="icon-btn"
@@ -1499,6 +1572,38 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </Modal>
         </Show>
 
+        {/* Workspaces as chips (Velvet Paper): one click to switch; right-click
+            opens the workspace panel to rename, recolour or delete. */}
+        <Show when={vp()}>
+          <div class="ws-chips hscroll" ref={(el) => onCleanup(attachHScroll(el))}>
+            <For each={workspaces()}>
+              {(w) => (
+                <button
+                  classList={{ "ws-chip": true, on: w.id === activeWorkspace() }}
+                  style={{ "--ws-color": workspaceColor(w) }}
+                  title={`${w.name} — right-click to rename, recolour or delete`}
+                  onClick={() => props.onSwitchWorkspace(w.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    if (!wsPanelOpen())
+                      document.querySelector<HTMLButtonElement>(".sidebar .ws-btn")?.click();
+                  }}
+                >
+                  {w.name}
+                </button>
+              )}
+            </For>
+            <button
+              class="ws-chip add"
+              title="New workspace"
+              aria-label="New workspace"
+              onClick={() => props.onNewWorkspace()}
+            >
+              +
+            </button>
+          </div>
+        </Show>
+
         {/* Pinned tiles (Arc Favorites) */}
         <Show when={pinnedTabs().length > 0}>
           <div class="pin-grid">
@@ -1506,6 +1611,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               {(tab) => (
                 <button
                   classList={{ "pin-tile": true, active: activeId() === tab.id }}
+                  data-tab-id={tab.id}
                   title={`${tab.title || tab.url} — right-click to unpin`}
                   onClick={() => focusTab(tab.id)}
                   onContextMenu={(e) => {
@@ -1948,6 +2054,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 {(tab) => (
                   <button
                     classList={{ "pin-tile": true, active: activeId() === tab.id }}
+                    data-tab-id={tab.id}
                     title={tab.title || tab.url}
                     onClick={() => focusTab(tab.id)}
                   >
@@ -1970,6 +2077,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 {(tab) => (
                   <button
                     classList={{ "pin-tile": true, active: activeId() === tab.id }}
+                    data-tab-id={tab.id}
                     title={tab.title || tab.url}
                     onClick={() => focusTab(tab.id)}
                     onAuxClick={(e) => {
@@ -2218,37 +2326,45 @@ const Sidebar: Component<SidebarProps> = (props) => {
           >
             <Icon name="agent" />
           </button>
-          {/* Calendar (#114 follow-up): glanceable agenda from anywhere. The dot
+          {/* Velvet Paper: Calendar and Mail are the pane's modes (the switch at the
+              top, which also reaches the overlay and the column), Shields sits in
+              the address field, and Files/Playground/Notebook join the tools. */}
+          <Show when={vp()}>{pageTools()}</Show>
+          <Show when={!vp()}>
+            {/* Calendar (#114 follow-up): glanceable agenda from anywhere. The dot
             marks an event starting within 30 minutes. Popover body is lazy. */}
-          <button
-            classList={{ "icon-btn": true, active: calendarPopOpen() }}
-            title={shortcutLabel("Calendar — today & upcoming (also in Ctrl+K)")}
-            onClick={() => setCalendarPopOpen(!calendarPopOpen())}
-          >
-            <Icon name="calendar" />
-            <Show when={calSoon()}>
-              <span class="cal-soon-dot" title="An event starts within 30 minutes" />
-            </Show>
-          </button>
-          {/* The calendar+mail column. Every other column has a button here; this
+            <button
+              classList={{ "icon-btn": true, active: calendarPopOpen() }}
+              title={shortcutLabel("Calendar — today & upcoming (also in Ctrl+K)")}
+              onClick={() => setCalendarPopOpen(!calendarPopOpen())}
+            >
+              <Icon name="calendar" />
+              <Show when={calSoon()}>
+                <span class="cal-soon-dot" title="An event starts within 30 minutes" />
+              </Show>
+            </button>
+            {/* The calendar+mail column. Every other column has a button here; this
             one had only a palette entry, which made it effectively invisible. */}
-          <button
-            classList={{ "icon-btn": true, active: dockOpen() }}
-            title={shortcutLabel(
-              dockOpen()
-                ? "Hide the calendar + mail column"
-                : "Calendar + mail in their own column (also in Ctrl+K)",
-            )}
-            onClick={() => toggleDock()}
-          >
-            <Icon name="mail" />
-          </button>
+            <button
+              classList={{ "icon-btn": true, active: dockOpen() }}
+              title={shortcutLabel(
+                dockOpen()
+                  ? "Hide the calendar + mail column"
+                  : "Calendar + mail in their own column (also in Ctrl+K)",
+              )}
+              onClick={() => toggleDock()}
+            >
+              <Icon name="mail" />
+            </button>
+          </Show>
           {/* Overlay mode only — the docked pane renders inside the web-panel
             column (WebPanelPane) so it sits beside the page, not over it. */}
           <Show when={calendarOverlayOpen()}>
             <CalendarPop />
           </Show>
-          <Shields onNavigate={props.onNavigate} />
+          <Show when={!vp()}>
+            <Shields onNavigate={props.onNavigate} />
+          </Show>
           <Show
             when={boostsLoaded()}
             fallback={
@@ -2395,496 +2511,24 @@ const Sidebar: Component<SidebarProps> = (props) => {
         </button>
 
         <Show when={panel()}>
-          <div class="glass popover footer-pop">
-            <Show when={panel() === "settings"}>
-              <button
-                class="shields-update"
-                onClick={() => {
-                  setPanel(null);
-                  props.onNavigate(SETTINGS_URL);
-                }}
-              >
-                ⚙ Open full Settings ↗
-              </button>
-              <div class="ctx-sep" />
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
-                Containers{" "}
-                <span style={{ color: "var(--flux-text-mute)", "font-weight": 400 }}>· isolated logins</span>
-              </div>
-              <For each={containers()}>
-                {(c) => (
-                  <div class="panel-row">
-                    <span
-                      class="ws-dot"
-                      title="Recolor"
-                      style={{ background: containerColor(c), "margin-left": "8px", cursor: "pointer" }}
-                      onClick={() => void recolorContainer(c.id)}
-                    />
-                    <Show
-                      when={editContainer() === c.id}
-                      fallback={
-                        <span
-                          class="panel-row-open"
-                          onDblClick={() => setEditContainer(c.id)}
-                          title="Double-click to rename"
-                        >
-                          {c.name}
-                        </span>
-                      }
-                    >
-                      <input
-                        class="inline-edit"
-                        value={c.name}
-                        autofocus
-                        onClick={(e) => e.stopPropagation()}
-                        onBlur={(e) => {
-                          if (editContainer() !== c.id) return; // Escape cancelled it
-                          const v = e.currentTarget.value.trim();
-                          if (v) void renameContainer(c.id, v);
-                          setEditContainer(null);
-                        }}
-                        onKeyDown={(e) => {
-                          e.stopPropagation();
-                          if (e.key === "Enter") e.currentTarget.blur();
-                          else if (e.key === "Escape") setEditContainer(null);
-                        }}
-                      />
-                    </Show>
-                    <button
-                      class="panel-row-edit"
-                      title="Rename container"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditContainer(c.id);
-                      }}
-                    >
-                      ✎
-                    </button>
-                    <button
-                      class="panel-row-x"
-                      title="Delete container"
-                      onClick={() => void deleteContainer(c.id)}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )}
-              </For>
-              <button
-                class="shields-update"
-                onClick={() => void createContainer().then((id) => id && setEditContainer(id))}
-              >
-                ＋ New container
-              </button>
-              <div class="ctx-sep" />
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
-                Default search engine
-              </div>
-              <For each={engines()}>
-                {(e) => (
-                  <button
-                    onClick={() => pickEngine(e.id)}
-                    style={{ "justify-content": "space-between", display: "flex" }}
-                  >
-                    {e.name}
-                    <Show when={defaultEngine() === e.id}>
-                      <span style={{ color: "var(--flux-teal)" }}>✓</span>
-                    </Show>
-                  </button>
-                )}
-              </For>
-              <Show when={engines().length === 0}>
-                <div class="start-empty" style={{ padding: "6px 8px" }}>
-                  Engines load in the running app.
-                </div>
-              </Show>
-              <div class="shields-row" style={{ padding: "4px 8px 2px" }}>
-                <span
-                  class="shields-label"
-                  style={{ "font-weight": 500, "font-size": "12px" }}
-                  title="Send what you type to the search engine for live suggestions. History suggestions stay local either way."
-                >
-                  Search suggestions
-                </span>
-                <button
-                  role="switch"
-                  aria-label="Search suggestions"
-                  aria-checked={searchSuggestOn()}
-                  classList={{ "shields-toggle": true, on: searchSuggestOn() }}
-                  onClick={() => setSearchSuggestOn(!searchSuggestOn())}
-                >
-                  {searchSuggestOn() ? "On" : "Off"}
-                </button>
-              </div>
-              <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span
-                  class="shields-label"
-                  style={{ "font-weight": 500, "font-size": "12px" }}
-                  title="When you search, the local Gemma drafts a quick answer in the agent panel. Runs on-device."
-                >
-                  AI answers for searches
-                </span>
-                <button
-                  role="switch"
-                  aria-label="AI answers for searches"
-                  aria-checked={aiAnswersOn()}
-                  classList={{ "shields-toggle": true, on: aiAnswersOn() }}
-                  onClick={() => setAiAnswersOn(!aiAnswersOn())}
-                >
-                  {aiAnswersOn() ? "On" : "Off"}
-                </button>
-              </div>
-              <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span
-                  class="shields-label"
-                  style={{ "font-weight": 500, "font-size": "12px" }}
-                  title="On every search, stream a grounded answer card from your Omni index in the omnibox (with citations). Off by default — it runs the local LLM each time. The 'Ask Omni' row and Alt+Enter work regardless."
-                >
-                  Omni answer on search
-                </span>
-                <button
-                  role="switch"
-                  aria-label="Omni answer on search"
-                  aria-checked={omniAutoAnswer()}
-                  classList={{ "shields-toggle": true, on: omniAutoAnswer() }}
-                  onClick={() => setOmniAutoAnswer(!omniAutoAnswer())}
-                >
-                  {omniAutoAnswer() ? "On" : "Off"}
-                </button>
-              </div>
-              <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span
-                  class="shields-label"
-                  style={{ "font-weight": 500, "font-size": "12px" }}
-                  title="Ask websites to render dark (prefers-color-scheme). Works on most modern sites."
-                >
-                  Dark mode (websites)
-                </span>
-                <button
-                  role="switch"
-                  aria-label="Dark mode (websites)"
-                  aria-checked={darkMode()}
-                  classList={{ "shields-toggle": true, on: darkMode() }}
-                  onClick={() => setDarkMode(!darkMode())}
-                >
-                  {darkMode() ? "On" : "Off"}
-                </button>
-              </div>
-              <div class="shields-sep" />
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
-                Navigation
-              </div>
-              <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span
-                  class="shields-label"
-                  style={{ "font-weight": 500, "font-size": "12px" }}
-                  title="Press f to label links/buttons, then type the label to click. Also j/k scroll, gg/G top/bottom."
-                >
-                  Vim link hints (f)
-                </span>
-                <button
-                  role="switch"
-                  aria-label="Vim link hints (f)"
-                  aria-checked={vimHints()}
-                  classList={{ "shields-toggle": true, on: vimHints() }}
-                  onClick={() => setVimHints(!vimHints())}
-                >
-                  {vimHints() ? "On" : "Off"}
-                </button>
-              </div>
-              <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span
-                  class="shields-label"
-                  style={{ "font-weight": 500, "font-size": "12px" }}
-                  title="Hold the right mouse button and drag: left = back, right = forward, down = reload, up = top."
-                >
-                  Mouse gestures
-                </span>
-                <button
-                  role="switch"
-                  aria-label="Mouse gestures"
-                  aria-checked={mouseGestures()}
-                  classList={{ "shields-toggle": true, on: mouseGestures() }}
-                  onClick={() => setMouseGestures(!mouseGestures())}
-                >
-                  {mouseGestures() ? "On" : "Off"}
-                </button>
-              </div>
-              <div class="shields-sep" />
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
-                Memory
-              </div>
-              <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span
-                  class="shields-label"
-                  style={{ "font-weight": 500, "font-size": "12px" }}
-                  title="Free a background tab's memory by unloading it; it reloads when you return."
-                >
-                  Sleep inactive tabs
-                </span>
-                <button
-                  role="switch"
-                  aria-label="Sleep inactive tabs"
-                  aria-checked={hibernateEnabled()}
-                  classList={{ "shields-toggle": true, on: hibernateEnabled() }}
-                  onClick={() => setHibernateEnabled(!hibernateEnabled())}
-                >
-                  {hibernateEnabled() ? "On" : "Off"}
-                </button>
-              </div>
-              <Show when={hibernateEnabled()}>
-                <div class="shields-row" style={{ padding: "2px 8px" }}>
-                  <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }}>
-                    After
-                  </span>
-                  <select
-                    class="shields-select"
-                    value={String(hibernateMins())}
-                    onChange={(e) => setHibernateMins(Number(e.currentTarget.value))}
-                  >
-                    <option value="5">5 min</option>
-                    <option value="15">15 min</option>
-                    <option value="30">30 min</option>
-                    <option value="60">1 hour</option>
-                  </select>
-                </div>
-              </Show>
-              <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span
-                  class="shields-label"
-                  style={{ "font-weight": 500, "font-size": "12px" }}
-                  title="When free system memory runs low, sleep the least-recently-used tabs early."
-                >
-                  Sleep under memory pressure
-                </span>
-                <button
-                  role="switch"
-                  aria-label="Sleep under memory pressure"
-                  aria-checked={memEvict()}
-                  classList={{ "shields-toggle": true, on: memEvict() }}
-                  onClick={() => setMemEvict(!memEvict())}
-                >
-                  {memEvict() ? "On" : "Off"}
-                </button>
-              </div>
-              <Show when={mem()}>
-                <div class="shields-stat" style={{ padding: "2px 8px 4px" }}>
-                  Flux {mem()!.process_mb} MB · {(mem()!.available_mb / 1024).toFixed(1)} GB free (
-                  {mem()!.available_pct}%)
-                </div>
-              </Show>
-            </Show>
-            <Show when={panel() === "webpanels"}>
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
-                Web panels
-              </div>
-              <Show when={canPinAsPanel()}>
-                <button
-                  class="shields-update"
-                  onClick={() => {
-                    const t = activeTab()!;
-                    void pinPanel(t.url, t.title || t.url);
-                    setPanel(null);
-                  }}
-                >
-                  ＋ Pin this page as a panel
-                </button>
-              </Show>
-              <Show
-                when={panels().length > 0}
-                fallback={
-                  <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
-                    Pin a site (chat, docs, music) to keep it in a slim pane beside any tab.
-                  </div>
-                }
-              >
-                <div class="ctx-sep" />
-                <For each={panels()}>
-                  {(p) => (
-                    <div
-                      class="panel-row"
-                      classList={{ active: activePanelId() === p.id || activePanelIdB() === p.id }}
-                    >
-                      <button
-                        class="panel-row-open"
-                        onClick={() => {
-                          togglePanel(p.id);
-                          setPanel(null);
-                        }}
-                        title="Show in panel (top)"
-                      >
-                        <span class="panel-row-title">{p.title || p.url}</span>
-                      </button>
-                      <button
-                        class="panel-slot-btn"
-                        classList={{ on: activePanelIdB() === p.id }}
-                        title="Stack in bottom split"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          togglePanelBottom(p.id);
-                        }}
-                      >
-                        ⬓
-                      </button>
-                      <button
-                        class="panel-row-x"
-                        title="Unpin"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void unpinPanel(p.id);
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  )}
-                </For>
-                <div
-                  class="start-empty"
-                  style={{ padding: "6px 10px 4px", "font-size": "11px", opacity: "0.7" }}
-                >
-                  Tap a panel for the top; ⬓ stacks it below — e.g. calendar over email.
-                </div>
-              </Show>
-            </Show>
-            <Show when={panel() === "notes"}>
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
-                Note for this page
-              </div>
-              <Show
-                when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}
-                fallback={
-                  <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
-                    Open a web page to jot a note.
-                  </div>
-                }
-              >
-                <div class="note-url">{activeTab()!.url}</div>
-                <textarea
-                  class="note-area"
-                  placeholder="Jot a note — saved locally for this page…"
-                  value={noteText()}
-                  readOnly={!noteLoaded()}
-                  onInput={(e) => saveNote(e.currentTarget.value)}
-                />
-              </Show>
-            </Show>
-            <Show when={panel() === "archived"}>
-              <div
-                class="sidebar-section"
-                style={{
-                  padding: "4px 8px",
-                  display: "flex",
-                  "align-items": "center",
-                  "justify-content": "space-between",
-                }}
-              >
-                <span>Archived tabs</span>
-                <Show when={archivedTabs().length > 0}>
-                  <button class="panel-row-x" title="Clear all" onClick={() => clearArchived()}>
-                    Clear
-                  </button>
-                </Show>
-              </div>
-              {/* Rabbit-hole branches (#46 upgrade): a whole Trail-connected
-                  research thread archived as one named, restorable unit. */}
-              <For each={archivedBranches()}>
-                {(b) => (
-                  <div class="arch-branch">
-                    <div class="panel-row">
-                      <button
-                        class="panel-row-open"
-                        title={`${b.tabs.length} pages · archived ${new Date(b.ts).toLocaleDateString()}\nClick to reopen all`}
-                        onClick={() => {
-                          // Restores into the branch's original workspace —
-                          // follow it there so the tabs aren't reopened out of
-                          // sight.
-                          void restoreBranch(b).then((ws) => {
-                            if (ws != null) props.onSwitchWorkspace(ws);
-                          });
-                          setPanel(null);
-                        }}
-                      >
-                        <span class="panel-row-title">
-                          🌿 {b.summary || `Research branch · ${b.tabs.length} pages`}
-                          <span class="arch-branch-n">{b.tabs.length}</span>
-                        </span>
-                      </button>
-                      <button
-                        class="panel-row-x"
-                        title="Remove branch"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeBranch(b.id);
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <div class="arch-branch-tabs">
-                      <For each={b.tabs.slice(0, 6)}>
-                        {(t) => (
-                          <span class="arch-branch-tab" title={t.url}>
-                            {t.title}
-                          </span>
-                        )}
-                      </For>
-                      <Show when={b.tabs.length > 6}>
-                        <span class="arch-branch-tab">+{b.tabs.length - 6} more</span>
-                      </Show>
-                    </div>
-                  </div>
-                )}
-              </For>
-              <Show
-                when={archivedTabs().length > 0}
-                fallback={
-                  <Show when={archivedBranches().length === 0}>
-                    <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
-                      Stale tabs auto-archive here (set the threshold in Settings → Tabs); a whole research
-                      branch archives together, named. Reopen any with one tap.
-                    </div>
-                  </Show>
-                }
-              >
-                <For each={archivedTabs()}>
-                  {(a) => (
-                    <div class="panel-row">
-                      <button
-                        class="panel-row-open"
-                        title={a.url}
-                        onClick={() => {
-                          void restoreArchived(a).then((ws) => {
-                            if (ws != null) props.onSwitchWorkspace(ws);
-                          });
-                          setPanel(null);
-                        }}
-                      >
-                        <span class="panel-row-title">{a.title || a.url}</span>
-                      </button>
-                      <button
-                        class="panel-row-x"
-                        title="Remove"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeArchived(a.url);
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  )}
-                </For>
-              </Show>
-            </Show>
-            <Show when={panel() === "extensions"}>
-              <Suspense>
-                <Extensions />
-              </Suspense>
-            </Show>
-          </div>
+          <Suspense>
+            <SidebarPanels
+              panel={panel}
+              onClose={() => setPanel(null)}
+              onNavigate={props.onNavigate}
+              onSwitchWorkspace={props.onSwitchWorkspace}
+            />
+          </Suspense>
         </Show>
       </div>
+      {/* Calendar and Mail (Velvet Paper). Lazy, and kept once loaded so the next
+          switch can morph straight away; it lays itself over the list between
+          the switch and the footer, so the list underneath never re-renders. */}
+      <Show when={vp() && !props.collapsed && modesLoaded()}>
+        <Suspense>
+          <TabModePanel onNavigate={props.onNavigate} />
+        </Suspense>
+      </Show>
     </nav>
   );
 };

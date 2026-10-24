@@ -95,6 +95,11 @@ export const ICONS = {
     ],
   },
   mail: { d: ["M3 6h18v12H3z", "m3.5 7 8.5 6.5L20.5 7"] },
+  /** The tabs pane's Tabs mode: one raised row over the list. */
+  tabs: { d: ["M4 4.5h16v5H4z", "M4 14h16", "M4 18.5h11"] },
+  find: { d: ["m15.2 15.2 5.3 5.3"], c: [[10.5, 10.5, 6.5]] },
+  /** A sleeping tab. */
+  moon: { d: ["M19.5 14.5A8 8 0 1 1 9.5 4.5a6.3 6.3 0 0 0 10 10Z"] },
   shields: { d: ["M12 3 20 6v6c0 4.5-3.3 7.7-8 9-4.7-1.3-8-4.5-8-9V6l8-3Z"] },
   boosts: { d: ["M13 3 5.5 13.5H12L11 21l7.5-10.5H12L13 3Z"] },
   macros: { d: ["M4 6h16v12H4z"], dot: [[12, 12, 3.2]] },

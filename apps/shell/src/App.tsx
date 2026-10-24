@@ -1,3 +1,4 @@
+import { setTabMode, type TabMode } from "./tabMode";
 import "./interfacePreferences";
 import { launcherOpen } from "./launcherOpen";
 /**
@@ -1154,9 +1155,11 @@ const App: Component = () => {
     if (next) void focusTab(next.id);
   };
 
-  // Focus + select the omnibox (Ctrl+L); open the sidebar first if collapsed.
+  // Focus + select the omnibox (Ctrl+L); open the sidebar first if collapsed,
+  // and come back to the tabs from Calendar or Mail (the field lives there).
   const focusAddress = () => {
     setSidebarOpen(true);
+    setTabMode("tabs");
     void chromeFocus().catch(() => {}); // grab OS focus from any page webview (#18)
     requestAnimationFrame(() => {
       const el = document.getElementById("flux-address") as HTMLInputElement | null;
@@ -1168,6 +1171,7 @@ const App: Component = () => {
   // Open the find bar (Ctrl+F). It lives in the sidebar, so open that first.
   const openFind = () => {
     setSidebarOpen(true);
+    setTabMode("tabs");
     setFindOpen(true);
     requestAnimationFrame(() => {
       const el = document.getElementById("flux-find") as HTMLInputElement | null;
@@ -1516,6 +1520,12 @@ const App: Component = () => {
         return true;
       case "find":
         openFind();
+        return true;
+      case "mode-tabs":
+      case "mode-calendar":
+      case "mode-mail":
+        setSidebarOpen(true);
+        setTabMode(action.slice(5) as TabMode);
         return true;
       case "reload":
         navActive(webviewReload);
