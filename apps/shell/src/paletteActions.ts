@@ -7,6 +7,7 @@
 import type { Accessor, Setter } from "solid-js";
 
 import { askConfirm } from "./ask";
+import { design } from "./design";
 import { setIndexerPanelOpen } from "./indexerOpen";
 import {
   APPS_URL,
@@ -128,6 +129,7 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
     navActive,
     toast,
   } = ctx;
+  const vp = design() === "velvet-paper";
 
   /** Confirm, close, and say what happened + how to undo. */
   const closeMany = async (targets: TabMeta[], where: string) => {
@@ -227,12 +229,17 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
       icon: "✦",
       run: () => setConnectOpen(!connectOpen()),
     },
-    {
-      id: "indexer-orb",
-      label: orbOn() ? "Hide the Indexer orb" : "Show the Indexer orb",
-      icon: "🔮",
-      run: () => setOrbOn(!orbOn()),
-    },
+    // Velvet Paper has no orb (the Indexer opens from the Context column).
+    ...(vp
+      ? []
+      : [
+          {
+            id: "indexer-orb",
+            label: orbOn() ? "Hide the Indexer orb" : "Show the Indexer orb",
+            icon: "🔮",
+            run: () => setOrbOn(!orbOn()),
+          },
+        ]),
     {
       id: "indexer-ask",
       label: "Ask your notes (Indexer)",
@@ -253,7 +260,9 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
       id: "calendar",
       label: "Open calendar (today & upcoming)",
       icon: "📅",
+      // Velvet Paper's calendar is a mode of the tab bar; Classic's is the popover.
       run: () => {
+        if (vp) return void dispatch("mode-calendar");
         setSidebarOpen(true);
         setCalendarPopOpen(true);
       },

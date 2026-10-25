@@ -928,7 +928,14 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           <Row label="Dark mode (websites)" hint="Ask sites to render dark (prefers-color-scheme).">
             <Toggle on={darkMode()} onClick={() => setDarkMode(!darkMode())} />
           </Row>
-          <Row label="Bookmark bar" hint="A chip row docked under the page for one-click bookmarks.">
+          <Row
+            label="Bookmark bar"
+            hint={
+              design() === "velvet-paper"
+                ? "A row of bookmarks and folders in the tabs pane, under the pinned tiles."
+                : "A chip row docked under the page for one-click bookmarks."
+            }
+          >
             <Toggle on={bookmarkBarOpen()} onClick={() => setBookmarkBarOpen(!bookmarkBarOpen())} />
           </Row>
           <Row
