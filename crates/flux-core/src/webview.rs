@@ -80,6 +80,10 @@ mod real {
     /// listeners unless the backend toggle is on; never reads sensitive fields.
     const DRAFTS_JS: &str = include_str!("../assets/drafts.js");
 
+    /// formhelp.js: opt-in form help (formhelp.rs). Asks once whether Flux helps
+    /// on the page and listens to nothing unless it does.
+    const FORMHELP_JS: &str = include_str!("../assets/formhelp.js");
+
     /// darkmode.js: `__fluxDark(on)` force-dark for all sites (#40); applied at
     /// document_start via the `window.__FLUX_DARK__` flag the init script stamps.
     pub(crate) const DARKMODE_JS: &str = include_str!("../assets/darkmode.js");
@@ -364,6 +368,7 @@ mod real {
                 ("macro-record", MACRO_REC_JS),
                 ("passwords", PASSWORDS_JS),
                 ("drafts", DRAFTS_JS),
+                ("formhelp", FORMHELP_JS),
             ])
         );
 
@@ -1840,8 +1845,8 @@ mod real {
     mod script_join_tests {
         use super::{filter_scripts, join_page_scripts, live_flags_js};
         use super::{
-            CAPTURE_JS, DARKMODE_JS, DRAFTS_JS, HIBERNATE_JS, MACRO_REC_JS, NAV_JS, NEWTAB_JS,
-            PANEL_BADGE_JS, PASSWORDS_JS, PIP_JS, SHORTCUTS_JS,
+            CAPTURE_JS, DARKMODE_JS, DRAFTS_JS, FORMHELP_JS, HIBERNATE_JS, MACRO_REC_JS, NAV_JS,
+            NEWTAB_JS, PANEL_BADGE_JS, PASSWORDS_JS, PIP_JS, SHORTCUTS_JS,
         };
 
         #[test]
@@ -1918,6 +1923,7 @@ mod real {
                 ("macro-record", MACRO_REC_JS),
                 ("passwords", PASSWORDS_JS),
                 ("drafts", DRAFTS_JS),
+                ("formhelp", FORMHELP_JS),
                 ("panel-badge", PANEL_BADGE_JS),
             ];
             for (name, src) in scripts {

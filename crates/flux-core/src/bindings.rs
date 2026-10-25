@@ -165,6 +165,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<flux_agent::steps::StepVerdict>(&c),
         specta::ts::export::<crate::agent::StepCheck>(&c),
         specta::ts::export::<ShieldsStatus>(&c),
+        specta::ts::export::<crate::formhelp::FormHelpPrefs>(&c),
         specta::ts::export::<HotRule>(&c),
         specta::ts::export::<LeanStatus>(&c),
         specta::ts::export::<HttpsStatus>(&c),

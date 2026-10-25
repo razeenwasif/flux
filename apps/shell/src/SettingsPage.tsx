@@ -13,7 +13,7 @@ import { terminalScreenReader, setTerminalScreenReader } from "./terminalAccessi
 import { settingsWriter } from "./settingsWriter";
 import { protectionMetrics, requestControlsHint } from "./protectionStatus";
 import { isWindows } from "./platform";
-import type { ShieldsStatus } from "./ipc";
+import type { FormHelpPrefs, ShieldsStatus } from "./ipc";
 import { Row, Toggle } from "./SettingsControls";
 import SettingsNavigator, { Section } from "./SettingsNavigator";
 import { visibleInterval } from "./poll";
@@ -80,6 +80,8 @@ import {
   type SearchEngine,
   traceDraftsEnabled,
   traceDraftsSet,
+  formHelpSettings,
+  formHelpSetSettings,
   termPersist,
   TERM_PERSIST_KEY,
   storageUsage,
@@ -679,6 +681,20 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
       () => setDraftsOn(next),
     );
   };
+  // Form help (formhelp.rs, off by default): saved whole, read back as stored.
+  const [formHelp, setFormHelp] = createSignal<FormHelpPrefs | null>(null);
+  const [fhSite, setFhSite] = createSignal("");
+  const saveFormHelp = (patch: Partial<FormHelpPrefs>) => {
+    const cur = formHelp();
+    if (!cur) return;
+    void writer.run("form help", async () => setFormHelp(await formHelpSetSettings({ ...cur, ...patch })));
+  };
+  const addFhSite = () => {
+    const host = fhSite().trim();
+    if (!host) return;
+    saveFormHelp({ sites_off: [...(formHelp()?.sites_off ?? []), host] });
+    setFhSite("");
+  };
   const [cookieFlash, setCookieFlash] = createSignal("");
   const [mem, setMem] = createSignal<MemInfo | null>(null);
   // Per-site privacy exceptions (#78): hosts the user opted out per feature.
@@ -738,6 +754,9 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   onMount(() => {
     titleInternalTab(SETTINGS_URL, "Settings");
     void loadCore();
+    void formHelpSettings()
+      .then(setFormHelp)
+      .catch(() => {});
     refreshVoices();
     try {
       window.speechSynthesis?.addEventListener?.("voiceschanged", refreshVoices);
@@ -1939,6 +1958,107 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                 <button class="set-link-btn" onClick={() => void testVoice()}>
                   {testing() ? "■ Stop" : "🔊 Test"}
                 </button>
+              </div>
+            </Row>
+          </Show>
+        </Section>
+
+        <Section title="Form help">
+          <Row
+            label="Suggest what goes in a form field"
+            hint="Off by default. Click or Tab into an empty field and your model (this Mac's, or the Model server under Integrations, never the cloud) suggests its text. A short field shows it greyed out, and Tab puts it in. A long one has it copied for you to paste. Esc or typing dismisses it; ⌃Space asks for a different one. Never on password, card or code fields, sign-in forms, or banking, password-manager, health and tax sites. Applies to pages you open or reload."
+          >
+            <Toggle
+              on={formHelp()?.enabled === true}
+              disabled={!formHelp()}
+              onClick={() => saveFormHelp({ enabled: !formHelp()?.enabled })}
+            />
+          </Row>
+          <Show when={formHelp()?.enabled}>
+            <Row
+              label="When it suggests"
+              hint="As you click or Tab into an empty field, or only when you press ⌃Space."
+            >
+              <div class="set-seg" role="radiogroup" aria-label="When form help suggests">
+                <button
+                  role="radio"
+                  aria-checked={formHelp()?.trigger !== "hotkey"}
+                  classList={{ on: formHelp()?.trigger !== "hotkey" }}
+                  onClick={() => saveFormHelp({ trigger: "focus" })}
+                >
+                  In an empty field
+                </button>
+                <button
+                  role="radio"
+                  aria-checked={formHelp()?.trigger === "hotkey"}
+                  classList={{ on: formHelp()?.trigger === "hotkey" }}
+                  onClick={() => saveFormHelp({ trigger: "hotkey" })}
+                >
+                  Only on ⌃Space
+                </button>
+              </div>
+            </Row>
+            <Row
+              label="Skip personal details"
+              hint="Leave name, email, phone, address and ID fields alone. The model is told never to make those up either."
+            >
+              <Toggle
+                on={formHelp()?.skip_personal !== false}
+                onClick={() => saveFormHelp({ skip_personal: !formHelp()?.skip_personal })}
+              />
+            </Row>
+            <Row
+              label="Use the form's other answers"
+              hint="Send what you've already filled in on the same form (up to eight answers), so this one agrees with them."
+            >
+              <Toggle
+                on={formHelp()?.use_other_answers !== false}
+                onClick={() => saveFormHelp({ use_other_answers: !formHelp()?.use_other_answers })}
+              />
+            </Row>
+            <Row
+              label="How answers should sound"
+              hint="In your own words, for example “plain and friendly, Australian spelling”. Sent with every suggestion."
+            >
+              <textarea
+                class="map-search-input"
+                aria-label="How form help's answers should sound"
+                style={{ "max-width": "340px", "min-height": "64px", resize: "vertical" }}
+                value={formHelp()?.voice ?? ""}
+                onChange={(e) => saveFormHelp({ voice: e.currentTarget.value })}
+              />
+            </Row>
+            <Row label="Off on these sites" hint="A site also covers its subdomains.">
+              <div class="set-stack-control">
+                <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                  <input
+                    class="map-search-input"
+                    style={{ "max-width": "340px" }}
+                    aria-label="Site to turn form help off on"
+                    placeholder="docs.google.com"
+                    value={fhSite()}
+                    onInput={(e) => setFhSite(e.currentTarget.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addFhSite()}
+                  />
+                  <button class="set-link-btn" onClick={addFhSite}>
+                    Add
+                  </button>
+                </div>
+                <For each={formHelp()?.sites_off ?? []}>
+                  {(host) => (
+                    <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                      <span class="set-row-hint">{host}</span>
+                      <button
+                        class="set-link-btn"
+                        onClick={() =>
+                          saveFormHelp({ sites_off: (formHelp()?.sites_off ?? []).filter((h) => h !== host) })
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </For>
               </div>
             </Row>
           </Show>

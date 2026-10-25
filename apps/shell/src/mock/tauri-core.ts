@@ -366,6 +366,17 @@ let mockTuiApps = [
   { id: "custom-1", name: "Canopy", icon: "🌳", cmd: "canopy", cwd: "" },
 ];
 
+// Form help (formhelp.rs): the preview keeps its settings in memory.
+let mockFormHelp = {
+  enabled: false,
+  trigger: "focus",
+  delay_ms: 350,
+  skip_personal: true,
+  use_other_answers: true,
+  voice: "",
+  sites_off: [] as string[],
+};
+
 export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   ipcLog.push(cmd);
   if (
@@ -1459,6 +1470,11 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         before,
       } as T);
     }
+    case "formhelp_settings":
+      return Promise.resolve({ ...mockFormHelp } as T);
+    case "formhelp_set_settings":
+      mockFormHelp = { ...mockFormHelp, ...(args?.prefs as typeof mockFormHelp) };
+      return Promise.resolve({ ...mockFormHelp } as T);
     case "agent_verify_step":
       return Promise.resolve({ verified: true, how: "the field holds it" } as T);
     case "tasks_list":

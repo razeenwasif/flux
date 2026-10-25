@@ -109,6 +109,7 @@ import type {
   StepCheck as GenStepCheck,
   StepVerdict as GenStepVerdict,
   StepGuard as GenStepGuard,
+  FormHelpPrefs as GenFormHelpPrefs,
   SitePerm as GenSitePerm,
   Step as GenStep,
   SyncReport as GenSyncReport,
@@ -1510,6 +1511,13 @@ export type PageFacts = GenPageFacts;
 export type StepCheck = GenStepCheck;
 export type StepVerdict = GenStepVerdict;
 export type StepGuard = GenStepGuard;
+
+// ─── Form help (formhelp.rs, assets/formhelp.js) ─────────────────────────────
+export type FormHelpPrefs = GenFormHelpPrefs;
+export const formHelpSettings = () => invoke<FormHelpPrefs>("formhelp_settings", {});
+/** Saves them; resolves to what was stored (the backend tidies the site list). */
+export const formHelpSetSettings = (prefs: FormHelpPrefs) =>
+  invoke<FormHelpPrefs>("formhelp_set_settings", { prefs });
 /** What sleeping each open tab would cost: page memory, sound or capture,
  *  unsaved edits. Tabs without a webview are left out. */
 export const tabSleepCheck = (tabIds: number[]) => invoke<SleepCheck[]>("tab_sleep_check", { tabIds });

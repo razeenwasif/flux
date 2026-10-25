@@ -30,6 +30,7 @@ pub mod extensions;
 pub mod favicon;
 pub mod feeds;
 pub mod files;
+pub mod formhelp;
 pub mod framing;
 pub mod fsroots;
 pub mod gemini;
@@ -344,6 +345,13 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
         .app_data_dir()
         .ok()
         .map(|d| d.join("shields.json"));
+    // Form help (off by default): its settings, restored from formhelp.json.
+    app.manage(formhelp::FormHelpState::load(
+        app.path()
+            .app_data_dir()
+            .ok()
+            .map(|d| d.join("formhelp.json")),
+    ));
     app.manage(boot_phase("shields.init", boot_started, || {
         let shields = shields::ShieldsState::new(filters_dir);
         match shields_prefs {
@@ -1198,7 +1206,9 @@ pub fn run(intent: cli::LaunchIntent) {
                     vault::vault_probe_report,
                     sentinel::sentinel_input_focus,
                     trace::trace_drafts_enabled,
-                    trace::draft_publish
+                    trace::draft_publish,
+                    formhelp::formhelp_page_config,
+                    formhelp::formhelp_suggest
                 ])
                 .build(),
         )
@@ -1391,6 +1401,8 @@ pub fn run(intent: cli::LaunchIntent) {
             trace::trace_drafts,
             trace::trace_drafts_enabled,
             trace::trace_drafts_set,
+            formhelp::formhelp_settings,
+            formhelp::formhelp_set_settings,
             trace::trace_chat,
             trace::trace_chat_send,
             bookmarks::bookmarks_list,

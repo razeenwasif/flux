@@ -129,7 +129,7 @@ pub async fn active_fresh(app: &AppHandle, state: &FluxState) -> Option<Arc<DomS
     refresh(app, state, tab).await
 }
 
-fn caller_tab(webview: &tauri::Webview) -> Result<TabId, String> {
+pub(crate) fn caller_tab(webview: &tauri::Webview) -> Result<TabId, String> {
     webview
         .label()
         .strip_prefix("tab-")

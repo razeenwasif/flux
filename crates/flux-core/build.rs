@@ -35,6 +35,8 @@ fn main() {
                     "sentinel_input_focus",
                     "trace_drafts_enabled",
                     "draft_publish",
+                    "formhelp_page_config",
+                    "formhelp_suggest",
                 ])
                 .default_permission(tauri_build::DefaultPermissionRule::AllowAllCommands),
         ),

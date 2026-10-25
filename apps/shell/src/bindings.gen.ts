@@ -268,6 +268,7 @@ export type StepVerdict = { verified: boolean; how: string }
  */
 export type StepCheck = { guard: StepGuard; before: PageFacts }
 export type ShieldsStatus = { backend: string; request_metrics: boolean; request_controls: boolean; site_controls: boolean; element_picker: boolean; attachment: string; enabled: boolean; blocked: number; sites_off: string[]; cache_hit_pct: number; cache_len: number; rules_fired: number; page_blocked: number; page_domains: BlockedDomain[]; site_hidden: number }
+export type FormHelpPrefs = { enabled: boolean; trigger: string; delay_ms: number; skip_personal: boolean; use_other_answers: boolean; voice: string; sites_off: string[] }
 export type HotRule = { rule: string; hits: number }
 export type LeanStatus = { enabled: boolean; sites_on: string[] }
 export type HttpsStatus = { enabled: boolean; sites_allow_http: string[] }

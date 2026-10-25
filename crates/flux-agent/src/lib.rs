@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod compile;
+pub mod formhelp;
 pub mod gemini;
 #[cfg(feature = "llama")]
 pub mod llama;
@@ -1871,6 +1872,14 @@ impl Inference for MockBackend {
     }
 
     fn chat(&self, prompt: &str) -> Result<String, AgentError> {
+        // Form help: a field's text, short for a single-line input.
+        if prompt.contains("You are an autofill engine") {
+            return Ok(if prompt.contains("LENGTH: This is a single-line input") {
+                "Mock answer".into()
+            } else {
+                "A mock answer from Flux's form help, written for the field above.".into()
+            });
+        }
         let last = prompt.lines().last().unwrap_or(prompt);
         Ok(format!(
             "(mock agent — no model running) You said: {}",

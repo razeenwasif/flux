@@ -64,6 +64,24 @@ const signInPage = `<!doctype html><html lang="en"><meta charset="utf-8">
 Element.prototype.getBoundingClientRect=()=>({x:0,y:0,width:0,height:0,top:0,left:0,right:0,bottom:0});
 const real=window.getComputedStyle;window.getComputedStyle=(el)=>({...real(el),display:'none',visibility:'hidden'});
 </script></html>`;
+// Form help (formhelp.rs): a question in a plain div (as form builders write
+// them), a textarea and a rich-text box, which get their answer copied, an answer
+// already given, and fields form help never touches: email (a personal detail),
+// a card number, and a sign-in form.
+const formPage = `<!doctype html><html lang="en"><meta charset="utf-8">
+<title>Flux Smoke — form help</title>
+<style>body{font:17px system-ui;max-width:760px;margin:40px auto;padding:24px;background:#fafafa;color:#18202c}
+.q{margin:18px 0}input,textarea,[contenteditable]{font:inherit;padding:8px;width:420px;border:1px solid #9aa;border-radius:6px;background:#fff;display:block;margin-top:6px}
+[contenteditable]{min-height:60px}form{margin-top:24px;padding:12px;border:1px dashed #9aa}</style>
+<h1>Volunteer sign-up</h1>
+<div class="q"><label>Team <input id="team" name="team" value="Platform"></label></div>
+<div class="q"><div>What's your favourite colour?</div><input id="colour" name="entry.1"></div>
+<div class="q"><label>Why do you want to volunteer with us? <textarea id="why" name="why" rows="6"></textarea></label></div>
+<div class="q"><div id="more-l">Anything else we should know?</div><div id="more" contenteditable="true" aria-labelledby="more-l"></div></div>
+<div class="q"><label>Email <input id="email" name="email" type="email"></label></div>
+<div class="q"><label>Card number <input id="card" name="card" autocomplete="cc-number"></label></div>
+<form id="signin"><label>Login <input id="login" name="login"></label><label>Password <input id="pw" type="password"></label></form>
+</html>`;
 const server = createServer((req, res) => {
   const path = new URL(req.url, "http://127.0.0.1").pathname;
   res.setHeader("Cache-Control", "no-store");
@@ -71,9 +89,11 @@ const server = createServer((req, res) => {
     requests.push({ path, y: new URL(req.url, "http://127.0.0.1").searchParams.get("y"), at: new Date().toISOString() });
     res.end("ok");
   } else if (path === "/report") {
-    const promo = new URL(req.url, "http://127.0.0.1").searchParams.get("promo");
-    requests.push({ path, promo, at: new Date().toISOString() });
-    console.log(`Page reported promo display: ${promo}`);
+    const q = new URL(req.url, "http://127.0.0.1").searchParams;
+    const promo = q.get("promo");
+    requests.push({ path, promo, fh: q.get("fh"), v: q.get("v"), at: new Date().toISOString() });
+    if (q.has("fh")) console.log(`Form help ${q.get("fh")}: ${q.get("v")}`);
+    else console.log(`Page reported promo display: ${promo}`);
     res.end("ok");
   } else if (path === "/results") {
     res.setHeader("Content-Type", "application/json");
@@ -94,6 +114,9 @@ const server = createServer((req, res) => {
           ? signInPage
           : `<!doctype html><meta charset="utf-8"><title>Message sent</title><h1>Message sent</h1><a href="/agent">Back</a>`,
     );
+  } else if (path === "/form") {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.end(formPage);
   } else if (path === "/" || path === "/second") {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.end(page(path === "/second"));

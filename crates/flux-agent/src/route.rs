@@ -88,6 +88,15 @@ impl RoutingBackend {
         }
     }
 
+    /// The local model alone, whatever the cloud switch says: for what must
+    /// never leave the machine (form help sends page text on its own).
+    pub fn local(&self) -> Arc<dyn Inference> {
+        match self.local.read() {
+            Ok(g) => Arc::clone(&g),
+            Err(p) => Arc::clone(&p.into_inner()),
+        }
+    }
+
     pub fn has_cloud(&self) -> bool {
         self.cloud.read().map(|g| g.is_some()).unwrap_or(false)
     }
