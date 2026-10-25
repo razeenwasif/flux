@@ -3073,7 +3073,7 @@
   gap: 30px;
 }
 
-/* Titles as paper tabs on the card edge, a second sheet behind each card. */
+/* Titles as paper tabs on the card edge. */
 :root[data-design="velvet-paper"] .set-nav::after,
 :root[data-design="velvet-paper"] .set-card::after {
   top: 0;
@@ -3084,12 +3084,11 @@
     inset 0 1px 0 rgba(243, 182, 211, 0.12),
     0 -3px 8px -3px rgba(0, 0, 0, 0.6);
 }
+/* The same depth as every other card (no second sheet behind: it read as a
+   stray card under each one). */
 :root[data-design="velvet-paper"] .set-nav,
 :root[data-design="velvet-paper"] .set-card {
-  box-shadow:
-    14px 20px 0 -4px #120c16,
-    0 22px 30px -14px rgba(0, 0, 0, 0.7),
-    0 40px 60px -34px rgba(0, 0, 0, 0.85);
+  box-shadow: var(--vp-shadow);
 }
 
 /* The section list: the board's left card, full height of the layout. */
@@ -3109,19 +3108,27 @@
   overscroll-behavior: contain;
 }
 :root[data-design="velvet-paper"] .set-body {
-  display: block;
+  display: grid;
+  /* Two columns at most, one when they'd be under 380px. Each section spans
+     its height in these 4px rows (SettingsNavigator measures it). */
+  grid-template-columns: repeat(auto-fill, minmax(max(380px, calc((100% - 34px) / 2)), 1fr));
+  grid-auto-rows: 4px;
+  gap: 0 34px;
+  align-items: start;
   flex: none;
   overflow: visible;
   max-width: none;
   margin: 0;
-  columns: 2 380px;
-  column-gap: 34px;
-  /* Room for the second sheet at the right edge and under the last card. */
   padding: 2px 16px 48px 0;
 }
 :root[data-design="velvet-paper"] .set-section {
-  break-inside: avoid;
-  margin: 0 0 40px;
+  min-width: 0;
+  margin: 0;
+}
+/* One section showing (picked in the list, or the only search hit): one
+   column, wide enough for the long explanations, instead of half the page. */
+:root[data-design="velvet-paper"] .set-body[data-shown="1"] {
+  grid-template-columns: minmax(0, 880px);
 }
 :root[data-design="velvet-paper"] .set-card {
   padding: 26px 8px 8px;
@@ -3293,7 +3300,7 @@
     gap: 14px;
   }
   :root[data-design="velvet-paper"] .set-body {
-    columns: 1;
+    grid-template-columns: minmax(0, 1fr);
   }
   /* This partial merges after the first block's narrow rules, so restate them
      over this partial's wide ones: a bare row of pills, no card. */
@@ -3883,12 +3890,16 @@
    inside it, workspace chips, two-line rows (Sidebar.tsx, TabModePanel.tsx)
    ════════════════════════════════════════════════════════════════════════ */
 
-/* The nav row: its seven buttons fit one line of the pane. */
+/* The nav row on one line: its buttons share the width (eight of them with
+   the web-app rail's toggle) rather than wrapping the last one under. */
 :root[data-design="velvet-paper"] .sidebar-controls:not(.collapsed) {
+  flex-wrap: nowrap;
   gap: 2px;
   min-height: 28px;
 }
 :root[data-design="velvet-paper"] .sidebar-controls:not(.collapsed) .icon-btn {
+  flex: 0 1 28px;
+  min-width: 20px;
   width: 28px;
   height: 28px;
   border-radius: 10px;
@@ -5140,4 +5151,30 @@
   height: 26px;
   padding: 0 12px;
   font-size: 11.5px;
+}
+
+/* Context mode: the column's cards fill the panel's height. System and the
+   Trail keep their size; your notes take what's left and scroll inside, so
+   the three fit without the panel scrolling. */
+:root[data-design="velvet-paper"] .mode-context {
+  flex: 1 1 0;
+  min-height: 0;
+}
+:root[data-design="velvet-paper"] .mode-context > .connect-rail {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+:root[data-design="velvet-paper"] .tab-mode-panel .connect-notes {
+  flex: 1 1 0;
+  min-height: 140px;
+}
+:root[data-design="velvet-paper"] .tab-mode-panel .sysmon,
+:root[data-design="velvet-paper"] .tab-mode-panel .connect-rail .trailmini {
+  flex: none;
+}
+/* The Trail's map reads at a glance at this size; the room goes to your notes. */
+:root[data-design="velvet-paper"] .tab-mode-panel .connect-rail .trailmini {
+  height: 210px;
+  max-height: none;
 }

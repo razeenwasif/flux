@@ -46,6 +46,7 @@ const SettingsNavigator: Component<{ children: JSX.Element }> = (props) => {
     const terms = normalize(query().trim()).split(/\s+/).filter(Boolean);
     const matchesText = (s: string) => terms.every((term) => normalize(s).includes(term));
     let count = 0;
+    let shown = 0;
     for (const section of sections()) {
       const title = section.dataset.section ?? "";
       const inCategory = terms.length > 0 || selected() === "All settings" || selected() === title;
@@ -60,12 +61,30 @@ const SettingsNavigator: Component<{ children: JSX.Element }> = (props) => {
       }
       section.hidden = !inCategory || (terms.length > 0 && visibleRows === 0);
       if (!section.hidden) count += visibleRows;
+      if (!section.hidden) shown++;
     }
     setMatches(count);
+    // How many sections are on screen, for the layout: one gets the width.
+    body.dataset.shown = String(shown);
   };
   createEffect(filter);
   onMount(() => {
     setSections(Array.from(body.querySelectorAll<HTMLElement>(".set-section")));
+    // Velvet Paper lays the sections out as a two-column grid in 4px rows, each
+    // spanning its own height plus the gap under it, so short cards stack under
+    // short ones. (CSS columns did that by themselves, but WebKit split cards'
+    // paper and shadows across columns and left whole columns unpainted.)
+    // Classic's body is a plain column, where the spans mean nothing.
+    const ROW = 4;
+    const GAP = 36;
+    const spans = new ResizeObserver((entries) => {
+      for (const { target } of entries) {
+        const el = target as HTMLElement;
+        el.style.gridRowEnd = el.offsetHeight ? `span ${Math.ceil((el.offsetHeight + GAP) / ROW)}` : "";
+      }
+    });
+    for (const s of sections()) spans.observe(s);
+    onCleanup(() => spans.disconnect());
     // Conditional provider controls can appear while the page is filtered.
     const observer = new MutationObserver(filter);
     observer.observe(body, { childList: true, subtree: true });
