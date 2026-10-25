@@ -9669,16 +9669,6 @@ body.busy .start-card {
 }
 
 /* ── Command palette (⌘K, BACKLOG #6) ── */
-.palette-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding-top: 12vh;
-}
 
 /* ── Text prompt (ask.tsx) ────────────────────────────────────────────────────
    Replaces window.prompt, which this webview silently no-ops. */
@@ -9833,147 +9823,6 @@ body.busy .start-card {
 /* ── Search spotlight (flux-plan1) ────────────────────────────────────────────
    Web-facing sibling of the command palette: quick actions, the query field
    with home/split/search, and the engine's related searches. */
-.spot-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: rgba(0, 0, 0, 0.42);
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding-top: 14vh;
-}
-.spot {
-  width: min(640px, 92vw);
-  border-radius: 16px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
-}
-.spot-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 2px;
-}
-.spot-tool {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 28px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--flux-text-dim);
-  font-size: 14px;
-  cursor: pointer;
-}
-.spot-tool:hover {
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--flux-text);
-}
-
-.spot-field {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px 4px 12px;
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--glass-rim-soft);
-}
-.spot-field:focus-within {
-  border-color: rgba(var(--accent-rgb), 0.45);
-  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.08);
-}
-.spot-glyph {
-  color: var(--flux-text-mute);
-  font-size: 14px;
-}
-.spot-input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--flux-text);
-  font-size: 15px;
-  padding: 9px 2px;
-}
-.spot-input::placeholder {
-  color: var(--flux-text-mute);
-}
-.spot-btn {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  flex: none;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--flux-text-dim);
-  font-size: 14px;
-  cursor: pointer;
-}
-.spot-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--flux-text);
-}
-.spot-btn.primary:not(:disabled) {
-  color: var(--flux-teal);
-  background: var(--flux-teal-dim);
-}
-.spot-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.spot-related {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  max-height: 46vh;
-  overflow-y: auto;
-}
-.spot-related-head {
-  font-size: 10.5px;
-  color: var(--flux-text-mute);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-weight: 600;
-  padding: 3px 10px 5px;
-}
-.spot-related-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-  padding: 9px 10px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--flux-text);
-  font-size: 13.5px;
-  text-align: left;
-  cursor: pointer;
-}
-.spot-related-item.sel {
-  background: rgba(var(--accent-rgb), 0.1);
-}
-.spot-related-glyph {
-  flex: none;
-  color: var(--flux-text-mute);
-  font-size: 12px;
-}
-.spot-related-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* Right-click "open in new tab" menu for internal-page links. */
 .link-menu {
@@ -10376,81 +10225,6 @@ body.busy .start-card {
   width: 100%;
   border: 0;
   background: var(--velvet-800);
-}
-.palette {
-  width: min(620px, 90vw);
-  max-height: 60vh;
-  display: flex;
-  flex-direction: column;
-  border-radius: 16px;
-  overflow: hidden;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-}
-.palette-input {
-  padding: 16px 18px;
-  font-size: 15px;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--glass-rim-soft);
-  color: var(--flux-text);
-}
-.palette-input:focus {
-  outline: none;
-}
-.palette-list {
-  overflow-y: auto;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.palette-item {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 9px 11px;
-  border-radius: 9px;
-  text-align: left;
-  width: 100%;
-}
-.palette-item.sel {
-  background: var(--flux-surface-2);
-}
-.palette-icon {
-  flex: none;
-  width: 18px;
-  text-align: center;
-  opacity: 0.8;
-}
-.palette-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.palette-label {
-  font-size: 13px;
-  color: var(--flux-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.palette-sub {
-  flex: none;
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--flux-text-mute);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 50%;
-}
-.palette-empty {
-  padding: 24px;
-  text-align: center;
-  color: var(--flux-text-mute);
-  font-size: 13px;
 }
 
 /* ── Calendar popover (#114 follow-up) ── */
@@ -11616,86 +11390,13 @@ html.mobile .appdock-btn {
   margin: 0;
   line-height: 1.5;
 }
-.launcher-search {
-  width: 100%;
-  padding: 14px 16px;
-  border-radius: 12px;
-  background: var(--velvet-700);
-  border: 1px solid var(--glass-rim);
-  color: var(--flux-text);
-  font-size: 15px;
-  flex-shrink: 0;
-}
-.launcher-search:focus {
-  outline: 2px solid var(--flux-teal);
-  outline-offset: 2px;
-}
-.launcher-filters,
+
 .home-presets {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-.launcher-filters [aria-pressed="true"] {
-  color: var(--flux-teal);
-  background: var(--flux-teal-dim);
-  border-color: var(--flux-teal);
-}
-.launcher-results {
-  overflow: auto;
-  min-height: 100px;
-  flex: 1;
-}
-.launcher-row {
-  display: flex;
-  align-items: stretch;
-  border-radius: 10px;
-}
-.launcher-row:hover {
-  background: var(--velvet-700);
-}
-.launcher-launch {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  padding: 12px;
-  text-align: left;
-  color: var(--flux-text);
-  border-radius: 10px;
-}
-.launcher-launch > span:nth-child(2) {
-  min-width: 0;
-  flex: 1;
-}
-.launcher-launch strong {
-  display: block;
-  font-size: 13px;
-  font-weight: 550;
-}
-.launcher-launch small {
-  display: block;
-  color: var(--flux-text-dim);
-  font-size: 11px;
-  margin-top: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.launcher-kind {
-  color: var(--flux-text-dim);
-  font-size: 10px;
-}
-.launcher-star {
-  flex: 0 0 42px;
-  border-radius: 10px;
-  color: var(--flux-text-dim);
-  font-size: 22px;
-}
-.launcher-star[aria-pressed="true"] {
-  color: var(--flux-teal);
-}
+
 .launcher-dialog button:focus-visible {
   outline: 2px solid var(--flux-teal);
   outline-offset: -2px;
@@ -11704,11 +11405,7 @@ html.mobile .appdock-btn {
   opacity: 0.45;
   cursor: default;
 }
-.launcher-empty {
-  padding: 24px 12px;
-  color: var(--flux-text-dim);
-  line-height: 1.6;
-}
+
 .launcher-error {
   color: var(--flux-text);
   border-left: 3px solid #e8a46b;
@@ -11717,24 +11414,7 @@ html.mobile .appdock-btn {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-.launcher-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  border-top: 1px solid var(--glass-rim-soft);
-  padding-top: 14px;
-}
-.launcher-footer > .launcher-muted {
-  margin-right: auto;
-}
-.launcher-mode {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 11px;
-  color: var(--flux-text-dim);
-}
+
 .launcher-editor-fields {
   border: 0;
   padding: 0;
@@ -11855,9 +11535,7 @@ html[data-density="comfortable"] .new-tab-options {
     max-height: calc(100dvh - 24px);
     gap: 12px;
   }
-  .launcher-kind {
-    display: none;
-  }
+
   .launcher-heading h2 {
     font-size: 20px;
   }
@@ -11873,4 +11551,7 @@ html[data-density="comfortable"] .new-tab-options {
   }
 }
 
-.start .start-hint, .start .start-empty { color: var(--flux-text-dim); }
+.start .start-hint,
+.start .start-empty {
+  color: var(--flux-text-dim);
+}

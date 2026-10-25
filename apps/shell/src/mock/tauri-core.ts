@@ -841,6 +841,25 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
           has_saved_tab_groups: false,
         },
       ] as T);
+    case "kb_query":
+      return Promise.resolve([
+        {
+          source: "onyx",
+          doc_id: "ml/attention",
+          title: "Self-attention: queries, keys and values",
+          path: "/Users/you/Onyx/ML/attention.md",
+          snippet: "Attention weighs every token against every other.",
+          score: 0.86,
+        },
+        {
+          source: "onyx",
+          doc_id: "comp4670/week6",
+          title: "Week 6 · Attention recap",
+          path: "/Users/you/Onyx/COMP4670/week6.md",
+          snippet: "Positional encodings and multi-head attention.",
+          score: 0.71,
+        },
+      ] as T);
     case "search_suggest": {
       const q = String(args?.query ?? "");
       return Promise.resolve((q ? [`${q} tutorial`, `${q} reddit`, `${q} vs alternatives`] : []) as T);
@@ -1035,6 +1054,19 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve([] as T);
     case "tab_snapshot":
       return Promise.resolve(null as T);
+    // ?previewStill: a page-like still behind the launcher, to check its layering.
+    case "webview_snapshot":
+      return Promise.resolve(
+        (previewParams.has("previewStill")
+          ? "data:image/svg+xml," +
+            encodeURIComponent(
+              '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="800" height="600" fill="#f4f1ea"/>' +
+                '<text x="60" y="110" font-family="Georgia" font-size="54" fill="#222">Attention Is All You Need</text>' +
+                '<rect x="60" y="160" width="560" height="14" fill="#bbb"/><rect x="60" y="190" width="480" height="14" fill="#bbb"/>' +
+                '<rect x="60" y="250" width="680" height="220" rx="12" fill="#e4dccd"/></svg>',
+            )
+          : null) as T,
+      );
     case "webview_suspend":
       return Promise.resolve(false as T);
     case "shields_pick_element":

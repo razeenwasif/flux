@@ -39,7 +39,7 @@ import {
   type TabMeta,
   type WebPanel,
 } from "./ipc";
-import { setWakeShot, untilPainted } from "./wakeShot";
+import { setPageStill, untilPainted } from "./pageStill";
 
 /** One tiled pane: a browser tab's webview and the rect it must occupy. */
 export type Pane = { tab: TabMeta; rect: Rect };
@@ -304,7 +304,7 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
         openingWebviews.add(id);
         // (Re)opening an unloaded tab is waking it (#45). On macOS it comes back
         // hidden with the snapshot it left painted in its card, and is shown
-        // once WebKit says it has drawn (tabsleep.rs, wakeShot.ts).
+        // once WebKit says it has drawn (tabsleep.rs, pageStill.ts).
         const waking = untrack(() => isHibernated(id));
         setHibernated(id, false);
         lastActive.set(id, Date.now());
@@ -315,7 +315,7 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
               .catch(() => null)
               .then((s) => {
                 shot = s;
-                setWakeShot(id, s);
+                setPageStill(id, s);
                 return webviewOpen(id, p.tab.url, r);
               })
           : webviewOpen(id, p.tab.url, r);
@@ -323,7 +323,7 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
           .then(async () => {
             if (!openingWebviews.has(id)) {
               shown.delete(id);
-              setWakeShot(id, null);
+              setPageStill(id, null);
               await webviewHibernate(id);
               return;
             }
@@ -334,7 +334,7 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
             // behind it, so every later show and navigate was a silent no-op.
             if (!openingWebviews.has(id)) {
               shown.delete(id);
-              setWakeShot(id, null);
+              setPageStill(id, null);
               await webviewHibernate(id);
               return;
             }
@@ -350,7 +350,7 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
             // nothing else would hide it.
             if (overlayActive() || uiDragging() || !paneLayout().some((q) => q.tab.id === id)) {
               shown.delete(id);
-              setWakeShot(id, null);
+              setPageStill(id, null);
               await webviewHide(id);
               return;
             }
@@ -360,13 +360,13 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
               // it's hidden meanwhile, that drops it from `shown`.
               await untilPainted(id, 3000);
               if (!shown.has(id)) {
-                setWakeShot(id, null);
+                setPageStill(id, null);
                 return;
               }
             }
             await webviewShow(id);
             // The page draws over the snapshot before the snapshot goes.
-            if (shot) setTimeout(() => setWakeShot(id, null), 150);
+            if (shot) setTimeout(() => setPageStill(id, null), 150);
             // `r` was measured before this webview existed. If the layout moved
             // while the open was in flight - the panel column mounting during
             // startup is the usual case - it is stale, and the page is left
@@ -382,7 +382,7 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
             openingWebviews.delete(id);
             openedWebviews.delete(id);
             shown.delete(id);
-            setWakeShot(id, null);
+            setPageStill(id, null);
             console.error("[flux webview] open failed:", e);
           });
       }

@@ -1041,7 +1041,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             class="icon-btn"
             aria-label="Open launcher"
             title="Open launcher"
-            onClick={() => setLauncherOpen(true)}
+            onClick={() => setLauncherOpen(true, ">")}
           >
             <Icon name="omni" />
           </button>
@@ -1103,7 +1103,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             title="Launcher — pages & apps"
             onClick={() => {
               setPicker(false);
-              setLauncherOpen(true);
+              setLauncherOpen(true, ">");
             }}
           >
             <Icon name="omni" />

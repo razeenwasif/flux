@@ -1085,129 +1085,6 @@
 /* ── Command palette and search spotlight ────────────────────────────────
    Paper dialogs over a velvet dim, each with its name in the top edge; the
    selected result gets the foil wash. Both clip, so: inset paper again. */
-:root[data-design="velvet-paper"] .palette-backdrop {
-  background: rgba(9, 7, 11, 0.55);
-}
-:root[data-design="velvet-paper"] .palette,
-:root[data-design="velvet-paper"] .spot {
-  position: relative;
-  isolation: isolate;
-  border: none;
-  border-radius: var(--vp-r);
-  background: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow:
-    0 30px 60px -20px rgba(0, 0, 0, 0.85),
-    0 0 80px -30px rgba(201, 181, 255, 0.08);
-}
-:root[data-design="velvet-paper"] .palette {
-  padding-top: 18px;
-}
-:root[data-design="velvet-paper"] .spot {
-  padding: 30px 14px 14px;
-}
-:root[data-design="velvet-paper"] .palette::before,
-:root[data-design="velvet-paper"] .spot::before {
-  content: "";
-  position: absolute;
-  inset: 10px 0 0;
-  z-index: -1;
-  padding: 0;
-  border-radius: var(--vp-r);
-  border: 1.5px solid transparent;
-  background:
-    linear-gradient(var(--vp-paper), var(--vp-paper)) padding-box,
-    var(--vp-foil) border-box;
-  -webkit-mask: none;
-  mask: none;
-  pointer-events: none;
-}
-:root[data-design="velvet-paper"] .palette::after,
-:root[data-design="velvet-paper"] .spot::after {
-  position: absolute;
-  top: 1px;
-  left: 22px;
-  z-index: 1;
-  padding: 0 10px;
-  background: linear-gradient(rgba(0, 0, 0, 0) 9px, var(--vp-paper) 9px);
-  font:
-    600 11px/18px "Figtree",
-    system-ui,
-    sans-serif;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--flux-text);
-  pointer-events: none;
-}
-:root[data-design="velvet-paper"] .palette::after {
-  content: "Command · ⌘K";
-}
-:root[data-design="velvet-paper"] .spot::after {
-  content: "Search the web";
-}
-:root[data-design="velvet-paper"] .palette-input {
-  margin: 8px 14px 6px;
-  padding: 0 20px;
-  height: 50px;
-  border: 1.5px solid transparent;
-  border-radius: 999px;
-  background:
-    linear-gradient(var(--vp-paper-2), var(--vp-paper-2)) padding-box,
-    var(--vp-foil-line) border-box;
-  font-size: 16px;
-}
-:root[data-design="velvet-paper"] .palette-input:focus {
-  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
-}
-:root[data-design="velvet-paper"] .palette-list {
-  padding: 6px 12px 12px;
-  gap: 2px;
-}
-:root[data-design="velvet-paper"] .palette-item {
-  padding: 10px 12px;
-  border-radius: 14px;
-}
-:root[data-design="velvet-paper"] .palette-item:hover {
-  background: var(--vp-paper-2);
-}
-:root[data-design="velvet-paper"] .palette-item.sel {
-  background: var(--vp-wash);
-  box-shadow: inset 0 0 0 1px rgba(201, 181, 255, 0.16);
-}
-:root[data-design="velvet-paper"] .palette-icon {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  background: var(--vp-chip);
-  opacity: 1;
-}
-:root[data-design="velvet-paper"] .palette-item.sel .palette-icon {
-  background: #f3b6d3;
-  color: #22121b;
-}
-:root[data-design="velvet-paper"] .palette-sub {
-  font-family: var(--vp-mono);
-  font-size: 11px;
-}
-:root[data-design="velvet-paper"] .spot-field {
-  border: 1.5px solid transparent;
-  border-radius: 999px;
-  background:
-    linear-gradient(var(--vp-paper-2), var(--vp-paper-2)) padding-box,
-    var(--vp-foil-line) border-box;
-}
-:root[data-design="velvet-paper"] .spot-btn,
-:root[data-design="velvet-paper"] .spot-tool {
-  border-radius: 12px;
-}
-:root[data-design="velvet-paper"] .spot-btn.primary {
-  border-radius: 999px;
-  background: var(--vp-satin);
-  color: #1a1020;
-}
 
 /* ── Trail page (flux://trail) ────────────────────────────────────────────
    The graph and the detail pane are paper cards. Their titles hang off
@@ -3856,8 +3733,6 @@
 :root[data-design="velvet-paper"] .mail-pane::before,
 :root[data-design="velvet-paper"] .cal-pane.docked::before,
 :root[data-design="velvet-paper"] .start-card::before,
-:root[data-design="velvet-paper"] .palette::before,
-:root[data-design="velvet-paper"] .spot::before,
 :root[data-design="velvet-paper"] .idx-panel::before,
 :root[data-design="velvet-paper"] .idx-card::before,
 :root[data-design="velvet-paper"] .files-rail::before,

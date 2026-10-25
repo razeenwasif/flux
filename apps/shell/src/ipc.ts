@@ -1498,6 +1498,9 @@ export const tabSleepCheck = (tabIds: number[]) => invoke<SleepCheck[]>("tab_sle
 /** Suspend a background tab (macOS): its scripts and timers stop; it stays in
  *  memory. It resumes when shown. False when this platform can't. */
 export const webviewSuspend = (tabId: number) => invoke<boolean>("webview_suspend", { tabId });
+/** A still of the page on screen, as a data URL (macOS): painted behind the
+ *  launcher so the page stays in view. Null where there's none. */
+export const webviewSnapshot = (tabId: number) => invoke<string | null>("webview_snapshot", { tabId });
 /** The snapshot an unloaded tab left, as a data URL, handed over once. */
 export const tabSnapshot = (tabId: number) => invoke<string | null>("tab_snapshot", { tabId });
 /** The system's memory pressure: "normal", "warn" or "critical" (macOS). */

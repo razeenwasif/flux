@@ -34,7 +34,6 @@ import {
   webviewReload,
   type TabMeta,
 } from "./ipc";
-import { setLauncherOpen } from "./launcherOpen";
 import { LAYOUT_PRESETS, type LayoutPreset, type LayoutState } from "./layout";
 import {
   activeId,
@@ -80,7 +79,6 @@ export type PaletteContext = {
   setSidebarOpen: Setter<boolean>;
   setAgentOpen: Setter<boolean>;
   setFocusMode: Setter<boolean>;
-  openSpotlight: () => void;
   openFind: () => void;
   toggleReader: () => void;
   dispatch: (action: string) => boolean;
@@ -112,7 +110,6 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
     setSidebarOpen,
     setAgentOpen,
     setFocusMode,
-    openSpotlight,
     openFind,
     toggleReader,
     dispatch,
@@ -153,7 +150,6 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
   };
 
   return [
-    { id: "launcher", label: "Open launcher", icon: "⌕", run: () => setLauncherOpen(true) },
     { id: "new-tab", label: "New browser tab", icon: "🌐", run: () => void openTab("browser") },
     {
       id: "new-private",
@@ -269,12 +265,6 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
     },
     { id: "discord", label: "Open Discord panel", icon: "💬", run: () => void openMessagingPanel("discord") },
     { id: "teams", label: "Open Teams panel", icon: "💬", run: () => void openMessagingPanel("teams") },
-    {
-      id: "spotlight",
-      label: "Search the web (spotlight)",
-      icon: "⌕",
-      run: () => openSpotlight(),
-    },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
     {
       id: "semantic-find",

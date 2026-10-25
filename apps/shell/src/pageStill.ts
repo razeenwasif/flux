@@ -1,21 +1,23 @@
 /**
- * Waking an unloaded tab (tabsleep.rs): the snapshot it left is painted in its
- * page card while the page reloads hidden, until WebKit reports the page's
- * first real paint, so there's no blank frame between the two.
+ * A still of a page, painted in its card while the page itself is out of
+ * sight, so the card never shows empty. Two cases: a tab waking from an
+ * unload (tabsleep.rs), whose snapshot shows while the page reloads hidden
+ * until WebKit reports its first real paint; and the launcher, which goes up
+ * over a still of the page on screen.
  */
 import { createSignal } from "solid-js";
 
 import { onTabPainted } from "./ipc";
 
-const [shots, setShots] = createSignal<ReadonlyMap<number, string>>(new Map());
+const [stills, setStills] = createSignal<ReadonlyMap<number, string>>(new Map());
 
-/** The snapshot to paint for tab `id` while it wakes, if any. */
-export const wakeShot = (id: number | null | undefined): string | undefined =>
-  id == null ? undefined : shots().get(id);
+/** The still to paint for tab `id`, if any. */
+export const pageStill = (id: number | null | undefined): string | undefined =>
+  id == null ? undefined : stills().get(id);
 
-export function setWakeShot(id: number, url: string | null): void {
+export function setPageStill(id: number, url: string | null): void {
   if (url) listen();
-  setShots((m) => {
+  setStills((m) => {
     if (!url && !m.has(id)) return m;
     const next = new Map(m);
     if (url) next.set(id, url);

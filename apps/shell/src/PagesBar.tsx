@@ -17,7 +17,7 @@ const PagesBar: Component = () => {
             name: page.label,
             icon: page.icon as string,
             launch: () => {
-              void openTab("browser", page.url).catch(() => setLauncherOpen(true));
+              void openTab("browser", page.url).catch(() => setLauncherOpen(true, ">"));
             },
           },
         ];
@@ -33,7 +33,7 @@ const PagesBar: Component = () => {
         title="Open launcher"
         onClick={() => {
           hideTip();
-          setLauncherOpen(true);
+          setLauncherOpen(true, ">");
         }}
       >
         ⌕

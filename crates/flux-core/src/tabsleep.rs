@@ -286,12 +286,42 @@ pub async fn before_discard(app: &AppHandle, tab: TabId) {
 /// the shell paints it while the tab wakes.
 #[tauri::command]
 pub fn tab_snapshot(tab_id: TabId) -> Option<String> {
-    use base64::Engine;
     let (_, (_, jpeg)) = STORE.snapshots.remove(&tab_id)?;
-    Some(format!(
+    Some(data_url(&jpeg))
+}
+
+fn data_url(jpeg: &[u8]) -> String {
+    use base64::Engine;
+    format!(
         "data:image/jpeg;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(jpeg.as_slice())
-    ))
+        base64::engine::general_purpose::STANDARD.encode(jpeg)
+    )
+}
+
+/// A still of `tab`'s page as it is on screen, as a data URL (macOS). The
+/// launcher paints it behind itself, so the page stays in view rather than
+/// leaving an empty card while the launcher is up.
+#[tauri::command]
+pub async fn webview_snapshot(app: AppHandle, tab_id: TabId) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let wv = app.get_webview(&format!("tab-{tab_id}"))?;
+        let (tx, rx) = std::sync::mpsc::channel::<Option<Vec<u8>>>();
+        wv.with_webview(move |p| unsafe { mac::snapshot_now(p.inner() as _, tx) })
+            .ok()?;
+        let jpeg = tauri::async_runtime::spawn_blocking(move || {
+            rx.recv_timeout(Duration::from_millis(400)).ok().flatten()
+        })
+        .await
+        .ok()
+        .flatten()?;
+        Some(data_url(&jpeg))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, tab_id);
+        None
+    }
 }
 
 // ─── Memory pressure ─────────────────────────────────────────────────────────
@@ -490,6 +520,20 @@ mod mac {
             }
         }
         if !shot {
+            let _ = tx.send(None);
+            return;
+        }
+        let tx = std::sync::Mutex::new(Some(tx));
+        snapshot(webview, move |jpeg| {
+            if let Some(tx) = tx.lock().ok().and_then(|mut t| t.take()) {
+                let _ = tx.send(jpeg);
+            }
+        });
+    }
+
+    /// Snapshot the page now; the JPEG (or `None`) arrives on `tx`.
+    pub unsafe fn snapshot_now(webview: *mut Object, tx: Sender<Option<Vec<u8>>>) {
+        if webview.is_null() {
             let _ = tx.send(None);
             return;
         }

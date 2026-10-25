@@ -1,6 +1,13 @@
 import { setTabMode, type TabMode } from "./tabMode";
 import "./interfacePreferences";
-import { launcherOpen } from "./launcherOpen";
+import {
+  launcherInitial,
+  launcherOpen,
+  setLauncherOpen,
+  setLauncherOpener,
+  setLauncherShown,
+} from "./launcherOpen";
+import { setPageStill } from "./pageStill";
 /**
  * Flux shell — Arc-style vertical layout (ADR 0002).
  *
@@ -73,6 +80,7 @@ import {
   memoryPressure,
   onMemoryPressure,
   tabSleepCheck,
+  webviewSnapshot,
   prefetchRecord,
   prefetchHints,
   sentinelOnNavigate,
@@ -132,8 +140,6 @@ import type { PaletteContext } from "./paletteActions";
 import { LinkMenu } from "./linkMenu";
 // Lazy-loaded: not shown on a fresh window, so they stay out of the boot bundle
 // and load on first use (instant — assets are local/embedded). #startup
-const CommandPalette = lazy(() => import("./CommandPalette"));
-const SearchSpotlight = lazy(() => import("./SearchSpotlight"));
 const FilesView = lazy(() => import("./FilesView"));
 const Playground = lazy(() => import("./playground/Playground"));
 const NotebookPage = lazy(() => import("./NotebookPage"));
@@ -380,13 +386,10 @@ const App: Component = () => {
     document.body.classList.remove("window-acrylic");
   });
 
-  const [paletteOpen, setPaletteOpen] = createSignal(false);
-  const [spotOpen, setSpotOpen] = createSignal(false);
-  // Overlay registry (store.ts pageOverlayActive) + the one App-local overlay
-  // flag. Every webview show/hide decision reads THESE, never a hand-rolled
-  // boolean chain — chains drifted apart and dropped newer flags (the split-view
-  // and home-widget hide bugs).
-  const overlayActive = () => pageOverlayActive() || paletteOpen() || spotOpen();
+  // Overlay registry (store.ts pageOverlayActive). Every webview show/hide
+  // decision reads it, never a hand-rolled boolean chain — chains drifted apart
+  // and dropped newer flags (the split-view and home-widget hide bugs).
+  const overlayActive = () => pageOverlayActive();
   const uiDragging = () => splitDragging() || panelDragging();
 
   // Resizable pane widths (px), persisted across sessions (BACKLOG #27).
@@ -562,25 +565,8 @@ const App: Component = () => {
     ]);
     const inTerminal = () => !!(document.activeElement as HTMLElement | null)?.closest?.(".xterm");
     const onKey = (e: KeyboardEvent) => {
-      // The command palette (#6) is modal: only Ctrl+K (to toggle it closed) is
-      // a chrome shortcut while it's open; everything else goes to its input.
-      if (paletteOpen()) {
-        if (keyToAction(e) === "palette") {
-          e.preventDefault();
-          e.stopPropagation();
-          dispatch("palette");
-        }
-        return;
-      }
-      // Ditto for the spotlight: modal, so only its own toggle gets through.
-      if (spotOpen()) {
-        if (keyToAction(e) === "spotlight") {
-          e.preventDefault();
-          e.stopPropagation();
-          dispatch("spotlight");
-        }
-        return;
-      }
+      // The launcher is modal and owns its keys (⌘K is its actions there).
+      if (launcherOpen()) return;
       // Esc closes the find bar (#33), else stops the active page load (#31).
       // Handled outside the chord table so it isn't forwarded from focused pages
       // (they use Esc themselves).
@@ -1340,8 +1326,6 @@ const App: Component = () => {
       openedWebviews.has(t.id) &&
       !isStartUrl(t.url) &&
       !pageOverlayActive() &&
-      !paletteOpen() &&
-      !spotOpen() &&
       // Mobile: the drawer, the full-screen agent, and the tab switcher are HTML
       // overlays the native page would otherwise cover (ADR 0012, Milestone 2).
       !(isMobile && (sidebarOpen() || agentOpen() || mobileTabsOpen()))
@@ -1400,25 +1384,36 @@ const App: Component = () => {
     });
   }
 
-  // Command palette (#6) — centered modal over the (hidden) page.
-  const openPalette = () => {
-    hideActivePage();
-    setPaletteOpen(true);
-  };
-  const closePalette = () => {
-    setPaletteOpen(false);
+  // The launcher (⌘K): one place for search, tabs, history, notes and
+  // commands. The page is an OS layer over the content card, so it has to be
+  // hidden or it paints through the launcher; a still of it goes into the card
+  // first, so the launcher floats over the page rather than an empty card.
+  const stilled = new Set<number>();
+  setLauncherOpener(async () => {
+    const ids = paneLayout()
+      .map((p) => p.tab.id)
+      .filter((id) => openedWebviews.has(id));
+    const stills = await Promise.all(ids.map((id) => webviewSnapshot(id).catch(() => null)));
+    ids.forEach((id, i) => {
+      if (!stills[i]) return;
+      stilled.add(id);
+      setPageStill(id, stills[i]!);
+    });
+    setLauncherShown(true);
+  });
+  const closeLauncher = () => {
+    setLauncherOpen(false);
     showActivePageIfClear();
   };
-  // Same native-layer dance as the palette: the page is an OS layer over the
-  // content card, so it has to be hidden or it paints through the overlay.
-  const openSpotlight = () => {
-    hideActivePage();
-    setSpotOpen(true);
-  };
-  const closeSpotlight = () => {
-    setSpotOpen(false);
-    showActivePageIfClear();
-  };
+  // The pages come back over their stills; drop the stills once they have.
+  createEffect(
+    on(launcherOpen, (open) => {
+      if (open || !stilled.size) return;
+      const ids = [...stilled];
+      stilled.clear();
+      setTimeout(() => ids.forEach((id) => setPageStill(id, null)), 200);
+    }),
+  );
   // Files / Maps / Notebook / Playground popouts — same native-layer dance.
   const openFilesPanel = () => {
     hideActivePage();
@@ -1527,12 +1522,9 @@ const App: Component = () => {
         focusAddress();
         return true;
       case "palette":
-        if (paletteOpen()) closePalette();
-        else openPalette();
-        return true;
       case "spotlight":
-        if (spotOpen()) closeSpotlight();
-        else openSpotlight();
+        if (launcherOpen()) closeLauncher();
+        else setLauncherOpen(true);
         return true;
       case "find":
         openFind();
@@ -1748,7 +1740,6 @@ const App: Component = () => {
     setSidebarOpen,
     setAgentOpen,
     setFocusMode,
-    openSpotlight,
     openFind,
     toggleReader,
     dispatch,
@@ -1978,25 +1969,14 @@ const App: Component = () => {
         <div class="mobile-drawer-backdrop" onClick={() => setSidebarOpen(false)} />
       </Show>
 
+      {/* The launcher (⌘K) — search, tabs, history, notes and commands, over a
+          still of the page. */}
       <Show when={launcherOpen()}>
         <Suspense>
-          <Launcher />
-        </Suspense>
-      </Show>
-
-      {/* Command palette (#6) — overlay; renders above the (hidden) webview. */}
-      <Show when={paletteOpen()}>
-        <Suspense>
-          <CommandPalette ctx={paletteCtx} onClose={closePalette} onNavigate={go} />
-        </Suspense>
-      </Show>
-      {/* Search spotlight (flux-plan1) — Ctrl+Shift+K. Outward-facing sibling of
-          the palette: the web, rather than what you already have. */}
-      <Show when={spotOpen()}>
-        <Suspense>
-          <SearchSpotlight
+          <Launcher
             ctx={paletteCtx}
-            onClose={closeSpotlight}
+            initial={launcherInitial()}
+            onClose={closeLauncher}
             onNavigate={go}
             onOpenFiles={openFilesPanel}
             onAiSearch={(q) => {

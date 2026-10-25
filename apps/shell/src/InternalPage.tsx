@@ -38,7 +38,7 @@ import {
 import { domPublishInternal } from "./ipc";
 import { tabs, updateTabTitle, updateTabUrl } from "./store";
 import { basename } from "./tabvisual";
-import { wakeShot } from "./wakeShot";
+import { pageStill } from "./pageStill";
 import type { TabMeta } from "./ipc";
 
 const AppsPage = lazy(() => import("./AppsPage"));
@@ -174,7 +174,7 @@ const InternalPage: Component<InternalPageProps> = (props) => {
       <Switch
         fallback={
           <Show
-            when={wakeShot(tab()?.id)}
+            when={pageStill(tab()?.id)}
             fallback={
               <span
                 aria-hidden={tab()?.kind === "browser" && /^https?:/i.test(tab()?.url ?? "")}
@@ -188,7 +188,7 @@ const InternalPage: Component<InternalPageProps> = (props) => {
           >
             {/* A tab waking from an unload: the page as it was, until it draws. */}
             <img
-              src={wakeShot(tab()?.id)}
+              src={pageStill(tab()?.id)}
               alt=""
               aria-hidden="true"
               style={{

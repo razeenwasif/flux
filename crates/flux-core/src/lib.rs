@@ -1576,6 +1576,7 @@ pub fn run(intent: cli::LaunchIntent) {
             tabsleep::webview_suspend,
             tabsleep::tab_sleep_check,
             tabsleep::tab_snapshot,
+            tabsleep::webview_snapshot,
             tabsleep::memory_pressure,
             leanmode::lean_status,
             leanmode::lean_set_enabled,
