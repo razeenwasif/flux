@@ -33,11 +33,11 @@ import {
   searchResolve,
   searchSuggest,
   START_URL,
-  todoAdd,
   type HistoryEntry,
   type KbHit,
   type OmniHit,
 } from "./ipc";
+import { addTaskLine } from "./taskAdd";
 import {
   ago,
   calculate,
@@ -252,7 +252,7 @@ const Launcher: Component<{
   const addTask = (title: string) => {
     const t = title.trim();
     if (!t) return;
-    void todoAdd(t)
+    void addTaskLine(t)
       .then(() => {
         props.ctx.toast(`Added to Tasks: ${t}`, "ok");
         done();

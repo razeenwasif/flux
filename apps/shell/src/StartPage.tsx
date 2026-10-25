@@ -49,7 +49,6 @@ import {
   searchDefault,
   searchEngines,
   searchResolve,
-  todoAdd,
   todoRemove,
   todoToggle,
   todosClearDone,
@@ -58,6 +57,7 @@ import {
   type FeedItem,
   type Todo,
 } from "./ipc";
+import { addTaskLine } from "./taskAdd";
 import { activeId, focusTab, liquidBg, setHomeModalOpen, tabs } from "./store";
 import LiquidBackground from "./LiquidBackground";
 import Calculator from "./Calculator";
@@ -1094,7 +1094,7 @@ const StartPage: Component<{
     ev.preventDefault();
     const title = newTodo().trim();
     if (!title) return;
-    void todoAdd(title)
+    void addTaskLine(title)
       .then(() => {
         setNewTodo("");
         refreshTodos();

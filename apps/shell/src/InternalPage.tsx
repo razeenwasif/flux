@@ -31,6 +31,7 @@ import {
   SPEEDTEST_URL,
   SYNC_URL,
   TASKS_URL,
+  ACTIVITY_URL,
   TRAIL_URL,
   VAULT_URL,
   WHITEBOARD_URL,
@@ -60,6 +61,7 @@ const SpeedtestPage = lazy(() => import("./SpeedtestPage"));
 const StartPage = lazy(() => import("./StartPage"));
 const SyncPage = lazy(() => import("./SyncPage"));
 const TasksPage = lazy(() => import("./TasksPage"));
+const TodosPage = lazy(() => import("./TodosPage"));
 const TrailPage = lazy(() => import("./TrailPage"));
 const VaultPage = lazy(() => import("./VaultPage"));
 const WhiteboardPage = lazy(() => import("./WhiteboardPage"));
@@ -251,6 +253,9 @@ const InternalPage: Component<InternalPageProps> = (props) => {
           <ResourcesPage onNavigate={props.onNavigate} onSleepBackground={props.onSleepBackground} />
         </Match>
         <Match when={tab()?.url === TASKS_URL}>
+          <TodosPage />
+        </Match>
+        <Match when={tab()?.url === ACTIVITY_URL}>
           <TasksPage />
         </Match>
         <Match when={tab()?.url === SPEEDTEST_URL}>

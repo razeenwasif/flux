@@ -71,7 +71,7 @@ import {
   shieldsSetSite,
   shieldsStatus,
   SYNC_URL,
-  TASKS_URL,
+  ACTIVITY_URL,
   trackingSetLevel,
   trackingStatus,
   proxyGet,
@@ -1358,8 +1358,8 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               <button class="set-link-btn" onClick={() => props.onNavigate(RESOURCES_URL)}>
                 Resource monitor
               </button>
-              <button class="set-link-btn" onClick={() => props.onNavigate(TASKS_URL)}>
-                Task manager
+              <button class="set-link-btn" onClick={() => props.onNavigate(ACTIVITY_URL)}>
+                Activity
               </button>
             </div>
           </Show>

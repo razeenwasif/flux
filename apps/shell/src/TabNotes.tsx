@@ -19,7 +19,6 @@ import {
   mdNotesHome,
   mdNotesList,
   mdNoteWrite,
-  todoAdd,
   todoRemove,
   todosList,
   todoToggle,
@@ -27,8 +26,8 @@ import {
   type MdNotesHome,
   type Todo,
 } from "./ipc";
+import { addTaskLine } from "./taskAdd";
 import { parseBlocks, toggleTask, type Inline } from "./mdlite";
-import { parseQuickEvent } from "./quickEvent";
 import { openTab } from "./store";
 
 const ago = (ms: number): string => {
@@ -332,9 +331,8 @@ const TodoList: Component = () => {
     e.preventDefault();
     const raw = draft().trim();
     if (!raw) return;
-    // "submit the lab report friday": a day in the text becomes the due date.
-    const p = parseQuickEvent(raw, "");
-    void todoAdd(p?.title ?? raw, p?.date || undefined)
+    // "submit the lab report friday 5pm !1 #uni": read like the Tasks page.
+    void addTaskLine(raw)
       .then(() => {
         setDraft("");
         load();

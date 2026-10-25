@@ -31,6 +31,54 @@ pub struct Todo {
     /// tasks written before this existed.
     #[serde(default)]
     pub updated_ms: u64,
+    /// `HH:MM` on the due date, or "" (Flux Next task capture: "friday 5pm").
+    #[serde(default)]
+    pub time: String,
+    /// 0 for none, 1 (highest) to 3 ("!1").
+    #[serde(default)]
+    pub priority: u8,
+    /// How long it should take, in minutes ("~45m"); 0 for unsaid.
+    #[serde(default)]
+    pub minutes: u32,
+    /// Where it came from: a page's host, a note's name, or "".
+    #[serde(default)]
+    pub source: String,
+    /// Proposed by the agent (Make tasks) rather than typed.
+    #[serde(default)]
+    pub by_agent: bool,
+}
+
+/// What a task can carry beyond its title, date and list.
+#[derive(Default, Clone)]
+pub struct TodoDetails {
+    pub time: String,
+    pub priority: u8,
+    pub minutes: u32,
+    pub source: String,
+    pub by_agent: bool,
+}
+
+impl TodoDetails {
+    /// Only what can be: a real `HH:MM`, a priority of 1-3, under a week, a
+    /// short source.
+    fn checked(self) -> Self {
+        let time = self.time.trim();
+        let ok_time = time.len() == 5
+            && time.as_bytes()[2] == b':'
+            && time[..2].parse::<u8>().is_ok_and(|h| h < 24)
+            && time[3..].parse::<u8>().is_ok_and(|m| m < 60);
+        Self {
+            time: if ok_time {
+                time.to_string()
+            } else {
+                String::new()
+            },
+            priority: if self.priority <= 3 { self.priority } else { 0 },
+            minutes: self.minutes.min(7 * 24 * 60),
+            source: self.source.trim().chars().take(120).collect(),
+            by_agent: self.by_agent,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -116,6 +164,9 @@ impl TodoStore {
                     if r.updated_ms > local.updated_ms {
                         local.done = r.done;
                         local.due = r.due.clone();
+                        local.time = r.time.clone();
+                        local.priority = r.priority;
+                        local.minutes = r.minutes;
                         local.updated_ms = r.updated_ms;
                     }
                 }
@@ -139,19 +190,41 @@ impl TodoStore {
     }
 
     pub fn add(&self, title: String, due: String, profile: String) -> Option<Todo> {
+        self.add_with(title, due, profile, TodoDetails::default())
+    }
+
+    pub fn add_with(
+        &self,
+        title: String,
+        due: String,
+        profile: String,
+        details: TodoDetails,
+    ) -> Option<Todo> {
         let title = title.trim().to_string();
         if title.is_empty() {
             return None;
         }
+        let d = details.checked();
         let now = now_ms();
+        let due = due.trim().to_string();
         let todo = Todo {
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             title,
             done: false,
             created_ms: now,
             updated_ms: now,
-            due: due.trim().to_string(),
+            // A time means nothing without its day.
+            time: if due.is_empty() {
+                String::new()
+            } else {
+                d.time
+            },
+            due,
             profile: profile.trim().to_string(),
+            priority: d.priority,
+            minutes: d.minutes,
+            source: d.source,
+            by_agent: d.by_agent,
         };
         self.items.write().push(todo.clone());
         self.save();
@@ -315,14 +388,33 @@ pub fn todos_list(store: State<'_, TodoStore>) -> Vec<Todo> {
     store.list()
 }
 
+// IPC surface: optional fields the callers name, rather than a struct each
+// would have to build.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn todo_add(
     store: State<'_, TodoStore>,
     title: String,
     due: Option<String>,
     profile: Option<String>,
+    time: Option<String>,
+    priority: Option<u8>,
+    minutes: Option<u32>,
+    source: Option<String>,
+    by_agent: Option<bool>,
 ) -> Option<Todo> {
-    store.add(title, due.unwrap_or_default(), profile.unwrap_or_default())
+    store.add_with(
+        title,
+        due.unwrap_or_default(),
+        profile.unwrap_or_default(),
+        TodoDetails {
+            time: time.unwrap_or_default(),
+            priority: priority.unwrap_or(0),
+            minutes: minutes.unwrap_or(0),
+            source: source.unwrap_or_default(),
+            by_agent: by_agent.unwrap_or(false),
+        },
+    )
 }
 
 /// Reorder tasks (drag in the tasks column). `ids` is the new sequence.
@@ -365,6 +457,56 @@ pub fn todos_clear_done(store: State<'_, TodoStore>) -> usize {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn details_are_kept_only_when_they_can_be() {
+        use super::{TodoDetails, TodoStore};
+        let s = TodoStore::default();
+        let d = |time: &str, priority, minutes| TodoDetails {
+            time: time.into(),
+            priority,
+            minutes,
+            source: " gitlab.anu.edu.au ".into(),
+            by_agent: true,
+        };
+        let t = s
+            .add_with(
+                "Lab report".into(),
+                "2026-10-23".into(),
+                "Uni".into(),
+                d("17:00", 1, 45),
+            )
+            .unwrap();
+        assert_eq!((t.time.as_str(), t.priority, t.minutes), ("17:00", 1, 45));
+        assert_eq!(t.source, "gitlab.anu.edu.au");
+        assert!(t.by_agent);
+        let t = s
+            .add_with(
+                "Bad".into(),
+                "2026-10-23".into(),
+                "".into(),
+                d("25:00", 9, 99_999),
+            )
+            .unwrap();
+        assert_eq!(
+            (t.time.as_str(), t.priority, t.minutes),
+            ("", 0, 7 * 24 * 60)
+        );
+        // A time with no day is dropped.
+        let t = s
+            .add_with("No day".into(), "".into(), "".into(), d("09:30", 0, 0))
+            .unwrap();
+        assert_eq!(t.time, "");
+        // Tasks saved before details existed load with none.
+        let old: super::Todo = serde_json::from_str(
+            r#"{"id":1,"title":"Old","done":false,"created_ms":1,"due":"","profile":""}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            (old.time.as_str(), old.priority, old.minutes, old.by_agent),
+            ("", 0, 0, false)
+        );
+    }
 
     #[test]
     fn ticking_a_box_propagates() {

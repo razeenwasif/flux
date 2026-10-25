@@ -366,6 +366,105 @@ let mockTuiApps = [
   { id: "custom-1", name: "Canopy", icon: "🌳", cmd: "canopy", cwd: "" },
 ];
 
+// Tasks (todos.rs): the board's list, in memory, dated from today.
+const dayFromNow = (n: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toLocaleDateString("sv-SE");
+};
+type MockTodo = {
+  id: number;
+  title: string;
+  done: boolean;
+  created_ms: number;
+  updated_ms?: number;
+  due?: string;
+  time?: string;
+  profile?: string;
+  priority?: number;
+  minutes?: number;
+  source?: string;
+  by_agent?: boolean;
+};
+let mockTodos: MockTodo[] = [
+  {
+    id: 1,
+    title: "Email tutor about the lab 4 extension",
+    done: false,
+    created_ms: 1,
+    due: dayFromNow(-1),
+    profile: "Uni",
+  },
+  {
+    id: 2,
+    title: "COMP3320 A2: profile the matmul kernel",
+    done: false,
+    created_ms: 1,
+    due: dayFromNow(0),
+    time: "23:59",
+    profile: "Uni",
+    priority: 1,
+    source: "gitlab.anu.edu.au",
+  },
+  {
+    id: 3,
+    title: "Summarise lecture 11 into Onyx",
+    done: false,
+    created_ms: 1,
+    due: dayFromNow(0),
+    time: "18:00",
+    profile: "Uni",
+    source: "Onyx · Week 6",
+  },
+  {
+    id: 4,
+    title: "Reply to Flux issue #212",
+    done: false,
+    created_ms: 1,
+    due: dayFromNow(0),
+    time: "21:00",
+    profile: "Flux",
+    source: "github.com",
+  },
+  {
+    id: 5,
+    title: "COMP4670 quiz 5 opens",
+    done: false,
+    created_ms: 1,
+    due: dayFromNow(1),
+    time: "10:00",
+    profile: "Uni",
+    by_agent: true,
+  },
+  {
+    id: 6,
+    title: "Groceries: oat milk, rice, eggs",
+    done: false,
+    created_ms: 1,
+    due: dayFromNow(1),
+    profile: "Personal",
+  },
+  {
+    id: 7,
+    title: "COMP2310 mid-semester revision",
+    done: false,
+    created_ms: 1,
+    due: dayFromNow(4),
+    profile: "Uni",
+    minutes: 90,
+  },
+  { id: 8, title: "Pay rent", done: false, created_ms: 1, due: dayFromNow(9), profile: "Personal" },
+  {
+    id: 9,
+    title: "Read Attention Is All You Need",
+    done: false,
+    created_ms: 1,
+    profile: "Uni",
+    source: "arxiv.org",
+  },
+  { id: 10, title: "Read chapter 9", done: true, created_ms: 1, updated_ms: 2, profile: "Uni" },
+];
+
 // Form help (formhelp.rs): the preview keeps its settings in memory.
 let mockFormHelp = {
   enabled: false,
@@ -1780,17 +1879,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       ] as T);
     }
     case "todos_list":
-      return Promise.resolve([
-        { id: 1, title: "Ship the calendar widget", done: false, created_ms: T0, due: "" },
-        { id: 2, title: "Reply to Alice", done: true, created_ms: T0, due: "" },
-        {
-          id: 3,
-          title: "Read the attention paper",
-          done: false,
-          created_ms: T0,
-          due: new Date().toLocaleDateString("sv-SE"), // YYYY-MM-DD, today
-        },
-      ] as T);
+      return Promise.resolve(mockTodos.map((t) => ({ ...t })) as T);
     // Notes mode's Markdown notes, in memory (mdnotes.rs keeps them as files).
     case "md_notes_home":
       return Promise.resolve({ path: "~/OnyxVault/Flux Notes", in_vault: true } as T);
@@ -1907,16 +1996,35 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         },
       ] as T);
     }
-    case "todo_add":
-      return Promise.resolve({
-        id: 9,
+    case "todo_add": {
+      const t: MockTodo = {
+        id: Math.max(0, ...mockTodos.map((x) => x.id)) + 1,
         title: String(args?.title ?? ""),
         done: false,
         created_ms: mockNow(),
         due: String(args?.due ?? ""),
-      } as T);
+        time: String(args?.time ?? ""),
+        profile: String(args?.profile ?? ""),
+        priority: Number(args?.priority ?? 0),
+        minutes: Number(args?.minutes ?? 0),
+        source: String(args?.source ?? ""),
+        by_agent: !!args?.byAgent,
+      };
+      mockTodos.push(t);
+      return Promise.resolve({ ...t } as T);
+    }
     case "todo_toggle":
+      mockTodos = mockTodos.map((t) =>
+        t.id === args?.id ? { ...t, done: !t.done, updated_ms: mockNow() } : t,
+      );
+      return Promise.resolve(undefined as T);
     case "todo_remove":
+      mockTodos = mockTodos.filter((t) => t.id !== args?.id);
+      return Promise.resolve(undefined as T);
+    case "todo_set_profile":
+      mockTodos = mockTodos.map((t) =>
+        t.id === args?.id ? { ...t, profile: String(args?.profile ?? "") } : t,
+      );
       return Promise.resolve(undefined as T);
     case "todos_clear_done":
       return Promise.resolve(1 as T);

@@ -202,7 +202,15 @@ const CitedAnswer: Component<{ text: string; cited?: Cited }> = (props) => {
   const addTasks = async () => {
     const pick = (tasks() ?? []).filter((t) => t.on);
     let added = 0;
-    for (const t of pick) if (await todoAdd(t.text).catch(() => null)) added++;
+    // Where it came from, and who wrote it: the page's site, and the agent.
+    let source = "";
+    try {
+      source = new URL(props.cited!.url).hostname.replace(/^www\./, "");
+    } catch {
+      /* no site to name */
+    }
+    for (const t of pick)
+      if (await todoAdd(t.text, undefined, undefined, { source, byAgent: true }).catch(() => null)) added++;
     setTasks(null);
     setNote(`Added ${added} task${added === 1 ? "" : "s"} to your list.`);
   };

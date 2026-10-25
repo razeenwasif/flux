@@ -1383,8 +1383,25 @@ export const semanticFind = (query: string, tabIds: number[], limit?: number) =>
 
 // ─── Local tasks / to-dos (BACKLOG #114) ─────────────────────────────────────
 export const todosList = () => invoke<Todo[]>("todos_list");
-export const todoAdd = (title: string, due?: string, profile?: string) =>
-  invoke<Todo | null>("todo_add", { title, due: due ?? null, profile: profile ?? null });
+/** What a task can carry beyond its title, date and list (task capture). */
+export interface TodoMore {
+  time?: string;
+  priority?: number;
+  minutes?: number;
+  source?: string;
+  byAgent?: boolean;
+}
+export const todoAdd = (title: string, due?: string, profile?: string, more: TodoMore = {}) =>
+  invoke<Todo | null>("todo_add", {
+    title,
+    due: due ?? null,
+    profile: profile ?? null,
+    time: more.time || null,
+    priority: more.priority || null,
+    minutes: more.minutes || null,
+    source: more.source || null,
+    byAgent: more.byAgent ?? null,
+  });
 /** Rename a task and/or set its due date. Omitted fields are left alone. */
 export const todoEdit = (id: number, title?: string, due?: string) =>
   invoke<boolean>("todo_edit", { id, title: title ?? null, due: due ?? null });
@@ -1414,7 +1431,10 @@ export const pdfSave = (dataB64: string, filename: string) =>
   invoke<string>("pdf_save", { dataB64, filename });
 
 // ─── Task manager (BACKLOG #107) ─────────────────────────────────────────────
+/** Your to-dos (TodosPage.tsx). */
 export const TASKS_URL = "flux://tasks";
+/** The process and resource monitor (TasksPage.tsx), formerly at flux://tasks. */
+export const ACTIVITY_URL = "flux://activity";
 // ProcInfo + SysStats from bindings.gen.
 export const tasksList = () => invoke<ProcInfo[]>("tasks_list");
 export type NetIface = GenNetIface;

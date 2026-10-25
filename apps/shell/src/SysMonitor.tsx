@@ -3,7 +3,7 @@
  * head of the connections rail, so the machine's load is glanceable without
  * opening the task-manager tab and losing the page you're on.
  *
- * Same data as `flux://tasks` (`tasks_stats` / `gpu_stats` / `tasks_disks`) —
+ * Same data as `flux://activity` (`tasks_stats` / `gpu_stats` / `tasks_disks`) —
  * this is a second *view*, not a second collector. Disks get their own far
  * slower timer: enumerating volumes measured 30–53s on a machine with a sleeping
  * external drive, so the backend answers from cache and refreshes behind it. The

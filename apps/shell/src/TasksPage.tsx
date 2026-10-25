@@ -1,5 +1,6 @@
 /**
- * flux://tasks — the built-in task manager (BACKLOG #107).
+ * flux://activity — the built-in task manager (BACKLOG #107): processes,
+ * memory and the rest. It was flux://tasks until that became your to-dos.
  *
  * **Answer-first.** A conventional monitor shows you numbers and leaves you to
  * find the culprit; this one names it. A verdict line says what is constrained
@@ -20,7 +21,7 @@ import { For, Show, createMemo, createSignal, onMount, type Component } from "so
 
 import { visibleInterval } from "./poll";
 import {
-  TASKS_URL,
+  ACTIVITY_URL,
   gpuStats,
   tasksDisks,
   tasksKill,
@@ -132,7 +133,7 @@ const TasksPage: Component = () => {
       .catch(() => {});
   };
   onMount(() => {
-    titleInternalTab(TASKS_URL, "Task Manager");
+    titleInternalTab(ACTIVITY_URL, "Activity");
     visibleInterval(refresh, 2000);
     // Disks get their own, far slower timer. The backend never blocks on this -
     // enumerating volumes measured 30-53s on a real machine - so the first call

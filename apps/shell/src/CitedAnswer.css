@@ -19,7 +19,10 @@
   vertical-align: 1px;
   border: 0;
   border-radius: 5px;
-  font: 600 10.5px/1 inherit;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
   color: var(--flux-text);
   background: color-mix(in srgb, var(--flux-violet) 26%, var(--flux-surface-2));
   cursor: pointer;

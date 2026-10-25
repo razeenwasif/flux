@@ -19,7 +19,6 @@ import {
   calEventUpdate,
   calEvents,
   START_URL,
-  todoAdd,
   todoEdit,
   todoRemove,
   todoSetProfile,
@@ -30,6 +29,7 @@ import {
   type CalEvent,
   type CalEventFields,
 } from "./ipc";
+import { addTaskLine } from "./taskAdd";
 import {
   calendarDock,
   calendarPopView,
@@ -350,7 +350,7 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
     const title = newTask().trim();
     if (!title) return;
     setNewTask("");
-    void todoAdd(title, undefined, profile())
+    void addTaskLine(title, { list: profile() })
       .then(refreshTodos)
       .catch(() => {});
   };
