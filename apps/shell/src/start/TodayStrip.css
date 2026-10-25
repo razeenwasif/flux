@@ -1,0 +1,46 @@
+/* The strip under the new tab's clock (TodayStrip.tsx). */
+.today-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 10px auto 0;
+  padding: 8px 18px;
+  width: max-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--flux-text-dim);
+  background: var(--vp-paper-2, color-mix(in srgb, var(--flux-surface) 70%, transparent));
+  border: 1px solid var(--vp-edge, var(--flux-border));
+}
+.today-strip > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.today-strip strong {
+  color: var(--flux-text);
+  font-weight: 650;
+}
+.today-dot {
+  color: var(--flux-text-mute);
+}
+.today-bar {
+  display: inline-block;
+  width: 56px;
+  height: 4px;
+  margin-left: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--flux-text) 12%, transparent);
+  overflow: hidden;
+}
+.today-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--vp-satin, var(--flux-violet));
+}

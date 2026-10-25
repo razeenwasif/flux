@@ -32,10 +32,12 @@ import {
   SYNC_URL,
   TASKS_URL,
   ACTIVITY_URL,
+  TIME_URL,
   TRAIL_URL,
   VAULT_URL,
   WHITEBOARD_URL,
 } from "./ipc";
+import { focusCover } from "./focusGate";
 import { domPublishInternal } from "./ipc";
 import { tabs, updateTabTitle, updateTabUrl } from "./store";
 import { basename } from "./tabvisual";
@@ -62,6 +64,8 @@ const StartPage = lazy(() => import("./StartPage"));
 const SyncPage = lazy(() => import("./SyncPage"));
 const TasksPage = lazy(() => import("./TasksPage"));
 const TodosPage = lazy(() => import("./TodosPage"));
+const TimePage = lazy(() => import("./TimePage"));
+const FocusCover = lazy(() => import("./FocusCover"));
 const TrailPage = lazy(() => import("./TrailPage"));
 const VaultPage = lazy(() => import("./VaultPage"));
 const WhiteboardPage = lazy(() => import("./WhiteboardPage"));
@@ -205,6 +209,10 @@ const InternalPage: Component<InternalPageProps> = (props) => {
           </Show>
         }
       >
+        {/* A blocked site while you focus: the cover, where the page would be. */}
+        <Match when={focusCover(tab())}>
+          {(c) => <FocusCover tab={tab()!.id} cover={c()} onNavigate={props.onNavigate} />}
+        </Match>
         <Match when={tab()?.kind === "files"}>
           {/* Key on the tab id (stable) so navigation patching the tab object doesn't
           remount FilesView into a reload loop — only a tab switch should. */}
@@ -254,6 +262,9 @@ const InternalPage: Component<InternalPageProps> = (props) => {
         </Match>
         <Match when={tab()?.url === TASKS_URL}>
           <TodosPage />
+        </Match>
+        <Match when={tab()?.url === TIME_URL}>
+          <TimePage />
         </Match>
         <Match when={tab()?.url === ACTIVITY_URL}>
           <TasksPage />

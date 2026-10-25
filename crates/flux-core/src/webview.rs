@@ -381,12 +381,27 @@ mod real {
             .unwrap_or((false, 0));
         let app_for_load = app.clone();
         let app_for_title = app.clone();
+        let app_for_nav = app.clone();
         let mut builder = WebviewBuilder::new(label(tab_id), WebviewUrl::External(target))
             .incognito(private)
             .initialization_script(&init)
             // Pages navigate themselves (`location = …`, redirects), so the
-            // parse_url check has to gate every later navigation too.
-            .on_navigation(|u| !super::is_app_origin(u))
+            // parse_url check has to gate every later navigation too. A focus
+            // session's blocked sites stop here too (focus.rs); on macOS
+            // Flux's own hook gets there first and knows a page from a frame.
+            .on_navigation(move |u| {
+                if super::is_app_origin(u) {
+                    return false;
+                }
+                let blocked = app_for_nav
+                    .try_state::<crate::focus::FocusState>()
+                    .and_then(|f| f.blocks(u.as_str()));
+                if let Some(site) = blocked {
+                    let _ = app_for_nav.emit("flux://focus-blocked", (tab_id, u.as_str(), site));
+                    return false;
+                }
+                true
+            })
             .on_document_title_changed(move |webview, title| {
                 // When a page's process dies, WebKit resets its state, clearing the
                 // title and the URL, and reports the title change. wry's `url()`

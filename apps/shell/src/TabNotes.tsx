@@ -26,7 +26,6 @@ import {
   type MdNotesHome,
   type Todo,
 } from "./ipc";
-import { addTaskLine } from "./taskAdd";
 import { parseBlocks, toggleTask, type Inline } from "./mdlite";
 import { openTab } from "./store";
 
@@ -332,7 +331,8 @@ const TodoList: Component = () => {
     const raw = draft().trim();
     if (!raw) return;
     // "submit the lab report friday 5pm !1 #uni": read like the Tasks page.
-    void addTaskLine(raw)
+    void import("./taskAdd")
+      .then((m) => m.addTaskLine(raw))
       .then(() => {
         setDraft("");
         load();

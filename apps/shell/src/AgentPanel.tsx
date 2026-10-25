@@ -20,8 +20,6 @@ import { Portal } from "solid-js/web";
 import {
   agentChat,
   agentChatStream,
-  agentPageAnswer,
-  boostDraft,
   traceTabThread,
   traceChatSend,
   type TabThread,
@@ -106,6 +104,7 @@ import {
   type StepGuard,
   type BoostDraft,
 } from "./ipc";
+import { agentPageAnswer, boostDraft } from "./citeIpc";
 import type { Cited } from "./CitedAnswer";
 import type { Blocker, HandoffChoice } from "./taskLoop";
 const TaskBar = lazy(() => import("./TaskBar"));

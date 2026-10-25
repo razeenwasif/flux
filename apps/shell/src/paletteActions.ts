@@ -27,6 +27,7 @@ import {
   SYNC_URL,
   TASKS_URL,
   ACTIVITY_URL,
+  TIME_URL,
   TRAIL_URL,
   VAULT_URL,
   WHITEBOARD_URL,
@@ -303,6 +304,12 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
     { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
     { id: "resources", label: "Open Resource monitor", icon: "📊", run: () => go(RESOURCES_URL) },
     { id: "tasks", label: "Open Tasks", icon: "☑️", run: () => go(TASKS_URL) },
+    {
+      id: "time-focus",
+      label: "Focus: start a session, or see where the time went",
+      icon: "⏱",
+      run: () => go(TIME_URL),
+    },
     {
       id: "activity",
       label: "Open Activity (processes and memory)",

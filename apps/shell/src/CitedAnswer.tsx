@@ -8,14 +8,8 @@
  */
 import { For, Show, createMemo, createSignal, type Component, type JSX } from "solid-js";
 import "./CitedAnswer.css";
-import {
-  agentCiteShow,
-  agentTasksFrom,
-  onyxNewNote,
-  todoAdd,
-  type CitedAnswer as Answer,
-  type Claim,
-} from "./ipc";
+import { onyxNewNote, todoAdd, type CitedAnswer as Answer, type Claim } from "./ipc";
+import { agentCiteShow, agentTasksFrom } from "./citeCardIpc";
 import { activeId, focusTab } from "./store";
 
 export interface Cited {

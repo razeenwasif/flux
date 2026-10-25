@@ -106,6 +106,8 @@ pub struct ShieldsState {
     off_for: DashMap<String, ()>,
     enabled: AtomicBool,
     blocked: AtomicU64,
+    /// Blocks per hour, for the new tab's "blocked today" (sitetime.rs).
+    by_hour: crate::sitetime::HourTally,
     /// Per tab: what its current page has had blocked (reset at each commit).
     pages: DashMap<crate::state::TabId, PageBlocks>,
     /// Elements the user hid with the picker: host → CSS selectors.
@@ -147,6 +149,7 @@ impl ShieldsState {
             off_for: DashMap::new(),
             enabled: AtomicBool::new(true),
             blocked: AtomicU64::new(0),
+            by_hour: Default::default(),
             pages: DashMap::new(),
             hidden: DashMap::new(),
             decisions: TtlCache::new(DECISION_CACHE_CAP, Some(DECISION_CACHE_TTL)),
@@ -337,6 +340,7 @@ impl ShieldsState {
         let blocked = self.engine_verdict(url, source_url, request_type);
         if blocked {
             self.blocked.fetch_add(1, Ordering::Relaxed);
+            self.by_hour.add(crate::sitetime::now_secs());
         }
         blocked
     }
@@ -387,10 +391,16 @@ impl ShieldsState {
             && host_of(url).is_none_or(|h| !self.off_for.contains_key(h))
     }
 
+    /// Requests blocked in `[from, to)`, epoch seconds.
+    pub fn blocked_between(&self, from: u64, to: u64) -> u64 {
+        self.by_hour.between(from, to)
+    }
+
     /// A request the native rules blocked (macOS: WebKit reports it after the
     /// fact). Counts toward the session total and the page's tally.
     pub fn record_native_block(&self, tab: Option<crate::state::TabId>, url: &str) {
         self.blocked.fetch_add(1, Ordering::Relaxed);
+        self.by_hour.add(crate::sitetime::now_secs());
         self.note_page_block(tab, url);
     }
 

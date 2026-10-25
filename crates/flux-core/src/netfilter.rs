@@ -620,6 +620,16 @@ mod mac {
         }
     }
 
+    /// The blocked site `action` would load, if a focus session stops it.
+    unsafe fn focus_blocks(action: *mut Object) -> Option<String> {
+        let focus = super::APP.get()?.try_state::<crate::focus::FocusState>()?;
+        let request: *mut Object = msg_send![action, request];
+        if request.is_null() {
+            return None;
+        }
+        focus.blocks(&url_string(msg_send![request, URL]))
+    }
+
     /// Flux's turn at `decidePolicyForNavigationAction`, then wry's.
     extern "C" fn decide_policy(
         this: &Object,
@@ -636,6 +646,27 @@ mod mac {
                 } else {
                     msg_send![frame, isMainFrame]
                 };
+                // A focus session's blocked site (focus.rs): a page is stopped
+                // and its tab told, for the cover; a frame (an embedded video)
+                // is stopped quietly. Neither reaches wry.
+                if let Some(site) = focus_blocks(action) {
+                    if main != NO {
+                        let tab = VIEWS.with(|v| {
+                            v.borrow().get(&(webview as usize)).and_then(|view| {
+                                view.label.strip_prefix("tab-")?.parse::<u64>().ok()
+                            })
+                        });
+                        if let (Some(app), Some(tab)) = (super::APP.get(), tab) {
+                            let request: *mut Object = msg_send![action, request];
+                            let url = url_string(msg_send![request, URL]);
+                            let _ =
+                                tauri::Emitter::emit(app, "flux://focus-blocked", (tab, url, site));
+                        }
+                    }
+                    let decide = &*(handler as *const block::Block<(isize,), ()>);
+                    decide.call((0,)); // WKNavigationActionPolicyCancel
+                    return;
+                }
                 if main != NO {
                     let tracked = VIEWS.with(|v| v.borrow().contains_key(&(webview as usize)));
                     if let (true, Some(list)) = (tracked, ready_list()) {

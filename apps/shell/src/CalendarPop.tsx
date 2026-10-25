@@ -29,7 +29,6 @@ import {
   type CalEvent,
   type CalEventFields,
 } from "./ipc";
-import { addTaskLine } from "./taskAdd";
 import {
   calendarDock,
   calendarPopView,
@@ -350,7 +349,8 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
     const title = newTask().trim();
     if (!title) return;
     setNewTask("");
-    void addTaskLine(title, { list: profile() })
+    void import("./taskAdd")
+      .then((m) => m.addTaskLine(title, { list: profile() }))
       .then(refreshTodos)
       .catch(() => {});
   };

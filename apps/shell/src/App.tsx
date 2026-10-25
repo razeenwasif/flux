@@ -710,6 +710,9 @@ const App: Component = () => {
           (openedWebviews.has(t.id) || openingWebviews.has(t.id)),
       );
     };
+    // Focus sessions (focusStore.ts): a page on a blocked site goes quiet under
+    // its cover (suspended, as tab sleep does) and wakes when it's shown again.
+    void import("./focusStore").then((m) => m.startFocusWatch(tabs, (id) => openedWebviews.has(id)));
     // Memory pressure: macOS reports it (tabsleep.rs); elsewhere low free
     // memory stands in for it, read on each tick below.
     const [pressure, setPressure] = createSignal<Pressure>("normal");

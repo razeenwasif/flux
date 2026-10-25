@@ -22,6 +22,7 @@ import {
   tilePanes,
 } from "./store";
 import { tileRects } from "./tiles";
+import { focusCover } from "./focusGate";
 import {
   isStartUrl,
   panelClose,
@@ -194,10 +195,11 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
       // didn't, and tiling a terminal would have hit that gap.
       return panes
         .map((tab, i) => ({ tab, rect: rects[i]! }))
-        .filter((p) => p.rect && p.tab.kind === "browser" && !isStartUrl(p.tab.url));
+        .filter((p) => p.rect && p.tab.kind === "browser" && !isStartUrl(p.tab.url) && !focusCover(p.tab));
     }
     const act = activeTab();
-    if (act?.kind === "browser" && !isStartUrl(act.url)) return [{ tab: act, rect }];
+    // A blocked site under a focus session's cover keeps its webview off screen.
+    if (act?.kind === "browser" && !isStartUrl(act.url) && !focusCover(act)) return [{ tab: act, rect }];
     return [];
   };
 
@@ -224,7 +226,9 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
     if (readerOpen()) return "";
     const panes = tilePanes();
     const shown = panes && tileGroup() ? panes : [activeTab()];
-    const web = shown.filter((t) => t?.kind === "browser" && !isStartUrl(t.url)).map((t) => t!.id);
+    const web = shown
+      .filter((t) => t?.kind === "browser" && !isStartUrl(t.url) && !focusCover(t))
+      .map((t) => t!.id);
     return `${shown.length}:${web.join(",")}`;
   });
 

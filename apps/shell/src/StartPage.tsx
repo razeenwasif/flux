@@ -57,7 +57,6 @@ import {
   type FeedItem,
   type Todo,
 } from "./ipc";
-import { addTaskLine } from "./taskAdd";
 import { activeId, focusTab, liquidBg, setHomeModalOpen, tabs } from "./store";
 import LiquidBackground from "./LiquidBackground";
 import Calculator from "./Calculator";
@@ -65,10 +64,11 @@ import ClockWidget from "./ClockWidget";
 import Converter from "./Converter";
 import { askConfirm } from "./ask";
 import { design } from "./design";
-import { clockRevision, fmtClock, timerRemaining, timerRunning } from "./clocks";
+import { focusLine } from "./focusGate";
 // Velvet Paper's own cards (design.ts): split out so Classic never loads them and
 // they stay off the boot path (`npm run perf`).
 const VpFocusCard = lazy(() => import("./start/VpFocusCard"));
+const TodayStrip = lazy(() => import("./start/TodayStrip"));
 const VpMailCard = lazy(() => import("./start/VpMailCard"));
 const VpTodayCard = lazy(() => import("./start/VpTodayCard"));
 
@@ -1094,7 +1094,8 @@ const StartPage: Component<{
     ev.preventDefault();
     const title = newTodo().trim();
     if (!title) return;
-    void addTaskLine(title)
+    void import("./taskAdd")
+      .then((m) => m.addTaskLine(title))
       .then(() => {
         setNewTodo("");
         refreshTodos();
@@ -1131,7 +1132,6 @@ const StartPage: Component<{
     const hm = `${pad2(now().getHours())}:${pad2(now().getMinutes())}`;
     return events().find((e) => (e.date === t && e.time !== "" && e.time >= hm) || e.date > t);
   };
-  const focusLeft = () => (now(), clockRevision(), fmtClock(timerRemaining()));
   const dateStr = () => now().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 
   const submit = async (e: SubmitEvent) => {
@@ -1329,6 +1329,9 @@ const StartPage: Component<{
             <div class="start-date-strip">
               <div class="start-date-time">{clock()}</div>
               <div class="start-date-label">{dateStr()}</div>
+              <Suspense>
+                <TodayStrip />
+              </Suspense>
               <Show when={weather()}>
                 {(w) => (
                   <div class="start-weather">
@@ -1361,8 +1364,8 @@ const StartPage: Component<{
                     </span>
                   )}
                 </Show>
-                <Show when={timerRunning()}>
-                  <span class="vp-clock-line">Focus · {focusLeft()} left</span>
+                <Show when={focusLine()}>
+                  <span class="vp-clock-line">{focusLine()}</span>
                 </Show>
                 <Show when={weather()}>
                   {(w) => (
@@ -1378,6 +1381,9 @@ const StartPage: Component<{
             </Suspense>
             {shortcutsCard()}
           </div>
+          <Suspense>
+            <TodayStrip />
+          </Suspense>
           {searchBox()}
         </header>
       </Show>

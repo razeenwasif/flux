@@ -465,6 +465,50 @@ let mockTodos: MockTodo[] = [
   { id: 10, title: "Read chapter 9", done: true, created_ms: 1, updated_ms: 2, profile: "Uni" },
 ];
 
+// Focus sessions (focus.rs): one in memory, timed by the real clock.
+const mockFocus = {
+  running: false,
+  paused: false,
+  name: "",
+  minutes: 0,
+  started: 0,
+  pausedAt: 0,
+  pausedMs: 0,
+  blocks: [] as string[],
+  sites: ["youtube.com", "reddit.com", "x.com"],
+  goal: 120,
+  done: 47 * 60_000,
+  allowed: [] as { site: string; until_ms: number }[],
+};
+const focusSnap = () => {
+  const now = Date.now();
+  const len = mockFocus.minutes * 60_000;
+  const elapsed = mockFocus.running
+    ? Math.min(len, (mockFocus.paused ? mockFocus.pausedAt : now) - mockFocus.started - mockFocus.pausedMs)
+    : 0;
+  return {
+    running: mockFocus.running,
+    paused: mockFocus.paused,
+    name: mockFocus.name,
+    minutes: mockFocus.minutes,
+    elapsed_ms: elapsed,
+    remaining_ms: mockFocus.running ? len - elapsed : 0,
+    blocks: mockFocus.running ? mockFocus.blocks : [],
+    allowed: mockFocus.allowed.filter((a) => a.until_ms > now),
+    sites: mockFocus.sites,
+    goal_minutes: mockFocus.goal,
+    focused_secs: Math.round((mockFocus.done + elapsed) / 1000),
+  };
+};
+// Time per site (sitetime.rs): the board's day.
+const mockHours = [0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 34, 52, 45, 18, 29, 48, 41, 22, 9, 14, 27, 19, 0, 0];
+const mockSites = [
+  { host: "github.com", secs: 94 * 60, prev_secs: 72 * 60 },
+  { host: "gitlab.anu.edu.au", secs: 58 * 60, prev_secs: 76 * 60 },
+  { host: "youtube.com", secs: 41 * 60, prev_secs: 43 * 60 },
+  { host: "canvas.anu.edu.au", secs: 26 * 60, prev_secs: 17 * 60 },
+];
+
 // Form help (formhelp.rs): the preview keeps its settings in memory.
 let mockFormHelp = {
   enabled: false,
@@ -1629,6 +1673,66 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         before,
       } as T);
     }
+    case "focus_status":
+      return Promise.resolve(focusSnap() as T);
+    case "focus_start":
+      Object.assign(mockFocus, {
+        running: true,
+        paused: false,
+        name: String(args?.name ?? ""),
+        minutes: Number(args?.minutes ?? 25),
+        started: Date.now() - 7 * 60_000,
+        pausedMs: 0,
+        blocks: (args?.blocks as string[])?.length ? (args?.blocks as string[]) : mockFocus.sites,
+      });
+      return Promise.resolve(focusSnap() as T);
+    case "focus_pause":
+      if (args?.paused && !mockFocus.paused) Object.assign(mockFocus, { paused: true, pausedAt: Date.now() });
+      else if (!args?.paused && mockFocus.paused)
+        Object.assign(mockFocus, {
+          paused: false,
+          pausedMs: mockFocus.pausedMs + Date.now() - mockFocus.pausedAt,
+        });
+      return Promise.resolve(focusSnap() as T);
+    case "focus_end":
+      mockFocus.done += focusSnap().elapsed_ms;
+      Object.assign(mockFocus, { running: false, paused: false, allowed: [] });
+      return Promise.resolve(focusSnap() as T);
+    case "focus_allow":
+      mockFocus.allowed.push({
+        site: String(args?.site),
+        until_ms: Date.now() + Number(args?.minutes ?? 5) * 60_000,
+      });
+      return Promise.resolve(focusSnap() as T);
+    case "focus_set":
+      if (args?.sites) mockFocus.sites = args.sites as string[];
+      if (args?.goalMinutes) mockFocus.goal = Number(args.goalMinutes);
+      return Promise.resolve(focusSnap() as T);
+    case "time_report": {
+      const week = !!args?.week;
+      const bars = week
+        ? ["Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon"].map((label, i) => ({
+            label,
+            secs: [3, 5, 4, 6, 2, 1, 4][i]! * 3600,
+          }))
+        : mockHours.map((m, h) => ({ label: String(h).padStart(2, "0"), secs: m * 60 }));
+      return Promise.resolve({
+        total_secs: bars.reduce((n, b) => n + b.secs, 0),
+        bars,
+        sites: mockSites,
+        other_count: 18,
+        other_secs: 33 * 60,
+      } as T);
+    }
+    case "time_forget":
+      return Promise.resolve(undefined as T);
+    case "today_strip":
+      return Promise.resolve({
+        blocked: 284,
+        focused_secs: focusSnap().focused_secs,
+        goal_minutes: mockFocus.goal,
+        due: 2,
+      } as T);
     case "formhelp_settings":
       return Promise.resolve({ ...mockFormHelp } as T);
     case "formhelp_set_settings":

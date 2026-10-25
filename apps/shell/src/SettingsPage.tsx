@@ -80,8 +80,6 @@ import {
   type SearchEngine,
   traceDraftsEnabled,
   traceDraftsSet,
-  formHelpSettings,
-  formHelpSetSettings,
   termPersist,
   TERM_PERSIST_KEY,
   storageUsage,
@@ -90,6 +88,7 @@ import {
   type StorageReport,
   type TermPersist,
 } from "./ipc";
+import { formHelpSettings, formHelpSetSettings } from "./formhelpIpc";
 import {
   heyGemmaEnabled,
   setHeyGemmaEnabled,

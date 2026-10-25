@@ -293,6 +293,25 @@ export type PageAnswerEvent = { kind: "token"; text: string } | { kind: "done"; 
 export type BoostDraft = { tab: number; host: string; name: string; css: string; kept: number; dropped: number; previewed: boolean }
 export type ShieldsStatus = { backend: string; request_metrics: boolean; request_controls: boolean; site_controls: boolean; element_picker: boolean; attachment: string; enabled: boolean; blocked: number; sites_off: string[]; cache_hit_pct: number; cache_len: number; rules_fired: number; page_blocked: number; page_domains: BlockedDomain[]; site_hidden: number }
 export type FormHelpPrefs = { enabled: boolean; trigger: string; delay_ms: number; skip_personal: boolean; use_other_answers: boolean; voice: string; sites_off: string[] }
+/**
+ * One bar of the chart: an hour today, or a day of the week.
+ */
+export type TimeBar = { label: string; secs: number }
+/**
+ * A site's time in the period, and in the one before it.
+ */
+export type SiteTimeRow = { host: string; secs: number; prev_secs: number }
+export type TimeReport = { total_secs: number; bars: TimeBar[]; sites: SiteTimeRow[]; other_count: number; other_secs: number }
+/**
+ * The new tab's strip: requests Shields blocked today, focus today against
+ * the goal, tasks due today.
+ */
+export type TodayStrip = { blocked: number; focused_secs: number; goal_minutes: number; due: number }
+export type AllowedSite = { site: string; until_ms: number }
+/**
+ * A session as the shell shows it, and the day's focus.
+ */
+export type FocusStatus = { running: boolean; paused: boolean; name: string; minutes: number; elapsed_ms: number; remaining_ms: number; blocks: string[]; allowed: AllowedSite[]; sites: string[]; goal_minutes: number; focused_secs: number }
 export type HotRule = { rule: string; hits: number }
 export type LeanStatus = { enabled: boolean; sites_on: string[] }
 export type HttpsStatus = { enabled: boolean; sites_allow_http: string[] }

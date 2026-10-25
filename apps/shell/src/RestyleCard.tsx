@@ -5,7 +5,8 @@
  */
 import { Show, createSignal, type Component } from "solid-js";
 import "./CitedAnswer.css";
-import { boostPreviewClear, boostSave, type BoostDraft } from "./ipc";
+import { boostSave, type BoostDraft } from "./ipc";
+import { boostPreviewClear } from "./citeCardIpc";
 
 const RestyleCard: Component<{ draft: BoostDraft }> = (props) => {
   const [state, setState] = createSignal<"open" | "applied" | "discarded">("open");

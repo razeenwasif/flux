@@ -1,0 +1,476 @@
+/* flux://time and the focus cover (TimePage.tsx, FocusCover.tsx). Velvet
+   Paper's fonts and tokens where it's the design, the theme's otherwise. */
+.tp-page,
+.fc {
+  --tp-pink: #f3b6d3;
+  --tp-lilac: #c9b5ff;
+  --tp-teal: var(--flux-teal, #a9e6ec);
+  --tp-satin: var(--vp-satin, linear-gradient(100deg, #f3b6d3, #c9b5ff 40%, #f6ede4 72%, #a9e6ec));
+  color: var(--flux-text);
+}
+.tp-page {
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 36px 36px 64px;
+  /* Side by side when the page is wide, stacked when it's a narrow card. */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+  align-items: flex-start;
+}
+.tp-time {
+  flex: 1.55 1 460px;
+  min-width: 0;
+}
+.tp-focus {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.tp-card {
+  position: relative;
+  padding: 30px 30px 22px;
+  border-radius: var(--vp-r, 22px);
+  background: var(--vp-paper, var(--flux-surface));
+  border: 1px solid var(--vp-edge, var(--flux-border));
+  box-shadow: var(--vp-shadow, none);
+}
+.tp-legend {
+  position: absolute;
+  top: -10px;
+  left: 24px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  line-height: 20px;
+  border-radius: 9px 9px 0 0;
+  background: var(--vp-paper, var(--flux-surface));
+}
+.tp-state {
+  position: absolute;
+  top: -10px;
+  right: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--tp-teal);
+  background: var(--vp-paper, var(--flux-surface));
+}
+.tp-state::before {
+  content: "●";
+  margin-right: 6px;
+}
+.tp-time-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tp-date,
+.tp-sub {
+  margin: 0;
+  font-size: 14px;
+  color: var(--flux-text-dim);
+}
+.tp-total {
+  margin: 4px 0 0;
+  font-size: 16px;
+  color: var(--flux-text-dim);
+}
+.tp-total span {
+  font: 500 60px/1 var(--vp-display, Georgia, serif);
+  letter-spacing: -0.02em;
+  color: var(--flux-text);
+  margin-right: 8px;
+}
+.tp-seg,
+.tp-lengths {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--vp-paper-2, var(--flux-surface-2));
+}
+.tp-seg button,
+.tp-lengths button {
+  font: inherit;
+  font-size: 14px;
+  padding: 7px 15px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--flux-text-dim);
+  background: transparent;
+  cursor: pointer;
+}
+.tp-seg button.on,
+.tp-lengths button.on {
+  color: var(--flux-text);
+  background: var(--vp-raise, var(--flux-surface));
+}
+
+/* ── The chart ── */
+.tp-chart {
+  margin: 22px 0 10px;
+}
+.tp-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 180px;
+  border-bottom: 1px solid var(--vp-edge, var(--flux-border));
+}
+.tp-bars.week {
+  gap: 14px;
+}
+.tp-bar {
+  flex: 1;
+  min-height: 1px;
+  border-radius: 4px 4px 0 0;
+  background: color-mix(in srgb, var(--tp-lilac) 46%, var(--vp-paper, #15101a));
+}
+.tp-bar.now {
+  background: var(--tp-satin);
+}
+.tp-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font: 12px var(--vp-mono, var(--flux-mono, ui-monospace, monospace));
+  color: var(--flux-text-mute);
+}
+.tp-bars.week + .tp-axis {
+  justify-content: space-around;
+}
+.tp-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Sites ── */
+.tp-sites {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+  font-size: 15px;
+}
+.tp-sites th {
+  text-align: left;
+  padding: 0 6px 10px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--flux-text-mute);
+  border-bottom: 1px solid var(--vp-edge, var(--flux-border));
+}
+.tp-sites td {
+  padding: 12px 6px;
+  border-bottom: 1px solid var(--vp-edge, var(--flux-border));
+}
+.tp-sites tr:last-child td {
+  border-bottom: 0;
+}
+.tp-sites .num {
+  text-align: right;
+  white-space: nowrap;
+}
+.tp-sites .mono {
+  font-family: var(--vp-mono, var(--flux-mono, ui-monospace, monospace));
+}
+.tp-fav {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 12px;
+  border-radius: 7px;
+  font:
+    700 12px/1 system-ui,
+    sans-serif;
+  color: var(--vp-paper, #15101a);
+  background: var(--tp-pink);
+  vertical-align: middle;
+}
+.tp-site {
+  white-space: nowrap;
+}
+.tp-host {
+  display: inline-block;
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.tp-bar-col {
+  width: 34%;
+}
+.tp-share {
+  display: block;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--vp-paper-2, var(--flux-surface-2));
+}
+.tp-share span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tp-lilac) 55%, transparent);
+}
+.tp-sites tr:first-child .tp-share span {
+  background: var(--tp-satin);
+}
+.tp-change.up {
+  color: var(--tp-pink);
+}
+.tp-change.down {
+  color: var(--tp-teal);
+}
+.tp-change.same {
+  color: var(--flux-text-dim);
+}
+.tp-other td {
+  color: var(--flux-text-dim);
+}
+.tp-empty {
+  color: var(--flux-text-mute);
+}
+.tp-foot {
+  margin: 18px 0 0;
+  font-size: 13px;
+  color: var(--flux-text-mute);
+}
+.tp-link {
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--tp-pink);
+  background: none;
+  cursor: pointer;
+}
+
+/* ── Focus ── */
+.tp-start {
+  display: grid;
+  gap: 16px;
+}
+.tp-field {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--flux-text-dim);
+}
+.tp-field input,
+.tp-add,
+.tp-goal select {
+  font: inherit;
+  font-size: 15px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  color: var(--flux-text);
+  background: var(--vp-paper-2, var(--flux-surface-2));
+  border: 1px solid var(--vp-edge, var(--flux-border));
+}
+.tp-running {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+.tp-ring {
+  width: 168px;
+  height: 168px;
+  flex: none;
+}
+.tp-ring-track {
+  fill: none;
+  stroke: var(--vp-paper-2, var(--flux-surface-2));
+  stroke-width: 9;
+}
+.tp-ring-arc {
+  fill: none;
+  stroke-width: 9;
+  stroke-linecap: round;
+}
+.tp-ring-time {
+  font: 500 38px var(--vp-display, Georgia, serif);
+  fill: var(--flux-text);
+}
+.tp-ring-note {
+  font-size: 13px;
+  fill: var(--flux-text-dim);
+}
+.tp-kicker {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--flux-text-mute);
+}
+.tp-session {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.tp-session h2 {
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+  font: 500 28px/1.15 var(--vp-display, Georgia, serif);
+}
+.tp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+.tp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font: 14px var(--vp-mono, var(--flux-mono, ui-monospace, monospace));
+  background: var(--vp-raise, var(--flux-surface-2));
+  border: 1px solid var(--vp-edge, var(--flux-border));
+}
+.tp-chip button {
+  border: 0;
+  padding: 0 0 0 4px;
+  font: inherit;
+  color: var(--flux-text-mute);
+  background: none;
+  cursor: pointer;
+}
+.tp-add {
+  width: 150px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+.tp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+.tp-btn {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 12px 24px;
+  border-radius: 999px;
+  color: var(--flux-text);
+  background: var(--vp-raise, var(--flux-surface-2));
+  border: 1px solid var(--vp-edge, var(--flux-border));
+  cursor: pointer;
+}
+.tp-btn.primary {
+  color: #1a1420;
+  background: var(--tp-satin);
+  border-color: transparent;
+}
+.tp-goal {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px 14px;
+  align-items: center;
+  margin-top: 26px;
+  padding-top: 18px;
+  font-size: 14px;
+  color: var(--flux-text-dim);
+  border-top: 1px solid var(--vp-edge, var(--flux-border));
+}
+.tp-goal strong {
+  color: var(--flux-text);
+}
+.tp-goal-bar {
+  grid-column: 1 / -1;
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--vp-paper-2, var(--flux-surface-2));
+  order: 3;
+}
+.tp-goal-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--tp-satin);
+}
+.tp-goal select {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+/* ── The cover on a blocked site ── */
+.fc {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 32px;
+  text-align: center;
+  background: var(--vp-paper, var(--flux-bg, #15101a));
+}
+.fc-moon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  color: var(--tp-lilac);
+  background: var(--vp-raise, var(--flux-surface-2));
+}
+.fc h1 {
+  margin: 8px 0 0;
+  max-width: 520px;
+  font: 500 34px/1.2 var(--vp-display, Georgia, serif);
+}
+.fc-site {
+  font-family: var(--vp-mono, var(--flux-mono, ui-monospace, monospace));
+  font-size: 0.9em;
+}
+.fc-left {
+  margin: 0;
+  font-size: 17px;
+  color: var(--flux-text-dim);
+}
+.fc-left strong {
+  color: var(--flux-text);
+}
+.fc-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+.fc-btn {
+  font: inherit;
+  font-size: 15px;
+  padding: 11px 22px;
+  border-radius: 999px;
+  color: var(--flux-text);
+  background: var(--vp-raise, var(--flux-surface-2));
+  border: 1px solid var(--vp-edge, var(--flux-border));
+  cursor: pointer;
+}
+.fc-btn:hover {
+  background: var(--vp-chip, var(--flux-surface));
+}
+.fc-stay {
+  margin-top: 4px;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--flux-text-mute);
+  background: none;
+  cursor: pointer;
+}

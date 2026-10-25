@@ -31,6 +31,7 @@ pub mod extensions;
 pub mod favicon;
 pub mod feeds;
 pub mod files;
+pub mod focus;
 pub mod formhelp;
 pub mod framing;
 pub mod fsroots;
@@ -83,6 +84,7 @@ pub mod session;
 pub mod sessions;
 pub mod shellhist;
 pub mod shields;
+pub mod sitetime;
 pub mod specialists;
 pub mod spotify;
 pub mod state;
@@ -347,6 +349,16 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
         .ok()
         .map(|d| d.join("shields.json"));
     // Form help (off by default): its settings, restored from formhelp.json.
+    // Time per site and focus sessions (Flux Next): their stores, and the
+    // ticker that counts the active site and ends a session that's run out.
+    let data_dir = app.path().app_data_dir().ok();
+    app.manage(focus::FocusState::load(
+        data_dir.as_ref().map(|d| d.join("focus.json")),
+    ));
+    app.manage(sitetime::SiteTime::load(
+        data_dir.as_ref().map(|d| d.join("sitetime.json")),
+    ));
+    sitetime::start(app.handle().clone());
     app.manage(formhelp::FormHelpState::load(
         app.path()
             .app_data_dir()
@@ -1404,6 +1416,15 @@ pub fn run(intent: cli::LaunchIntent) {
             trace::trace_drafts_set,
             formhelp::formhelp_settings,
             formhelp::formhelp_set_settings,
+            sitetime::time_report,
+            sitetime::time_forget,
+            sitetime::today_strip,
+            focus::focus_status,
+            focus::focus_start,
+            focus::focus_pause,
+            focus::focus_end,
+            focus::focus_allow,
+            focus::focus_set,
             trace::trace_chat,
             trace::trace_chat_send,
             bookmarks::bookmarks_list,
@@ -1720,6 +1741,10 @@ fn flush_on_exit(app: &tauri::AppHandle) {
         h.persist_if_hydrated();
     }
     flush_trail_stores(app);
+    // Up to a minute of site time is counted but not yet saved.
+    if let Some(t) = app.try_state::<sitetime::SiteTime>() {
+        t.save_if_dirty();
+    }
     // Last: saves queued for the shared store writer (bookmarks, settings,
     // toggles) from just before the quit.
     persist::flush_all();
