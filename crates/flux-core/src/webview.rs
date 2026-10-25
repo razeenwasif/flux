@@ -94,14 +94,30 @@ mod real {
     const PASSWORDS_JS: &str = include_str!("../assets/passwords.js");
 
     /// The live page toggles, for a tab's newly loaded document: through the
-    /// setters darkmode.js and nav.js define, and the flag macro-record.js reads
-    /// on every event, so they apply after those scripts have run.
-    fn live_flags_js(dark: bool, hints: bool, gestures: bool, recording: bool) -> String {
+    /// setters darkmode.js, nav.js and shortcuts.js define, and the flag
+    /// macro-record.js reads on every event, so they apply after those scripts
+    /// have run. `keys` is the chord map (keys.rs), as JSON.
+    fn live_flags_js(
+        dark: bool,
+        hints: bool,
+        gestures: bool,
+        recording: bool,
+        keys: &str,
+    ) -> String {
         format!(
             "window.__FLUX_MACRO_REC__={recording};\
              window.__fluxDark&&window.__fluxDark({dark});\
-             window.__fluxNavSet&&window.__fluxNavSet({hints},{gestures});"
+             window.__fluxNavSet&&window.__fluxNavSet({hints},{gestures});\
+             window.__fluxKeysSet&&window.__fluxKeysSet({keys});"
         )
+    }
+
+    /// The chord map shortcuts.js starts from (keys.rs).
+    fn keys_flag(app: &AppHandle) -> String {
+        let map = app
+            .try_state::<crate::keys::KeyStore>()
+            .map_or_else(|| "{}".to_string(), |k| k.map_json());
+        format!("window.__FLUX_KEYS__ = {map};\n")
     }
 
     fn label(tab: TabId) -> String {
@@ -355,8 +371,9 @@ mod real {
         } else {
             ""
         };
+        let keys_flag = keys_flag(app);
         let init = format!(
-            "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{macro_flag}{}",
+            "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{macro_flag}{keys_flag}{}",
             page_scripts(&[
                 ("capture", CAPTURE_JS),
                 ("shortcuts", SHORTCUTS_JS),
@@ -518,7 +535,10 @@ mod real {
             let recording = app_for_load
                 .try_state::<crate::macros::MacroState>()
                 .is_some_and(|s| s.is_recording_tab(tab_id));
-            let _ = webview.eval(live_flags_js(dark, hints, gestures, recording));
+            let keys = app_for_load
+                .try_state::<crate::keys::KeyStore>()
+                .map_or_else(|| "{}".to_string(), |k| k.map_json());
+            let _ = webview.eval(live_flags_js(dark, hints, gestures, recording, &keys));
             // Extension content scripts (#93/#94): inject the CSS + JS of every
             // enabled extension whose @match patterns hit this URL, at the right
             // phase (document_start vs document_end/idle). With the broker present
@@ -1293,8 +1313,9 @@ mod real {
         } else {
             ""
         };
+        let keys_flag = keys_flag(&app);
         let init = format!(
-            "{dark_flag}{}",
+            "{dark_flag}{keys_flag}{}",
             page_scripts(&[
                 ("shortcuts", SHORTCUTS_JS),
                 ("darkmode", DARKMODE_JS),
@@ -1964,16 +1985,21 @@ mod real {
         /// toggle (and a recording's recorder) would revert on the next page.
         #[test]
         fn page_loads_reassert_the_live_toggles() {
-            let js = live_flags_js(false, true, false, true);
+            let js = live_flags_js(false, true, false, true, r#"{"Cmd+T":"new-tab"}"#);
             assert!(js.contains("window.__FLUX_MACRO_REC__=true;"), "{js}");
+            assert!(
+                js.contains(r#"window.__fluxKeysSet({"Cmd+T":"new-tab"})"#),
+                "{js}"
+            );
             // Off too: the init script may have stamped it on.
             assert!(js.contains("window.__fluxDark(false)"), "{js}");
             assert!(js.contains("window.__fluxNavSet(true,false)"), "{js}");
-            let js = live_flags_js(true, false, false, false);
+            let js = live_flags_js(true, false, false, false, "{}");
             assert!(js.contains("window.__FLUX_MACRO_REC__=false;"), "{js}");
             assert!(js.contains("window.__fluxDark(true)"), "{js}");
             assert!(DARKMODE_JS.contains("window.__fluxDark = function"));
             assert!(NAV_JS.contains("window.__fluxNavSet = function"));
+            assert!(SHORTCUTS_JS.contains("window.__fluxKeysSet = function"));
             // Read per event, not once at init, so setting it later arms the page.
             assert!(MACRO_REC_JS.contains("return !!window.__FLUX_MACRO_REC__;"));
         }

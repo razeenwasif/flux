@@ -1,4 +1,4 @@
-import { shortcutLabel } from "./platform";
+import { keyOf, withKey } from "./keyLabel";
 import { setLauncherOpen } from "./launcherOpen";
 /**
  * Sidebar — the Arc-style left rail (ADR 0002): tab strip (pinned tiles, groups,
@@ -1018,7 +1018,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
       <div class="sidebar-controls" classList={{ collapsed: props.collapsed }} data-tauri-drag-region="deep">
         <button
           class="icon-btn"
-          title={shortcutLabel("Toggle sidebar (Ctrl+B)")}
+          title={withKey("Toggle sidebar", "toggle-sidebar")}
           onClick={props.onToggleSidebar}
         >
           {props.collapsed ? "»" : "«"}
@@ -1051,16 +1051,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
             unfolds, and the caret at the end of the row is the other half of
             that contract. */}
         <Show when={!props.collapsed && toolbarOpen()}>
-          <button
-            class="icon-btn"
-            title={shortcutLabel("Back (Alt+←)")}
-            onClick={() => navActive(webviewBack)}
-          >
+          <button class="icon-btn" title={withKey("Back", "back")} onClick={() => navActive(webviewBack)}>
             ‹
           </button>
           <button
             class="icon-btn"
-            title={shortcutLabel("Forward (Alt+→)")}
+            title={withKey("Forward", "forward")}
             onClick={() => navActive(webviewForward)}
           >
             ›
@@ -1070,7 +1066,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             fallback={
               <button
                 class="icon-btn"
-                title={shortcutLabel("Reload (Ctrl+R)")}
+                title={withKey("Reload", "reload")}
                 onClick={() => navActive(webviewReload)}
               >
                 ⟳
@@ -1147,7 +1143,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 role="tab"
                 classList={{ "tab-mode": true, on: tabMode() === m }}
                 aria-selected={tabMode() === m}
-                title={`${MODE_INFO[m].label} (${shortcutLabel(`Alt+${i() + 1}`)})`}
+                title={withKey(MODE_INFO[m].label, `mode-${m}`)}
                 onClick={() => setTabMode(m)}
               >
                 <Icon name={MODE_INFO[m].icon} />
@@ -1200,7 +1196,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 setAddrFocused(false);
                 setTimeout(closeSuggest, 150);
               }}
-              placeholder={shortcutLabel("Search or enter address  (Ctrl+L)")}
+              placeholder={withKey("Search or enter address", "focus-address")}
               spellcheck={false}
               autocomplete="off"
             />
@@ -1211,10 +1207,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   <button
                     type="button"
                     classList={{ "icon-btn": true, "bm-star": true, active: props.isBookmarked() }}
-                    title={shortcutLabel(
-                      props.isBookmarked()
-                        ? "Bookmarked — click to remove (Ctrl+D)"
-                        : "Bookmark this page (Ctrl+D)",
+                    title={withKey(
+                      props.isBookmarked() ? "Bookmarked — click to remove" : "Bookmark this page",
+                      "bookmark-page",
                     )}
                     onClick={() => props.onToggleBookmark()}
                   >
@@ -1237,7 +1232,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <button
                 type="button"
                 class="zoom-pill"
-                title={shortcutLabel("Reset zoom (Ctrl+0)")}
+                title={withKey("Reset zoom", "zoom-reset")}
                 onClick={() => props.onZoomReset()}
               >
                 {Math.round(activeZoom() * 100)}%
@@ -1318,10 +1313,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <button
                 type="button"
                 classList={{ "icon-btn": true, "bm-star": true, active: props.isBookmarked() }}
-                title={shortcutLabel(
-                  props.isBookmarked()
-                    ? "Bookmarked — click to remove (Ctrl+D)"
-                    : "Bookmark this page (Ctrl+D)",
+                title={withKey(
+                  props.isBookmarked() ? "Bookmarked — click to remove" : "Bookmark this page",
+                  "bookmark-page",
                 )}
                 onClick={() => props.onToggleBookmark()}
               >
@@ -1344,7 +1338,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <button
                 type="button"
                 class="icon-btn"
-                title={shortcutLabel("Find in page (Ctrl+F)")}
+                title={withKey("Find in page", "find")}
                 onClick={() => document.getElementById("flux-find")?.focus()}
               >
                 <Icon name="find" />
@@ -1396,7 +1390,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <button
                 type="button"
                 class="icon-btn"
-                title={shortcutLabel("Save this page to Omni (Ctrl+Shift+O)")}
+                title={withKey("Save this page to Omni", "save-to-omni")}
                 onClick={() => props.onSaveToOmni()}
               >
                 ✦
@@ -1598,7 +1592,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <Show when={picker()}>
             <div id="new-tab-options" class="glass popover" style={{ top: "calc(100% + 6px)", left: 0 }}>
               <button onClick={() => create("browser")}>
-                🌐 Browser tab <kbd>{shortcutLabel("Ctrl+T")}</kbd>
+                🌐 Browser tab <Show when={keyOf("new-tab")}>{(k) => <kbd>{k()}</kbd>}</Show>
               </button>
               <button
                 onClick={() => {
@@ -2252,21 +2246,21 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <Show when={footerOpen()}>
           <button
             classList={{ "icon-btn": true, active: props.terminalOpen }}
-            title={shortcutLabel("Terminal (Ctrl+`)")}
+            title={withKey("Terminal", "toggle-terminal")}
             onClick={props.onToggleTerminal}
           >
             <Icon name="terminal" />
           </button>
           <button
             classList={{ "icon-btn": true, active: editorColOpen() }}
-            title={shortcutLabel("Editor / Nvim Column (Ctrl+Shift+E)")}
+            title={withKey("Editor / Nvim column", "toggle-editor")}
             onClick={() => setEditorColOpen(!editorColOpen())}
           >
             <Icon name="editor" />
           </button>
           <button
             classList={{ "icon-btn": true, active: props.agentOpen }}
-            title={shortcutLabel("Flux Agent (Ctrl+Shift+A)")}
+            title={withKey("Flux Agent", "toggle-agent")}
             onClick={props.onToggleAgent}
           >
             <Icon name="agent" />
@@ -2280,7 +2274,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             marks an event starting within 30 minutes. Popover body is lazy. */}
             <button
               classList={{ "icon-btn": true, active: calendarPopOpen() }}
-              title={shortcutLabel("Calendar — today & upcoming (also in Ctrl+K)")}
+              title="Calendar — today & upcoming (also in the launcher)"
               onClick={() => setCalendarPopOpen(!calendarPopOpen())}
             >
               <Icon name="calendar" />
@@ -2292,11 +2286,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
             one had only a palette entry, which made it effectively invisible. */}
             <button
               classList={{ "icon-btn": true, active: dockOpen() }}
-              title={shortcutLabel(
+              title={
                 dockOpen()
                   ? "Hide the calendar + mail column"
-                  : "Calendar + mail in their own column (also in Ctrl+K)",
-              )}
+                  : "Calendar + mail in their own column (also in the launcher)"
+              }
               onClick={() => toggleDock()}
             >
               <Icon name="mail" />

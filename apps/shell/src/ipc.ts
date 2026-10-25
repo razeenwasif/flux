@@ -400,8 +400,6 @@ export const chromeImportBookmarks = (profileDir: string) =>
   invoke<ChromeBookmark[]>("chrome_import_bookmarks", { profileDir });
 export const terminalEnv = () => invoke<Record<string, string>>("terminal_env");
 export const agentExecute = (prompt: string) => invoke<AgentAction>("agent_execute", { prompt });
-/** Plan a page action without executing it — the UI previews + asks to approve (#8). */
-export const agentPlan = (prompt: string) => invoke<AgentAction>("agent_plan", { prompt });
 /** Execute a user-approved planned action (#8, bound to originating tab and doc URL #2). */
 export const agentRunAction = (action: AgentAction, tab?: number, expectedUrl?: string) =>
   invoke<AgentAction>("agent_run_action", {
@@ -433,19 +431,12 @@ export const sttWhisper = (pcmB64: string, sampleRate: number) =>
 /** Grammar-restricted wake-word pass (Vosk) — reliable "hey gemma" spotting. */
 export const wakeTranscribe = (pcmB64: string, sampleRate: number) =>
   invoke<string>("wake_transcribe", { pcmB64, sampleRate });
-/** Run a shell command for the agent (rm + destructive commands are blocked). */
-export const runShell = (command: string) => invoke<string>("run_shell", { command });
-/** Denylist pre-check before typing a command into the live terminal. null = allowed. */
-export const shellGuard = (command: string) => invoke<string | null>("shell_guard", { command });
 /** Read a text file (WSL-aware) into the agent's context. */
 export const readTextFile = (path: string) => invoke<string>("read_text_file", { path });
 /** Write a text file (WSL-aware) — only after the user approves an edit. */
 export const writeTextFile = (path: string, content: string) =>
   invoke<void>("write_text_file", { path, content });
 export type EditPlan = GenEditPlan;
-/** Plan a file edit (search/replace) from an instruction; the UI diffs + approves. */
-export const agentEditPlan = (path: string, content: string, instruction: string) =>
-  invoke<EditPlan>("agent_edit_plan", { path, content, instruction });
 /** Persistent reminders (backend-scheduled; fire even with the panel closed). */
 export type ReminderRow = GenReminder;
 /** Fire an OS notification (clocks widget alarm/timer alerts, #134). */
@@ -455,34 +446,23 @@ export const remindersAdd = (id: string, text: string, due: number | null, creat
   invoke<void>("reminders_add", { id, text, due, created });
 export const remindersRemove = (id: string) => invoke<void>("reminders_remove", { id });
 export const remindersImport = (items: ReminderRow[]) => invoke<void>("reminders_import", { items });
-/** Fired when a reminder is due (the scheduler emits it). */
-export const onReminderDue = (cb: (r: ReminderRow) => void): Promise<UnlistenFn> =>
-  listen<ReminderRow>("flux://reminder-due", (e) => cb(e.payload));
 /** Gemma's long-term memory (a Markdown file). Read for context / append facts. */
 export const memoryRead = () => invoke<string>("memory_read");
-export const memoryAppend = (note: string) => invoke<string>("memory_append", { note });
 export const memoryWrite = (content: string) => invoke<void>("memory_write", { content });
 export const memoryPath = () => invoke<string>("memory_path_str");
 /** Turn a natural request into a shell command (or null if it's conversational). */
 export const agentShellPlan = (prompt: string) => invoke<string | null>("agent_shell_plan", { prompt });
-/** Decompose a compound request into ordered single-action sub-commands (#115). */
-export const agentPlanSteps = (goal: string) => invoke<string[]>("agent_plan_steps", { goal });
 /** Map a Power Platform request to ONE `pac` CLI command (deterministic ALM path,
  * #135). Risk is Rust-classified; nothing runs until the shell card is approved. */
 export type PacPlan = GenPacPlan;
 export type ReadingStructure = GenReadingStructure;
 export type PacStatus = GenPacStatus;
-export const agentPacPlan = (request: string) => invoke<PacPlan>("agent_pac_plan", { request });
 /** Structural reading (#41 upgrade): classify the reader doc + map headings onto
  *  canonical sections (paper → Abstract/Methods/…). Rust-validated. */
 export const readerStructure = (title: string, headings: string[]) =>
   invoke<ReadingStructure>("reader_structure", { title, headings });
-/** Preflight: is `pac` installed and is there an active auth profile? */
-export const pacStatus = () => invoke<PacStatus>("pac_status");
 /** Adaptive loop: next command toward `goal` given the history of results so far. */
 export type NextStep = GenNextStep;
-export const agentNextStep = (goal: string, history: string[]) =>
-  invoke<NextStep>("agent_next_step", { goal, history });
 /** Store (or clear, with "") the Picovoice (Porcupine) access key in the keyring. */
 export const porcupineSetKey = (key: string) => invoke<void>("porcupine_set_key", { key });
 export const porcupineHasKey = () => invoke<boolean>("porcupine_has_key");
@@ -542,15 +522,6 @@ export const geminiSetKey = (key: string) => invoke<void>("gemini_set_key", { ke
 /** Whether a key is stored. The key itself never reaches the renderer. */
 export const geminiHasKey = () => invoke<boolean>("gemini_has_key");
 export const geminiVerifyKey = () => invoke<string>("gemini_verify_key");
-/** Models the stored key can reach (asked, not hardcoded). */
-export const geminiModels = () => invoke<string[]>("gemini_models");
-export const geminiDefaultModel = () => invoke<string>("gemini_default_model");
-/** Escalate to (or back from) the cloud for THIS session. Returns what will
- *  actually happen, which is not always what was asked — escalating without a
- *  stored key fails, and the agent stays local. */
-export const agentCloudSet = (on: boolean, model: string) =>
-  invoke<RouteStatus>("agent_cloud_set", { on, model }).then(asRoute);
-export const agentCloudStatus = () => invoke<RouteStatus>("agent_cloud_status").then(asRoute);
 
 // ─── Agent file access (#176) ───────────────────────────────────────────────
 // The agent reads through its own commands so the allowance can't be bypassed
@@ -569,10 +540,6 @@ export const agentRootsSuggested = () => invoke<string[]>("agent_roots_suggested
 
 /** Gated equivalents of `fsList` / `readTextFile` / `pdfFetch`. */
 export const agentFsList = (path: string) => invoke<DirListing>("agent_fs_list", { path });
-export const agentReadTextFile = (path: string) => invoke<string>("agent_read_text_file", { path });
-export const agentPdfFetch = (url: string) => invoke<ArrayBuffer>("agent_pdf_fetch", { url });
-export const agentWriteTextFile = (path: string, content: string) =>
-  invoke<void>("agent_write_text_file", { path, content });
 
 // ─── Live editor state (#179) ───────────────────────────────────────────────
 // The nvim column boots with `--listen`, so the agent can read the buffer the
@@ -587,32 +554,12 @@ export const framePolicy = (url: string) => invoke<FramePolicy>("frame_policy", 
 
 /** What the editor is doing. `connected: false` = no editor answering. */
 export type NvimState = GenNvimState;
-/** Never rejects: "no editor" is an ordinary state, not an error. */
-export const nvimState = (session: number) => invoke<NvimState>("nvim_state", { session });
 /** The last visual selection — what "explain this" points at. */
 export type NvimSelection = GenNvimSelection;
-export const nvimSelection = (session: number) => invoke<NvimSelection>("nvim_selection", { session });
-/** The current buffer's text, including unwritten changes. */
-export const nvimBuffer = (session: number) => invoke<string>("nvim_buffer", { session });
 
 // ─── AudioPulse / Spotify control (Path A: reuse AudioPulse's token) ──────────
 /** Override AudioPulse's config-dir (e.g. a \\wsl.localhost\<distro>\… path). */
 export const spotifySetDir = (path: string) => invoke<void>("spotify_set_dir", { path });
-/** Search + play the top match. Returns a human "▶ Playing …" line (or an error). */
-export const spotifyPlay = (query: string) => invoke<string>("spotify_play", { query });
-export const spotifyPause = () => invoke<string>("spotify_pause");
-export const spotifyResume = () => invoke<string>("spotify_resume");
-export const spotifyNext = () => invoke<string>("spotify_next");
-export const spotifyPrev = () => invoke<string>("spotify_prev");
-export const spotifyNowPlaying = () => invoke<string>("spotify_now_playing");
-export const spotifyShuffle = (on: boolean) => invoke<string>("spotify_shuffle", { on });
-/** Repeat mode: "one" (track) / "all" (context) / "off". */
-export const spotifyRepeat = (mode: string) => invoke<string>("spotify_repeat", { mode });
-export const spotifyVolume = (percent: number) => invoke<string>("spotify_volume", { percent });
-export const spotifyPlayLiked = () => invoke<string>("spotify_play_liked");
-export const spotifyPlayPlaylist = (name: string) => invoke<string>("spotify_play_playlist", { name });
-/** Launch AudioPulse (Linux/WSL build) so its Spotify Connect device comes online. */
-export const spotifyLaunch = () => invoke<string>("spotify_launch");
 // ─── Mini-player bubble (#196) — structured state + playlists ────────────────
 export type SpotifyState = GenSpotifyState;
 export type SpotifyPlaylist = GenSpotifyPlaylist;
@@ -638,30 +585,8 @@ export const audivizStream = (onFrame: (f: VizFrame) => void): Promise<void> => 
   };
   return invoke<void>("audioviz_stream", { onFrame: ch });
 };
-/**
- * Streaming chat (BACKLOG #82): calls `onToken` for each chunk as the model
- * generates it, resolving with the full reply when done. The sidebar renders
- * the answer live instead of waiting for the whole completion.
- */
-export const agentChatStream = (prompt: string, onToken: (chunk: string) => void): Promise<void> => {
-  const ch = new Channel<string>();
-  ch.onmessage = onToken;
-  return invoke<void>("agent_chat_stream", { prompt, onToken: ch });
-};
-/** Streaming counterpart of {@link agentChatTabs} (BACKLOG #82). */
-export const agentChatTabsStream = (
-  prompt: string,
-  tabIds: number[],
-  onToken: (chunk: string) => void,
-): Promise<void> => {
-  const ch = new Channel<string>();
-  ch.onmessage = onToken;
-  return invoke<void>("agent_chat_tabs_stream", { prompt, tabIds, onToken: ch });
-};
 /** Translate the active page's text to `target` (a language name) via the local model (#40). */
 export const agentTranslate = (target: string) => invoke<string>("agent_translate", { target });
-// ─── Agent model picker (BACKLOG #81) ────────────────────────────────────────
-export const agentModels = () => invoke<string[]>("agent_models");
 export const agentModel = () => invoke<string>("agent_model");
 export const agentSetModel = (name: string) => invoke<void>("agent_set_model", { name });
 /** Chat grounded in the captured text of several tabs (chat-with-tabs). */
@@ -692,18 +617,6 @@ export function domPublish(tabId: number, url: string, html: string, text: strin
  *  `domPublish` above has never had a caller). */
 export const domPublishInternal = (tabId: number, url: string, text: string) =>
   invoke<void>("dom_publish_internal", { tabId, url, text });
-
-// ─── Events (Rust → UI) ──────────────────────────────────────────────────
-
-export const onAgentStatus = (cb: (s: AgentStatus) => void): Promise<UnlistenFn> =>
-  listen<AgentStatus>("flux://agent-status", (e) => cb(e.payload));
-
-/** Outcome of a compiled agent action, reported by the page itself:
- *  [tabId, kind, detail, format, payload]. Untrusted: any page can send one. */
-export const onAgentReport = (
-  cb: (tabId: number, kind: string, detail: string, format: string, payload: string) => void,
-): Promise<UnlistenFn> =>
-  listen<[number, string, string, string, string]>("flux://agent-report", (e) => cb(...e.payload));
 
 export const onClustersUpdated = (cb: () => void): Promise<UnlistenFn> =>
   listen("flux://clusters-updated", () => cb());
@@ -870,9 +783,6 @@ export type ServiceStatus = GenServiceStatus;
 export const servicesStatus = () => invoke<ServiceStatus[]>("services_status");
 /** Manually start a service by name; returns true if it kicked one off. */
 export const servicesStart = (name: string) => invoke<boolean>("services_start", { name });
-// ─── Corpus write access (#118) — let the agent add to Scroll / Onyx ────────
-/** Clip a URL into Scroll (POSTs its /clip form; Scroll scrapes + stores). */
-export const scrollClip = (url: string, tags?: string) => invoke<string>("scroll_clip", { url, tags });
 /** Create a Markdown note in the Onyx vault; returns the written path. `folder`
  *  is a vault subfolder (the course); `tags` is free-typed (commas or spaces,
  *  `#` optional) and becomes YAML frontmatter. */
@@ -884,19 +794,10 @@ export const onyxNewNote = (title: string, content: string, folder?: string, tag
  *  model's output to your vault that doesn't pass through `noteApply`. */
 export type NoteAction = GenNoteAction;
 export type NoteProposal = GenNoteProposal;
-/** Ask the model what to add. Returns a proposal to confirm; writes nothing. */
-export const notePlan = (request: string, context?: string) =>
-  invoke<NoteProposal>("note_plan", { request, context });
 /** Apply a proposal the user approved. Returns the written path. */
 export const noteApply = (action: NoteAction) => invoke<string>("note_apply", { action });
-/** Capture the ACTIVE page's visible text into an Onyx note — for lecture
- *  transcripts (Echo360 &c.). Errors if too little text was captured, rather
- *  than filing an empty stub. Returns the written path. */
-export const onyxCapturePage = (title: string, folder?: string, tags?: string) =>
-  invoke<string>("onyx_capture_page", { title, folder, tags });
 /** Novelty / contradiction check of `text` against the KB (#124). */
 export type KbCheck = GenKbCheck;
-export const kbCheck = (text: string) => invoke<KbCheck>("kb_check", { text });
 // ─── Knowledge Base / second brain (#116, ADR 0010) ─────────────────────────
 /** Per-source + overall index status for the Notebook view. */
 export type KbRecentItem = GenKbRecentItem;
@@ -1309,10 +1210,6 @@ export const calImportFeed = (id: number) =>
  *  Feed times written in UTC come back on this machine's clock. */
 export const calEvents = () =>
   invoke<CalEvent[]>("cal_events", { tzOffsetMin: -new Date().getTimezoneOffset() });
-
-// ─── Local (editable) calendar events (BACKLOG #114) ─────────────────────────
-/** List just the on-device events (no ICS overlay) — used by the agent. */
-export const calLocalEvents = () => invoke<LocalEvent[]>("cal_local_events");
 export interface CalEventFields {
   title: string;
   date: string; // YYYY-MM-DD
@@ -1450,12 +1347,6 @@ export const tasksDisks = () => invoke<DiskInfo[]>("tasks_disks");
  *  the vault path is a setting, and a stale answer files a note in the wrong
  *  directory. */
 export type Place = GenPlace;
-export const agentPlaces = () => invoke<Place[]>("agent_places");
-
-/** Drop the agent's model from VRAM now instead of waiting out the 30-minute
- *  keep-alive (#169). Resolves to the model that was unloaded; it reloads by
- *  itself on the next request. Empty/omitted → whichever model is active. */
-export const agentUnload = (model?: string) => invoke<string>("agent_unload", { model });
 export const tasksKill = (pid: number) => invoke<boolean>("tasks_kill", { pid });
 export const tasksStats = () => invoke<SysStats>("tasks_stats");
 /** Live GPU stats via nvidia-smi (empty on non-NVIDIA / no driver). */
@@ -1497,12 +1388,6 @@ export const hibernateRank = (currentUrl: string, candidates: HibernateCandidate
 
 // ─── Web capture (BACKLOG #54) ───────────────────────────────────────────────
 export const webviewCapture = (tabId: number) => invoke<string>("webview_capture", { tabId });
-/** Visual Lens (#115): identify the captured PNG with the local vision model. */
-export const agentLens = (imagePath: string, prompt?: string) =>
-  invoke<string>("agent_lens", { imagePath, prompt: prompt ?? null });
-/** Ask the local vision model about an uploaded image (base64, no data: prefix). */
-export const agentVision = (imageB64: string, prompt?: string) =>
-  invoke<string>("agent_vision", { imageB64, prompt: prompt ?? null });
 /** Read a file dragged from the explorer into the agent (image → b64, text → text). */
 export interface DroppedAttachment {
   kind: "image" | "text";
@@ -1623,8 +1508,6 @@ export type SystemStats = {
   memPct: number;
   top: { name: string; memMb: number; cpu: number }[];
 };
-/** CPU + memory + heaviest processes (agent "system awareness"). */
-export const systemStats = () => invoke<SystemStats>("system_stats");
 
 // ─── Native dark mode (BACKLOG #40) ──────────────────────────────────────────
 export const darkmodeStatus = () => invoke<boolean>("darkmode_status");
@@ -1718,9 +1601,6 @@ export const traceDraftsEnabled = () => invoke<boolean>("trace_drafts_enabled", 
 export const traceDraftsSet = (on: boolean) => invoke<void>("trace_drafts_set", { on });
 /** A visit's persistent chat thread (ADR 0011 step d) — empty if none yet. */
 export const traceChat = (visitId: number) => invoke<ChatMsg[]>("trace_chat", { visitId });
-/** The active page's persistent thread (re-attach by visit) — null when the
- *  tab has no current Visit (internal pages, private tabs). */
-export const traceTabThread = (tabId: number) => invoke<TabThread | null>("trace_tab_thread", { tabId });
 /** Group open tabs into Trail-connected "rabbit-hole" branches (largest first;
  *  every input tab appears exactly once — unconnected tabs come back solo). */
 export const traceBranches = (tabs: { id: number; url: string }[]) =>

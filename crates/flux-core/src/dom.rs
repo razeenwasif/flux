@@ -311,13 +311,17 @@ pub fn dom_publish_internal(
 /// dispatches the same action it would for a chrome-focused keypress. Like
 /// `dom_publish`, this is a `fluxtab` plugin command so remote pages may call it.
 ///
-/// Any page can call it directly, with no keypress, so only the chords
-/// `shortcuts.js` produces get through, and the caller's label travels with the
-/// event: the chrome, which knows what's on screen, drops chords from background
-/// tabs and closed panels (a hidden page could otherwise close tab after tab).
+/// Any page can call it directly, with no keypress, so only commands a key is
+/// bound to get through (keys.rs: what `shortcuts.js` forwards), and the
+/// caller's label travels with the event: the chrome, which knows what's on
+/// screen, drops chords from background tabs and closed panels (a hidden page
+/// could otherwise close tab after tab).
 #[tauri::command]
 pub fn chrome_key(app: AppHandle, webview: tauri::Webview, action: String) -> Result<(), String> {
-    if !is_page_shortcut(&action) {
+    let bound = app
+        .try_state::<crate::keys::KeyStore>()
+        .is_some_and(|k| k.is_bound(&action));
+    if !bound {
         return Err("not a Flux shortcut".into());
     }
     app.emit(
@@ -325,47 +329,6 @@ pub fn chrome_key(app: AppHandle, webview: tauri::Webview, action: String) -> Re
         (webview.label().to_string(), action),
     )
     .map_err(|e| e.to_string())
-}
-
-/// The actions `shortcuts.js` can forward. Keep in step with its `actionFor`.
-const PAGE_SHORTCUTS: &[&str] = &[
-    "new-tab",
-    "close-tab",
-    "toggle-sidebar",
-    "focus-address",
-    "palette",
-    "find",
-    "reload",
-    "toggle-terminal",
-    "zoom-in",
-    "zoom-out",
-    "zoom-reset",
-    "bookmark-page",
-    "next-tab",
-    "prev-tab",
-    "reopen-tab",
-    "toggle-agent",
-    "toggle-editor",
-    "save-to-omni",
-    "shell-history",
-    "spotlight",
-    "focus-mode",
-    "back",
-    "forward",
-    "devtools",
-    // The tab bar's modes (Velvet Paper).
-    "mode-tabs",
-    "mode-calendar",
-    "mode-mail",
-    "mode-notes",
-    "mode-context",
-];
-
-fn is_page_shortcut(action: &str) -> bool {
-    PAGE_SHORTCUTS.contains(&action)
-        || action
-            .strip_prefix("tab-")
-            .is_some_and(|n| matches!(n.as_bytes(), [b'1'..=b'9']))
 }
 
 /// A page-initiated new window (window.open / target="_blank" / modified click),
@@ -558,28 +521,6 @@ pub(crate) fn dirs_download() -> String {
 mod tests {
     use super::*;
     use crate::state::{FluxState, TabKind, TabMeta};
-
-    #[test]
-    fn chrome_key_allows_exactly_the_chords_shortcuts_js_forwards() {
-        let js = include_str!("../assets/shortcuts.js");
-        for part in js.split("return \"").skip(1) {
-            let action = part.split('"').next().unwrap();
-            if action == "tab-" {
-                continue; // "tab-" + digit, checked below
-            }
-            assert!(
-                is_page_shortcut(action),
-                "{action} from shortcuts.js is rejected"
-            );
-        }
-        for n in 1..=9 {
-            assert!(is_page_shortcut(&format!("tab-{n}")));
-        }
-        // Chrome actions a page has no business triggering stay out.
-        for bad in ["new-terminal", "tab-0", "tab-10", "tab-", ""] {
-            assert!(!is_page_shortcut(bad), "{bad:?} should be rejected");
-        }
-    }
 
     #[test]
     fn tab_metadata_read_does_not_deadlock_with_mutation() {

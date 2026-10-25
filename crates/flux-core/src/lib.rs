@@ -41,6 +41,7 @@ pub mod history;
 pub mod https;
 pub mod indexer;
 pub mod kb;
+pub mod keys;
 pub mod kbfresh;
 pub mod leanmode;
 pub mod lens;
@@ -359,6 +360,10 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
         data_dir.as_ref().map(|d| d.join("sitetime.json")),
     ));
     sitetime::start(app.handle().clone());
+    app.manage(keys::KeyStore::load(
+        data_dir.as_ref().map(|d| d.join("keys.json")),
+    ));
+    keys::install_menu(app.handle());
     app.manage(formhelp::FormHelpState::load(
         app.path()
             .app_data_dir()
@@ -1425,6 +1430,9 @@ pub fn run(intent: cli::LaunchIntent) {
             focus::focus_end,
             focus::focus_allow,
             focus::focus_set,
+            keys::keys_list,
+            keys::keys_set,
+            keys::keys_reset,
             trace::trace_chat,
             trace::trace_chat_send,
             bookmarks::bookmarks_list,

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_FAVORITES, matchesLauncher, readFavorites } from "./launcherPreferences";
 import { FOCUSED_HIDDEN, WIDGETS, readHidden, readOrder } from "./startPreferences";
-import { shortcutLabel } from "./platform";
 describe("launcher preferences", () => {
   it("preserves deliberately empty favorites and recovers malformed storage", () => {
     expect(readFavorites("[]")).toEqual([]);
@@ -41,8 +40,4 @@ describe("home preferences", () => {
     expect(new Set(order).size).toBe(keys.length);
     expect(readHidden("{}")).toEqual(FOCUSED_HIDDEN);
   });
-});
-it("formats platform shortcuts without changing the action", () => {
-  expect(shortcutLabel("Toggle editor (Ctrl+Shift+E)", true)).toBe("Toggle editor (⌘⇧E)");
-  expect(shortcutLabel("Ctrl+Shift+E", false)).toBe("Ctrl+Shift+E");
 });

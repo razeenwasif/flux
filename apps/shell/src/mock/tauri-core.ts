@@ -2,7 +2,9 @@
  * Mock of @tauri-apps/api/core for the standalone UI preview (no Rust runtime).
  * Aliased in via vite.preview.config.ts — never bundled into the real app.
  */
+import type { KeysInfo } from "../bindings.gen";
 import type { TabKind, TabMeta } from "../ipc";
+import keysJson from "./keys.gen.json?raw";
 
 /** Minimal stand-in for @tauri-apps/api/core's Channel (preview only). */
 export class Channel<T = unknown> {
@@ -510,6 +512,8 @@ const mockSites = [
 ];
 
 // Form help (formhelp.rs): the preview keeps its settings in memory.
+/** The registry (keys.rs, generated as keys.gen.json), rebindable here. */
+const mockKeys = JSON.parse(keysJson) as KeysInfo;
 let mockFormHelp = {
   enabled: false,
   trigger: "focus",
@@ -1733,6 +1737,23 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         goal_minutes: mockFocus.goal,
         due: 2,
       } as T);
+    case "keys_list":
+      return Promise.resolve(structuredClone(mockKeys) as T);
+    case "keys_set": {
+      // keys.rs set(), as far as the preview needs: the chord moves here.
+      const id = String(args?.id);
+      const chord = (args?.chord as string | null) ?? null;
+      for (const c of mockKeys.commands) {
+        if (c.id === id) c.keys = chord ? [chord] : [];
+        else if (chord) c.keys = c.keys.filter((k) => k !== chord);
+      }
+      return Promise.resolve(structuredClone(mockKeys) as T);
+    }
+    case "keys_reset": {
+      const id = (args?.id as string | null) ?? null;
+      for (const c of mockKeys.commands) if (!id || c.id === id) c.keys = [...c.defaults];
+      return Promise.resolve(structuredClone(mockKeys) as T);
+    }
     case "formhelp_settings":
       return Promise.resolve({ ...mockFormHelp } as T);
     case "formhelp_set_settings":

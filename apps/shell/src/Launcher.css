@@ -122,6 +122,16 @@
   font-size: 13px;
   color: var(--flux-text-mute);
 }
+.lx-shortcut {
+  margin-left: auto;
+  flex: none;
+  font: 12px var(--vp-mono, var(--flux-mono, ui-monospace, monospace));
+  letter-spacing: 0.04em;
+  color: var(--flux-text-mute);
+}
+.lx-shortcut + .lx-keys {
+  margin-left: 14px;
+}
 .lx-keys {
   margin-left: auto;
   flex: none;

@@ -113,7 +113,7 @@ import type { Pressure } from "./sleepPolicy";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import ContentArea from "./ContentArea";
 import { installDwellCapture } from "./trail";
-import { keyToAction } from "./shortcuts";
+import { actionFor, keyRecording, keysInfo, loadKeys } from "./keys";
 import { planTrim } from "./memtrim";
 // Cold chrome (ADR 0001 budget): overlays/panes that render only behind a
 // store-gated <Show>, so their code loads on first open — not at boot.
@@ -565,8 +565,9 @@ const App: Component = () => {
     ]);
     const inTerminal = () => !!(document.activeElement as HTMLElement | null)?.closest?.(".xterm");
     const onKey = (e: KeyboardEvent) => {
-      // The launcher is modal and owns its keys (⌘K is its actions there).
-      if (launcherOpen()) return;
+      // The launcher is modal and owns its keys (⌘K is its actions there), and
+      // Settings' recorder owns the next chord.
+      if (launcherOpen() || keyRecording()) return;
       // Esc closes the find bar (#33), else stops the active page load (#31).
       // Handled outside the chord table so it isn't forwarded from focused pages
       // (they use Esc themselves).
@@ -595,9 +596,10 @@ const App: Component = () => {
         }
         return;
       }
-      const a = keyToAction(e);
+      const a = actionFor(e);
       if (!a) return;
-      if (inTerminal() && !(terminalSafe.has(a) || a.startsWith("tab-"))) return;
+      // ⌘ chords aren't the shell's (on a Mac, Mod is ⌘); Ctrl ones may be.
+      if (inTerminal() && e.ctrlKey && !e.metaKey && !(terminalSafe.has(a) || a.startsWith("tab-"))) return;
       if (dispatch(a)) {
         e.preventDefault();
         e.stopPropagation();
@@ -619,6 +621,8 @@ const App: Component = () => {
       clearTimeout(busyTimer);
     });
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
+    // The keys (keys.rs), and the commands the menu bar picks.
+    loadKeys();
     holdListener(onShortcut((a) => dispatch(a)));
     // Chords forwarded by a page's shortcuts.js. Any page can call chrome_key
     // with no keypress, so only honour a surface the user can be typing in: the
@@ -1525,7 +1529,6 @@ const App: Component = () => {
         focusAddress();
         return true;
       case "palette":
-      case "spotlight":
         if (launcherOpen()) closeLauncher();
         else setLauncherOpen(true);
         return true;
@@ -1574,12 +1577,12 @@ const App: Component = () => {
         const on = !focusMode();
         setFocusMode(on);
         if (on) {
-          toast("Focus mode — Esc or Ctrl+Shift+F to exit");
+          toast("Focus mode: Esc brings everything back");
         }
         return true;
       }
       default:
-        if (action.startsWith("tab-")) {
+        if (/^tab-[1-9]$/.test(action)) {
           const n = Number(action.slice(4));
           // The strip on screen: this workspace's pinned rail, then its other
           // tabs. tabs() is the global list (every workspace, folder-parked tabs
@@ -1588,6 +1591,16 @@ const App: Component = () => {
           // Ctrl+1..8 → that position; Ctrl+9 → last tab (browser convention).
           const t = n === 9 ? list.at(-1) : list[n - 1];
           if (t) void focusTab(t.id);
+          return true;
+        }
+        // The rest of the registry are the launcher's commands: run its own.
+        if (keysInfo()?.commands.some((c) => c.id === action)) {
+          void import("./paletteActions").then((m) =>
+            m
+              .paletteActions(paletteCtx)
+              .find((p) => p.id === action)
+              ?.run(),
+          );
           return true;
         }
         return false;

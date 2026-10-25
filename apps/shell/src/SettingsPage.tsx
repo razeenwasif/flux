@@ -16,6 +16,7 @@ import { isWindows } from "./platform";
 import type { FormHelpPrefs, ShieldsStatus } from "./ipc";
 import { Row, Toggle } from "./SettingsControls";
 import SettingsNavigator, { Section } from "./SettingsNavigator";
+import KeyboardSettings from "./KeyboardSettings";
 import { visibleInterval } from "./poll";
 import { DESIGNS, design, setDesign } from "./design";
 import { THEMES, setTheme, theme } from "./themes";
@@ -1088,6 +1089,10 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               </div>
             </div>
           </Show>
+        </Section>
+
+        <Section title="Keyboard" sub="Every command in one list. Click a shortcut to change it.">
+          <KeyboardSettings />
         </Section>
 
         <Section title="Terminal">

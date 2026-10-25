@@ -37,13 +37,3 @@ if (isMobile && typeof document !== "undefined") {
  *  pressure, for one) key on it. */
 export const isMac: boolean =
   typeof navigator !== "undefined" && /Macintosh|Mac OS X/i.test(navigator.userAgent);
-
-/** Format the same cross-platform shortcut accepted by the shell. */
-export function shortcutLabel(chord: string, mac = isMac): string {
-  return mac
-    ? chord
-        .replace(/Ctrl\+/g, "⌘")
-        .replace(/Shift\+/g, "⇧")
-        .replace(/Alt\+/g, "⌥")
-    : chord;
-}

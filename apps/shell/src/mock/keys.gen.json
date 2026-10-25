@@ -1,0 +1,1020 @@
+{
+  "commands": [
+    {
+      "id": "new-tab",
+      "title": "New tab",
+      "detail": "Open a tab in this space",
+      "group": "Tabs",
+      "keys": [
+        "Cmd+T"
+      ],
+      "defaults": [
+        "Cmd+T"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "new-private",
+      "title": "New private tab",
+      "detail": "A tab that keeps no history or cookies",
+      "group": "Tabs",
+      "keys": [
+        "Shift+Cmd+N"
+      ],
+      "defaults": [
+        "Shift+Cmd+N"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "new-terminal",
+      "title": "New terminal tab",
+      "detail": "A shell in a tab of its own",
+      "group": "Tabs",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "new-files",
+      "title": "New files tab",
+      "detail": "Browse your files in a tab",
+      "group": "Tabs",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "reopen-tab",
+      "title": "Reopen closed tab",
+      "detail": "Bring back the last tab you closed",
+      "group": "Tabs",
+      "keys": [
+        "Shift+Cmd+T"
+      ],
+      "defaults": [
+        "Shift+Cmd+T"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "close-tab",
+      "title": "Close tab",
+      "detail": "Close the tab you're on",
+      "group": "Tabs",
+      "keys": [
+        "Cmd+W"
+      ],
+      "defaults": [
+        "Cmd+W"
+      ],
+      "fixed": "Standard in every browser"
+    },
+    {
+      "id": "next-tab",
+      "title": "Next tab",
+      "detail": "The tab below this one",
+      "group": "Tabs",
+      "keys": [
+        "Ctrl+Tab",
+        "Shift+Cmd+]"
+      ],
+      "defaults": [
+        "Ctrl+Tab",
+        "Shift+Cmd+]"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "prev-tab",
+      "title": "Previous tab",
+      "detail": "The tab above this one",
+      "group": "Tabs",
+      "keys": [
+        "Ctrl+Shift+Tab",
+        "Shift+Cmd+["
+      ],
+      "defaults": [
+        "Ctrl+Shift+Tab",
+        "Shift+Cmd+["
+      ],
+      "fixed": null
+    },
+    {
+      "id": "split",
+      "title": "Split with…",
+      "detail": "Put another tab beside this one",
+      "group": "Tabs",
+      "keys": [
+        "Shift+Cmd+\\"
+      ],
+      "defaults": [
+        "Shift+Cmd+\\"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "sleep-bg",
+      "title": "Sleep background tabs",
+      "detail": "Free the memory of tabs you aren't using",
+      "group": "Tabs",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "ws-new",
+      "title": "New workspace",
+      "detail": "A space for another set of tabs",
+      "group": "Tabs",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "ws-rename",
+      "title": "Rename workspace",
+      "detail": "Name the space you're in",
+      "group": "Tabs",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "close-workspace-tabs",
+      "title": "Close all tabs in this workspace",
+      "detail": "Asks first",
+      "group": "Tabs",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "close-all-tabs",
+      "title": "Close every tab",
+      "detail": "In every workspace; asks first",
+      "group": "Tabs",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "tab-1",
+      "title": "Go to tab 1",
+      "detail": "The first tab in this space",
+      "group": "Go to a tab",
+      "keys": [
+        "Cmd+1"
+      ],
+      "defaults": [
+        "Cmd+1"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "tab-2",
+      "title": "Go to tab 2",
+      "detail": "The second tab",
+      "group": "Go to a tab",
+      "keys": [
+        "Cmd+2"
+      ],
+      "defaults": [
+        "Cmd+2"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "tab-3",
+      "title": "Go to tab 3",
+      "detail": "The third tab",
+      "group": "Go to a tab",
+      "keys": [
+        "Cmd+3"
+      ],
+      "defaults": [
+        "Cmd+3"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "tab-4",
+      "title": "Go to tab 4",
+      "detail": "The fourth tab",
+      "group": "Go to a tab",
+      "keys": [
+        "Cmd+4"
+      ],
+      "defaults": [
+        "Cmd+4"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "tab-5",
+      "title": "Go to tab 5",
+      "detail": "The fifth tab",
+      "group": "Go to a tab",
+      "keys": [
+        "Cmd+5"
+      ],
+      "defaults": [
+        "Cmd+5"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "tab-6",
+      "title": "Go to tab 6",
+      "detail": "The sixth tab",
+      "group": "Go to a tab",
+      "keys": [
+        "Cmd+6"
+      ],
+      "defaults": [
+        "Cmd+6"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "tab-7",
+      "title": "Go to tab 7",
+      "detail": "The seventh tab",
+      "group": "Go to a tab",
+      "keys": [
+        "Cmd+7"
+      ],
+      "defaults": [
+        "Cmd+7"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "tab-8",
+      "title": "Go to tab 8",
+      "detail": "The eighth tab",
+      "group": "Go to a tab",
+      "keys": [
+        "Cmd+8"
+      ],
+      "defaults": [
+        "Cmd+8"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "tab-9",
+      "title": "Go to the last tab",
+      "detail": "However many there are",
+      "group": "Go to a tab",
+      "keys": [
+        "Cmd+9"
+      ],
+      "defaults": [
+        "Cmd+9"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "palette",
+      "title": "Launcher",
+      "detail": "Search the web, your tabs, history, notes and commands",
+      "group": "Navigation",
+      "keys": [
+        "Cmd+K",
+        "Shift+Cmd+K"
+      ],
+      "defaults": [
+        "Cmd+K",
+        "Shift+Cmd+K"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "focus-address",
+      "title": "Open location",
+      "detail": "Type an address or a search",
+      "group": "Navigation",
+      "keys": [
+        "Cmd+L"
+      ],
+      "defaults": [
+        "Cmd+L"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "back",
+      "title": "Back",
+      "detail": "The page before this one",
+      "group": "Navigation",
+      "keys": [
+        "Cmd+[",
+        "Alt+ArrowLeft"
+      ],
+      "defaults": [
+        "Cmd+[",
+        "Alt+ArrowLeft"
+      ],
+      "fixed": "Standard in every browser"
+    },
+    {
+      "id": "forward",
+      "title": "Forward",
+      "detail": "The page after this one",
+      "group": "Navigation",
+      "keys": [
+        "Cmd+]",
+        "Alt+ArrowRight"
+      ],
+      "defaults": [
+        "Cmd+]",
+        "Alt+ArrowRight"
+      ],
+      "fixed": "Standard in every browser"
+    },
+    {
+      "id": "home",
+      "title": "Start page",
+      "detail": "Go to the new tab page",
+      "group": "Navigation",
+      "keys": [
+        "Shift+Cmd+H"
+      ],
+      "defaults": [
+        "Shift+Cmd+H"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "reload",
+      "title": "Reload page",
+      "detail": "Load this page again",
+      "group": "Navigation",
+      "keys": [
+        "Cmd+R",
+        "F5"
+      ],
+      "defaults": [
+        "Cmd+R",
+        "F5"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "find",
+      "title": "Find in page",
+      "detail": "Search this page's text",
+      "group": "Navigation",
+      "keys": [
+        "Cmd+F"
+      ],
+      "defaults": [
+        "Cmd+F"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "semantic-find",
+      "title": "Find by meaning",
+      "detail": "Search your open tabs by what they say",
+      "group": "Navigation",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "history",
+      "title": "History",
+      "detail": "Every page you've visited",
+      "group": "Navigation",
+      "keys": [
+        "Cmd+Y"
+      ],
+      "defaults": [
+        "Cmd+Y"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "bookmarks",
+      "title": "Bookmarks",
+      "detail": "Your bookmarks and folders",
+      "group": "Navigation",
+      "keys": [
+        "Alt+Cmd+B"
+      ],
+      "defaults": [
+        "Alt+Cmd+B"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "bookmark-page",
+      "title": "Bookmark this page",
+      "detail": "Add it to your bookmarks, or take it out",
+      "group": "Page",
+      "keys": [
+        "Cmd+D"
+      ],
+      "defaults": [
+        "Cmd+D"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "zoom-in",
+      "title": "Zoom in",
+      "detail": "Make the page bigger",
+      "group": "Page",
+      "keys": [
+        "Cmd+=",
+        "Shift+Cmd+="
+      ],
+      "defaults": [
+        "Cmd+=",
+        "Shift+Cmd+="
+      ],
+      "fixed": null
+    },
+    {
+      "id": "zoom-out",
+      "title": "Zoom out",
+      "detail": "Make the page smaller",
+      "group": "Page",
+      "keys": [
+        "Cmd+-"
+      ],
+      "defaults": [
+        "Cmd+-"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "zoom-reset",
+      "title": "Actual size",
+      "detail": "Back to 100%",
+      "group": "Page",
+      "keys": [
+        "Cmd+0"
+      ],
+      "defaults": [
+        "Cmd+0"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "reader",
+      "title": "Reader mode",
+      "detail": "The article alone, in clean type",
+      "group": "Page",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "capture",
+      "title": "Capture page",
+      "detail": "A screenshot of the page",
+      "group": "Page",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "archive-save",
+      "title": "Save for offline",
+      "detail": "Keep a copy to read later",
+      "group": "Page",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "save-to-omni",
+      "title": "Save to Omni",
+      "detail": "Add the page to your Omni index",
+      "group": "Page",
+      "keys": [
+        "Shift+Cmd+O"
+      ],
+      "defaults": [
+        "Shift+Cmd+O"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "translate",
+      "title": "Translate page",
+      "detail": "Into your language",
+      "group": "Page",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "install-app",
+      "title": "Install as app",
+      "detail": "Open this site in a window of its own",
+      "group": "Page",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "lens",
+      "title": "Identify page",
+      "detail": "Ask the agent what's on this page (Lens)",
+      "group": "Page",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "devtools",
+      "title": "Web inspector",
+      "detail": "Inspect the page's code",
+      "group": "Page",
+      "keys": [
+        "Alt+Cmd+I",
+        "F12"
+      ],
+      "defaults": [
+        "Alt+Cmd+I",
+        "F12"
+      ],
+      "fixed": "Set by WebKit"
+    },
+    {
+      "id": "toggle-sidebar",
+      "title": "Toggle tabs pane",
+      "detail": "Show or fold the tabs pane",
+      "group": "Panels",
+      "keys": [
+        "Cmd+B"
+      ],
+      "defaults": [
+        "Cmd+B"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "toggle-terminal",
+      "title": "Toggle terminal",
+      "detail": "Show or hide the terminal drawer",
+      "group": "Panels",
+      "keys": [
+        "Cmd+`"
+      ],
+      "defaults": [
+        "Cmd+`"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "toggle-agent",
+      "title": "Toggle agent",
+      "detail": "Show or hide the agent column",
+      "group": "Panels",
+      "keys": [
+        "Shift+Cmd+A"
+      ],
+      "defaults": [
+        "Shift+Cmd+A"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "toggle-editor",
+      "title": "Toggle editor",
+      "detail": "Show or hide the editor column",
+      "group": "Panels",
+      "keys": [
+        "Shift+Cmd+E"
+      ],
+      "defaults": [
+        "Shift+Cmd+E"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "focus-mode",
+      "title": "Focus mode",
+      "detail": "Hide everything but the page; Esc brings it back",
+      "group": "Panels",
+      "keys": [
+        "Shift+Cmd+F"
+      ],
+      "defaults": [
+        "Shift+Cmd+F"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "bookmark-bar",
+      "title": "Toggle bookmark bar",
+      "detail": "Show or hide the bookmark bar",
+      "group": "Panels",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "pages-bar",
+      "title": "Toggle launcher column",
+      "detail": "Show or hide the launcher column",
+      "group": "Panels",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "app-dock",
+      "title": "Toggle app dock",
+      "detail": "Expand or collapse the app dock",
+      "group": "Panels",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "connect-rail",
+      "title": "Toggle connections rail",
+      "detail": "Show or hide the connections rail",
+      "group": "Panels",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "dock-col",
+      "title": "Toggle calendar and mail",
+      "detail": "Show or hide the calendar and mail column",
+      "group": "Panels",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "mode-tabs",
+      "title": "Show tabs",
+      "detail": "The tabs pane's tab list",
+      "group": "Tab bar",
+      "keys": [
+        "Alt+1"
+      ],
+      "defaults": [
+        "Alt+1"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "mode-calendar",
+      "title": "Show calendar",
+      "detail": "The month and the day's events",
+      "group": "Tab bar",
+      "keys": [
+        "Alt+2"
+      ],
+      "defaults": [
+        "Alt+2"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "mode-mail",
+      "title": "Show mail",
+      "detail": "Your inbox, read-only",
+      "group": "Tab bar",
+      "keys": [
+        "Alt+3"
+      ],
+      "defaults": [
+        "Alt+3"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "mode-notes",
+      "title": "Show notes",
+      "detail": "Your notes and to-dos",
+      "group": "Tab bar",
+      "keys": [
+        "Alt+4"
+      ],
+      "defaults": [
+        "Alt+4"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "mode-context",
+      "title": "Show context",
+      "detail": "Your notes, the system and the Trail",
+      "group": "Tab bar",
+      "keys": [
+        "Alt+5"
+      ],
+      "defaults": [
+        "Alt+5"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "indexer-ask",
+      "title": "Ask your notes",
+      "detail": "The Indexer answers from your notes",
+      "group": "Agent and notes",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "notebook",
+      "title": "Notebook",
+      "detail": "Ask your knowledge base",
+      "group": "Agent and notes",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "shell-history",
+      "title": "Shell history",
+      "detail": "Search commands you've run, by meaning",
+      "group": "Agent and notes",
+      "keys": [
+        "Shift+Cmd+R"
+      ],
+      "defaults": [
+        "Shift+Cmd+R"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "watches",
+      "title": "Watched pages",
+      "detail": "Pages Flux checks for changes",
+      "group": "Agent and notes",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "tracker-graph",
+      "title": "Tracker graph",
+      "detail": "The trackers on your pages",
+      "group": "Agent and notes",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "tasks",
+      "title": "Tasks",
+      "detail": "Your to-dos",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "time-focus",
+      "title": "Time and focus",
+      "detail": "Where the time went, and focus sessions",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "calendar",
+      "title": "Calendar",
+      "detail": "Today and what's coming",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "settings",
+      "title": "Settings",
+      "detail": "Everything Flux lets you change",
+      "group": "Flux pages",
+      "keys": [
+        "Cmd+,"
+      ],
+      "defaults": [
+        "Cmd+,"
+      ],
+      "fixed": null
+    },
+    {
+      "id": "sessions",
+      "title": "Sessions",
+      "detail": "Sets of tabs you saved",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "passwords",
+      "title": "Passwords",
+      "detail": "The password vault",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "omni",
+      "title": "Omni index",
+      "detail": "Everything you saved to Omni",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "trail",
+      "title": "Trail",
+      "detail": "Your browsing as a graph",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "whiteboard",
+      "title": "Whiteboard",
+      "detail": "A canvas to draw and plan on",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "scribe",
+      "title": "Scribe",
+      "detail": "Handwritten notebooks",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "archive",
+      "title": "Archive",
+      "detail": "Pages you saved for offline",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "feeds",
+      "title": "Feeds",
+      "detail": "Your RSS reader",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "resources",
+      "title": "Resource monitor",
+      "detail": "What Flux is using",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "activity",
+      "title": "Activity",
+      "detail": "Processes and memory",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "speedtest",
+      "title": "Speed test",
+      "detail": "How fast your network is",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "permissions",
+      "title": "Site permissions",
+      "detail": "What each site may use",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "sentinel",
+      "title": "Agent activity log",
+      "detail": "What the agent did, and why",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "sync",
+      "title": "Sync",
+      "detail": "Encrypted, across your devices",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "apps",
+      "title": "Installed apps",
+      "detail": "Sites you installed as apps",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "discord",
+      "title": "Discord panel",
+      "detail": "Discord beside the page",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "teams",
+      "title": "Teams panel",
+      "detail": "Teams beside the page",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    }
+  ],
+  "reserved": [
+    {
+      "chord": "Cmd+Q",
+      "owner": "Quit Flux"
+    },
+    {
+      "chord": "Cmd+H",
+      "owner": "Hide Flux"
+    },
+    {
+      "chord": "Alt+Cmd+H",
+      "owner": "Hide others"
+    },
+    {
+      "chord": "Cmd+M",
+      "owner": "Minimize"
+    },
+    {
+      "chord": "Cmd+Z",
+      "owner": "Undo"
+    },
+    {
+      "chord": "Shift+Cmd+Z",
+      "owner": "Redo"
+    },
+    {
+      "chord": "Cmd+X",
+      "owner": "Cut"
+    },
+    {
+      "chord": "Cmd+C",
+      "owner": "Copy"
+    },
+    {
+      "chord": "Cmd+V",
+      "owner": "Paste"
+    },
+    {
+      "chord": "Cmd+A",
+      "owner": "Select all"
+    },
+    {
+      "chord": "Ctrl+Cmd+F",
+      "owner": "Full screen"
+    },
+    {
+      "chord": "Cmd+Tab",
+      "owner": "Switch apps"
+    },
+    {
+      "chord": "Cmd+Space",
+      "owner": "Spotlight"
+    }
+  ]
+}

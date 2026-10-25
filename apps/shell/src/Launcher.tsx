@@ -32,7 +32,6 @@ import {
   omniSearch,
   searchResolve,
   searchSuggest,
-  START_URL,
   type HistoryEntry,
   type KbHit,
   type OmniHit,
@@ -53,6 +52,7 @@ import { PAGES } from "./launcherCatalog";
 import { favorites, loadTerminalApps, setTerminalApps, terminalApps, toggleFavorite } from "./launcherData";
 import { latestQuery } from "./latestQuery";
 import Modal from "./Modal";
+import { keyOf } from "./keyLabel";
 import { paletteActions, type PaletteContext } from "./paletteActions";
 import { isMobile } from "./platform";
 import {
@@ -87,6 +87,8 @@ interface Row {
   icon: IconName | string;
   label: string;
   meta?: string;
+  /** The command's key (keys.rs), shown at the row's end. */
+  shortcut?: string;
   /** Highlight the query in the label. */
   marks?: boolean;
   url?: string;
@@ -422,17 +424,11 @@ const Launcher: Component<{
         key: `cmd:${a.id}`,
         icon: a.icon,
         label: a.label,
+        shortcut: keyOf(a.id),
         marks: true,
         run: () => (done(), a.run()),
       });
     }
-    all.push({
-      key: "cmd:home",
-      icon: "⌂",
-      label: "Go to the start page",
-      marks: true,
-      run: () => (done(), props.onNavigate(START_URL)),
-    });
     all.push({
       key: "cmd:files-panel",
       icon: "files",
@@ -665,6 +661,9 @@ const Launcher: Component<{
       </span>
       <Show when={p.row.meta}>
         <span class="lx-meta">{p.row.meta}</span>
+      </Show>
+      <Show when={p.row.shortcut}>
+        <kbd class="lx-shortcut">{p.row.shortcut}</kbd>
       </Show>
       <Show when={sel() === p.index && !empty()}>
         <span class="lx-keys" aria-hidden="true">

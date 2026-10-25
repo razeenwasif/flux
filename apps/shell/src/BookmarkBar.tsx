@@ -21,7 +21,7 @@ import { attachHScroll } from "./hscroll";
 import { openLinkMenu } from "./linkMenu";
 import { buildTree, hostOf, letter, type Folder } from "./bookmarkTree";
 import Icon from "./Icon";
-import { shortcutLabel } from "./platform";
+import { keyOf } from "./keyLabel";
 
 const BookmarkFolderMenu = lazy(() => import("./BookmarkFolderMenu"));
 
@@ -181,11 +181,12 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void; inPane?: boole
           <span class="bookmark-bar-empty">
             {props.inPane ? (
               <>
-                Bookmarks: <kbd>{shortcutLabel("Ctrl+D")}</kbd> adds this page
+                Bookmarks: <kbd>{keyOf("bookmark-page") || "☆"}</kbd> adds this page
               </>
             ) : (
               <>
-                No bookmarks yet — press <kbd>{shortcutLabel("Ctrl+D")}</kbd> to pin the current page here.
+                No bookmarks yet — press <kbd>{keyOf("bookmark-page") || "☆"}</kbd> to pin the current page
+                here.
               </>
             )}
           </span>

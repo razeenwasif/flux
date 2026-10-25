@@ -312,6 +312,12 @@ export type AllowedSite = { site: string; until_ms: number }
  * A session as the shell shows it, and the day's focus.
  */
 export type FocusStatus = { running: boolean; paused: boolean; name: string; minutes: number; elapsed_ms: number; remaining_ms: number; blocks: string[]; allowed: AllowedSite[]; sites: string[]; goal_minutes: number; focused_secs: number }
+/**
+ * A command as the shell shows it.
+ */
+export type KeyCommand = { id: string; title: string; detail: string; group: string; keys: string[]; defaults: string[]; fixed: string | null }
+export type ReservedKey = { chord: string; owner: string }
+export type KeysInfo = { commands: KeyCommand[]; reserved: ReservedKey[] }
 export type HotRule = { rule: string; hits: number }
 export type LeanStatus = { enabled: boolean; sites_on: string[] }
 export type HttpsStatus = { enabled: boolean; sites_allow_http: string[] }

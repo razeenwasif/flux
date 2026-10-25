@@ -1,14 +1,16 @@
 /**
- * The command palette's actions (BACKLOG #6), also the spotlight's toolbar.
- * Built here, inside the lazily loaded palette and spotlight chunks, from a
- * context of App's own signals and handlers: the list is ~1.8 KB gzip of
- * labels and closures that nothing needs until one of them opens.
+ * The launcher's commands (BACKLOG #6). Built here, inside the lazily loaded
+ * launcher chunk, from a context of App's own signals and handlers: the list
+ * is ~1.8 KB gzip of labels and closures that nothing needs until one of them
+ * opens. Each id is a command in keys.rs (its key, menu and Settings row),
+ * except the generated ones (translations, layouts); keys.test.ts checks it.
  */
 import type { Accessor, Setter } from "solid-js";
 
 import { askConfirm } from "./ask";
 import { design } from "./design";
 import { setIndexerPanelOpen } from "./indexerOpen";
+import { keyOf } from "./keyLabel";
 import {
   APPS_URL,
   ARCHIVE_URL,
@@ -24,6 +26,7 @@ import {
   SESSIONS_URL,
   SETTINGS_URL,
   SPEEDTEST_URL,
+  START_URL,
   SYNC_URL,
   TASKS_URL,
   ACTIVITY_URL,
@@ -138,12 +141,13 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
       return;
     }
     const undoable = Math.min(n, 25);
+    const reopen = keyOf("reopen-tab") || "Reopen closed tab";
     const ok = await askConfirm({
       title: `Close ${n} tab${n === 1 ? "" : "s"} ${where}?`,
       hint:
         n > undoable
-          ? `Ctrl+Shift+T can reopen the last ${undoable} of them, one at a time.`
-          : "Ctrl+Shift+T reopens them one at a time.",
+          ? `${reopen} can reopen the last ${undoable} of them, one at a time.`
+          : `${reopen} reopens them one at a time.`,
       confirm: "Close",
     });
     if (!ok) return;
@@ -160,12 +164,13 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
       run: () => void openTab("browser", undefined, true),
     },
     {
-      id: "new-term",
+      id: "new-terminal",
       label: "New terminal tab",
       icon: "⌨",
       run: () => void openTab("terminal").then(() => setTerminalOpen(true)),
     },
     { id: "new-files", label: "New files tab", icon: "📁", run: () => void openTab("files") },
+    { id: "home", label: "Go to the start page", icon: "⌂", run: () => go(START_URL) },
     { id: "history", label: "Open History", icon: "🕘", run: () => go(HISTORY_URL) },
     { id: "bookmarks", label: "Open Bookmarks", icon: "🔖", run: () => go(BOOKMARKS_URL) },
     {
@@ -210,7 +215,7 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
       run: () => setPagesBarOpen(!pagesBarOpen()),
     },
     {
-      id: "editor-col",
+      id: "toggle-editor",
       label: editorColOpen() ? "Hide editor column" : "Show editor column",
       icon: "📝",
       run: () => setEditorColOpen(!editorColOpen()),
@@ -300,7 +305,7 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
       run: () => (tileGroup() != null ? clearTile() : setSplitPickerOpen(true)),
     },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
-    { id: "focus", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
+    { id: "focus-mode", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
     { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
     { id: "resources", label: "Open Resource monitor", icon: "📊", run: () => go(RESOURCES_URL) },
     { id: "tasks", label: "Open Tasks", icon: "☑️", run: () => go(TASKS_URL) },
@@ -372,8 +377,8 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
     { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },
     { id: "zoom-reset", label: "Reset zoom", icon: "🔍", run: () => dispatch("zoom-reset") },
     { id: "reload", label: "Reload page", icon: "⟳", run: () => navActive(webviewReload) },
-    { id: "tog-term", label: "Toggle terminal", icon: "⌨", run: () => setTerminalOpen((v) => !v) },
-    { id: "tog-agent", label: "Toggle agent", icon: "✦", run: () => setAgentOpen((v) => !v) },
+    { id: "toggle-terminal", label: "Toggle terminal", icon: "⌨", run: () => setTerminalOpen((v) => !v) },
+    { id: "toggle-agent", label: "Toggle agent", icon: "✦", run: () => setAgentOpen((v) => !v) },
     {
       id: "lens",
       label: "Identify page (Lens)",
@@ -383,9 +388,9 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
         setPendingLens(true);
       },
     },
-    { id: "tog-side", label: "Toggle sidebar", icon: "◧", run: () => setSidebarOpen((v) => !v) },
+    { id: "toggle-sidebar", label: "Toggle sidebar", icon: "◧", run: () => setSidebarOpen((v) => !v) },
     {
-      id: "close",
+      id: "close-tab",
       label: "Close current tab",
       icon: "✕",
       run: () => {
