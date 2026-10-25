@@ -1306,6 +1306,66 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // ended as "TypeError: … reading 'trim'" — which made the whole chat path
     // unverifiable and looked like a bug in whatever feature was being tested.
     // Echoes back what it was given so a test can tell the context reached it.
+    // Cited answers (cite.rs): the design board's example, streamed then worked out.
+    case "agent_page_answer": {
+      const ch = args?.onEvent as Channel<unknown> | undefined;
+      const p1 =
+        "With no recurrence and no convolution, the model has to be told where each token sits if it is to use the order of the sequence.";
+      const p2 =
+        "Learned positional embeddings gave nearly identical results. The sinusoidal version was kept because it may let the model extrapolate to longer sequences than it saw in training.";
+      const prose =
+        "Word order. Attention on its own reads the input as a set, so it can't tell which token came first. Positional encodings add a position signal to each token's embedding [P4]. The paper uses fixed sine and cosine waves; learned embeddings scored about the same, and the waves may stretch to inputs longer than any in training [P7].";
+      if (ch) {
+        setTimeout(() => ch.onmessage({ kind: "token", text: prose.slice(0, 120) }), 40);
+        setTimeout(() => ch.onmessage({ kind: "token", text: prose.slice(120) }), 90);
+        setTimeout(
+          () =>
+            ch.onmessage({
+              kind: "done",
+              tab: 1,
+              url: "https://arxiv.org/html/1706.03762v7",
+              title: "Attention Is All You Need",
+              answer: {
+                prose,
+                cites: [
+                  { p: 4, text: p1 },
+                  { p: 7, text: p2 },
+                ],
+                table: {
+                  head: ["Encoding", "Learned?", "Extrapolates?"],
+                  rows: [
+                    { cells: ["Learned", "Yes", "No"], cites: [7], claim: "inferred" },
+                    { cells: ["Relative", "Yes", "Yes"], cites: [], claim: "unverified" },
+                    { cells: ["Sinusoidal", "No", "May"], cites: [7], claim: "supported" },
+                  ],
+                },
+              },
+            }),
+          130,
+        );
+      }
+      return new Promise<T>((resolve) => setTimeout(() => resolve(undefined as T), 160));
+    }
+    case "agent_cite_show":
+      return Promise.resolve("unavailable" as T);
+    case "agent_cite_clear":
+    case "boost_preview_clear":
+      return Promise.resolve(undefined as T);
+    case "agent_tasks_from":
+      return Promise.resolve([
+        "Read section 3.5 on positional encoding",
+        "Compare learned and sinusoidal encodings",
+      ] as T);
+    case "boost_draft":
+      return Promise.resolve({
+        tab: 1,
+        host: "arxiv.org",
+        name: String(args?.instruction ?? "").slice(0, 60),
+        css: ".ltx_page_main { font-size: 1.15em; line-height: 1.7; }\nnav.ltx_TOC { display: none; }",
+        kept: 2,
+        dropped: 1,
+        previewed: true,
+      } as T);
     case "agent_chat_stream":
     case "agent_chat_tabs_stream": {
       const ch = args?.onToken as Channel<string> | undefined;

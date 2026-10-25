@@ -267,6 +267,30 @@ export type StepVerdict = { verified: boolean; how: string }
  * A planned step as code sees it, with the page as it was just before.
  */
 export type StepCheck = { guard: StepGuard; before: PageFacts }
+/**
+ * One numbered slice of the page's text.
+ */
+export type Passage = { p: number; text: string }
+/**
+ * How sure a table's claim is.
+ */
+export type Claim = "supported" | "inferred" | "unverified" | "contradicted"
+export type CitedRow = { cells: string[]; cites: number[]; claim: Claim }
+export type CitedTable = { head: string[]; rows: CitedRow[] }
+/**
+ * The answer, once the model has finished.
+ */
+export type CitedAnswer = { prose: string; cites: Passage[]; table: CitedTable | null }
+/**
+ * One frame of a cited answer: its tokens as they come, then the answer
+ * worked out, with the tab and page it's about.
+ */
+export type PageAnswerEvent = { kind: "token"; text: string } | { kind: "done"; answer: CitedAnswer; tab: number; url: string; title: string }
+/**
+ * A restyle drafted from a sentence, checked against the page and previewed
+ * there, not yet saved (`boost_save` saves it; `boost_preview_clear` drops it).
+ */
+export type BoostDraft = { tab: number; host: string; name: string; css: string; kept: number; dropped: number; previewed: boolean }
 export type ShieldsStatus = { backend: string; request_metrics: boolean; request_controls: boolean; site_controls: boolean; element_picker: boolean; attachment: string; enabled: boolean; blocked: number; sites_off: string[]; cache_hit_pct: number; cache_len: number; rules_fired: number; page_blocked: number; page_domains: BlockedDomain[]; site_hidden: number }
 export type FormHelpPrefs = { enabled: boolean; trigger: string; delay_ms: number; skip_personal: boolean; use_other_answers: boolean; voice: string; sites_off: string[] }
 export type HotRule = { rule: string; hits: number }

@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod cited;
 pub mod compile;
 pub mod formhelp;
 pub mod gemini;
@@ -365,6 +366,13 @@ Saving to the user's notes (Onyx vault, Markdown):
   text (e.g. an Echo360 transcript) as a note. Needs the transcript tab open; it reports an
   error if too little text was captured.
 - \"clip this page to scroll\" — saves the page to their Scroll read-later library.
+
+The page you're on:
+- In the sidebar's 'This page' scope, answers cite the page: a numbered mark scrolls the page to
+  its passage and highlights it. Comparisons come as a table whose claims are labelled Supported,
+  Inferred, Unverified or Contradicted, with Copy CSV; under an answer, Make tasks and Save as note.
+- \"/restyle <how>\" (e.g. \"/restyle larger text, hide the sidebar\") drafts CSS for the site,
+  previews it on the page, and saves it as a Boost only when they tap Apply.
 
 Handwriting and drawing:
 - flux://scribe — handwritten per-course notebooks: paged A4 with grid/lined/squared paper,
@@ -1678,6 +1686,34 @@ impl AgentPlanner {
             .chat_stream(&Self::chat_prompt(user_prompt, page_text), on_token)
     }
 
+    /// A question about the page, answered with citations to its numbered
+    /// passages (`cited`): streams the reply, then returns it worked out.
+    pub fn cited_answer_stream(
+        &self,
+        user_prompt: &str,
+        passages: &[cited::Passage],
+        title: &str,
+        on_token: &mut dyn FnMut(&str),
+    ) -> Result<cited::CitedAnswer, AgentError> {
+        let raw = self
+            .backend
+            .chat_stream(&cited::prompt(user_prompt, passages, title), on_token)?;
+        Ok(cited::finish(&raw, passages))
+    }
+
+    /// An answer as a short to-do list: up to six one-line tasks, or none.
+    pub fn tasks_from(&self, text: &str) -> Result<Vec<String>, AgentError> {
+        let text: String = text.chars().take(6000).collect();
+        let prompt = format!(
+            "Turn the text below into a short to-do list for the reader: at most six \
+             concrete things to do, one per line, each under 80 characters and starting \
+             with a verb. Output only the lines, with no numbering, bullets or preamble. \
+             If the text holds nothing to do, output exactly NONE. {UNTRUSTED_PREAMBLE}\n\n{}",
+            wrap_untrusted(&text)
+        );
+        Ok(parse_tasks(&self.backend.chat(&prompt)?))
+    }
+
     /// Chat grounded in the text of several open tabs (BACKLOG: chat-with-tabs).
     /// `pages` is the pre-joined, per-tab-labelled text; here we just frame it and
     /// cap the total.
@@ -1751,6 +1787,28 @@ impl AgentPlanner {
     }
 }
 
+/// The model's to-do lines: bullets and numbering off, at most six, no repeats.
+fn parse_tasks(raw: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in raw.lines() {
+        let t = line
+            .trim()
+            .trim_start_matches(|c: char| c.is_ascii_digit() || matches!(c, '-' | '*' | '•' | '.' | ')' | '[' | ']' | ' '))
+            .trim();
+        if t.is_empty() || t.eq_ignore_ascii_case("none") || t.ends_with(':') {
+            continue;
+        }
+        let t: String = t.chars().take(120).collect();
+        if !out.iter().any(|o| o.eq_ignore_ascii_case(&t)) {
+            out.push(t);
+        }
+        if out.len() == 6 {
+            break;
+        }
+    }
+    out
+}
+
 /// Strip markdown code fences and `<style>` wrappers an LLM may add around CSS.
 fn strip_css(raw: &str) -> String {
     let mut s = raw.trim();
@@ -1772,7 +1830,7 @@ fn strip_css(raw: &str) -> String {
 /// one of these function or at-rule tokens. Backslashes are refused outright,
 /// since CSS escapes (`\75 rl(`) would otherwise smuggle `url(` past the
 /// substring check, and a boost written for a page never needs them.
-fn css_is_inert(css: &str) -> bool {
+pub fn css_is_inert(css: &str) -> bool {
     let low = css.to_ascii_lowercase();
     !css.contains('\\')
         && ![
@@ -1879,6 +1937,21 @@ impl Inference for MockBackend {
             } else {
                 "A mock answer from Flux's form help, written for the field above.".into()
             });
+        }
+        // A cited answer about the page: two citations and a small table.
+        if prompt.contains("its text is split into numbered passages") {
+            return Ok("The page says what it says [P1]. More follows from it [P2].\n\n\
+                | Item | Value | Source |\n|---|---|---|\n\
+                | First | One | [P1] Supported |\n| Second | Two | [P2] Inferred |\n\
+                | Third | Three | Unverified |"
+                .into());
+        }
+        // A restyle: one rule for most pages, and one that matches nothing.
+        if prompt.contains("You are a CSS expert") {
+            return Ok(
+                "body { font-size: 1.15em }\nnav, .sidebar { display: none }\n.flux-mock-nothing { color: red }"
+                    .into(),
+            );
         }
         let last = prompt.lines().last().unwrap_or(prompt);
         Ok(format!(
@@ -2317,6 +2390,7 @@ mod tests {
             "onyx/<folder>",
             "capture this lecture",
             "clip this page to scroll",
+            "/restyle <how>",
             "flux://scribe",
             "flux://notebook",
         ] {
@@ -2589,5 +2663,22 @@ mod tests {
             0,
             "a clipped fence was left open"
         );
+    }
+
+    #[test]
+    fn task_lines_are_cleaned_and_capped() {
+        let raw = "Here you go:\n1. Read section 3.5\n- Compare the two encodings\n* Read section 3.5\n• Note the results\n[ ] Try relative encodings\nNONE\n7) Six\n8) Seven\n9) Eight";
+        assert_eq!(
+            parse_tasks(raw),
+            vec![
+                "Read section 3.5",
+                "Compare the two encodings",
+                "Note the results",
+                "Try relative encodings",
+                "Six",
+                "Seven",
+            ]
+        );
+        assert!(parse_tasks("NONE").is_empty());
     }
 }

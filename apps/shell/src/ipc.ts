@@ -110,6 +110,10 @@ import type {
   StepVerdict as GenStepVerdict,
   StepGuard as GenStepGuard,
   FormHelpPrefs as GenFormHelpPrefs,
+  PageAnswerEvent as GenPageAnswerEvent,
+  CitedAnswer as GenCitedAnswer,
+  Claim as GenClaim,
+  BoostDraft as GenBoostDraft,
   SitePerm as GenSitePerm,
   Step as GenStep,
   SyncReport as GenSyncReport,
@@ -1511,6 +1515,30 @@ export type PageFacts = GenPageFacts;
 export type StepCheck = GenStepCheck;
 export type StepVerdict = GenStepVerdict;
 export type StepGuard = GenStepGuard;
+
+// ─── Cited answers (cite.rs, flux-agent cited.rs) ─────────────────────────────
+export type PageAnswerEvent = GenPageAnswerEvent;
+export type CitedAnswer = GenCitedAnswer;
+export type Claim = GenClaim;
+/** Answer from the active page, citing its passages: tokens as they come, then
+ *  the answer worked out (which passages it cites, its table's checked claims). */
+export const agentPageAnswer = (prompt: string, onEvent: (e: PageAnswerEvent) => void): Promise<void> => {
+  const ch = new Channel<PageAnswerEvent>();
+  ch.onmessage = onEvent;
+  return invoke<void>("agent_page_answer", { prompt, onEvent: ch });
+};
+/** Scroll `tab` to a cited passage and highlight it: "shown", "not_found",
+ *  "moved" (the tab left `url`) or "unavailable". */
+export const agentCiteShow = (tab: number, url: string, text: string, n: number) =>
+  invoke<string>("agent_cite_show", { tab, url, text, n });
+export const agentCiteClear = (tab: number) => invoke<void>("agent_cite_clear", { tab });
+/** An answer as up to six to-do lines (none when there's nothing to do). */
+export const agentTasksFrom = (text: string) => invoke<string[]>("agent_tasks_from", { text });
+export type BoostDraft = GenBoostDraft;
+/** A restyle of the active page from a sentence: checked against the page and
+ *  previewed there, not saved (boostSave saves it, boostPreviewClear drops it). */
+export const boostDraft = (instruction: string) => invoke<BoostDraft>("boost_draft", { instruction });
+export const boostPreviewClear = (tab: number) => invoke<void>("boost_preview_clear", { tab });
 
 // ─── Form help (formhelp.rs, assets/formhelp.js) ─────────────────────────────
 export type FormHelpPrefs = GenFormHelpPrefs;

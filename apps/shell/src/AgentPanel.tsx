@@ -20,6 +20,8 @@ import { Portal } from "solid-js/web";
 import {
   agentChat,
   agentChatStream,
+  agentPageAnswer,
+  boostDraft,
   traceTabThread,
   traceChatSend,
   type TabThread,
@@ -102,9 +104,16 @@ import {
   type NextStep,
   type AgentStatus,
   type StepGuard,
+  type BoostDraft,
 } from "./ipc";
+import type { Cited } from "./CitedAnswer";
 import type { Blocker, HandoffChoice } from "./taskLoop";
 const TaskBar = lazy(() => import("./TaskBar"));
+const CitedAnswer = lazy(() => import("./CitedAnswer"));
+const RestyleCard = lazy(() => import("./RestyleCard"));
+/** A cited answer's [P12] marks (cite.rs): passage numbers that mean nothing
+ *  outside the turn they were written in. */
+const CITE_MARK = /\[P\d+(?:\s*,\s*P\d+)*\]/gi;
 import { looksLikeNoteWrite } from "./noteintent";
 import { isCaptureRequest, isOnyxSave, savesLastAnswer } from "./onyxintent";
 import { DAY_MONTH, MONTH_DAY, looksLikeCalendarQuery } from "./calendarintent";
@@ -171,6 +180,10 @@ type FeedItem = {
   editBase?: string;
   editDiff?: string;
   citations?: KbHit[];
+  /** An answer about the page, with its passages and table (CitedAnswer.tsx). */
+  cited?: Cited;
+  /** A restyle draft previewing on the page (RestyleCard.tsx). Live only. */
+  restyle?: BoostDraft;
   voice?: string;
   tabId?: number;
   expectedUrl?: string;
@@ -209,6 +222,7 @@ const AgentPanel: Component = () => {
     image: undefined,
     editNew: undefined,
     editBase: undefined,
+    restyle: undefined,
   });
   const persistChats = (next: ChatSession[]) => {
     setChats(next);
@@ -1063,62 +1077,6 @@ const AgentPanel: Component = () => {
     "You are Gemma, the user's friendly local AI in the Flux browser. Be upbeat, warm, and energetic — a little playful and encouraging, with the occasional emoji. Keep replies natural and concise; don't overdo the enthusiasm.";
   const persona = () => (localStorage.getItem("flux.gemma.persona") ?? DEFAULT_PERSONA).trim();
 
-  // What Gemma can actually DO in Flux — injected into every chat so she's aware of
-  // her tools and can tell the user the exact phrasing. Kept separate from the
-  // (editable) persona so it can't be edited away. Only claim what's listed here.
-  const CAPABILITIES =
-    "Your capabilities in Flux (these run via the app, not just talk — tell the user the exact phrasing when helpful):\n" +
-    '- Reminders & to-dos: "remind me to <x> in 10 min / at 3pm / tomorrow"; "what are my reminders". They fire with an OS notification + spoken alert even if the panel is closed.\n' +
-    // Built from the registry rather than written out: this list was hand-kept
-    // and silently went stale the first time an app was added, leaving Gemma
-    // insisting she didn't know about one that was sitting in the dock.
-    `- The user's own apps (pinned in the bottom-right dock): ${FLUX_APPS.map(
-      (a) => `${a.name} (${a.tagline})`,
-    ).join(
-      ", ",
-    )}. When one is open you get its full guide — help with its features, workflows, and results.\n` +
-    '- Calendar: "what\'s on my calendar today / this week / friday" reads your schedule (your Google ICS feed + Flux-local events); "schedule lunch with Sam tomorrow at noon for 1h" / "add a dentist appointment friday 3pm" creates an event; "move my standup to 10am"; "cancel the dentist appointment". You can add/move/delete events you created in Flux (Google-feed events are read-only — say so if asked to change one).\n' +
-    '- Long-term memory: "remember that <x>" saves a fact you\'ll recall in future chats; "what do you remember".\n' +
-    '- Run commands in the user\'s live terminal (one-tap approval; rm/destructive blocked): "run <cmd>" / "execute <cmd>", or ask naturally ("list the files in my home directory") and you propose the command. On approval it runs in their real terminal session (their cwd/env) and you read the output back — so you can edit a file, run the tests, read the result, and fix it.\n' +
-    '- Read files into context: "read src/foo.rs" / "look at <path>" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); "forget the files" clears. You can also drag a file from the explorer onto the panel. PDFs come through as real text, page by page. A scan has no text layer, so you run OCR on it yourself and say the text was machine-read.\n' +
-    '- List a folder: "list <dir>" / "what\'s in <dir>" reads a directory directly — no terminal, no approval needed.\n' +
-    '- Read the terminal: "read the terminal" / "what\'s in my terminal" pulls the active Terminal tab\'s recent output into context (great for debugging a failed command).\n' +
-    '- Explain a selection: "explain this" / "what does this do" reads whatever the user has selected in the nvim column and answers about *that*. Say which lines you are looking at.\n' +
-    '- Read the editor: "read my editor" / "what am I editing" pulls the nvim column\'s **live buffer** — including unsaved changes, which reading the file from disk would miss. Say so when the buffer differs from the file on disk, and prefer this over `read <path>` when the user asks about what they are working on right now.\n' +
-    '- Edit files (with approval): "edit src/foo.rs: rename X to Y" / (after reading a file) "change it to …" — you propose a diff; nothing is written until the user taps Apply. Make surgical edits.\n' +
-    '- Inspect Flux\'s own UI (for debugging it): "app state" (UI snapshot), "css variables" / "what\'s --flux-teal", "inspect <css selector>" (computed style + visibility — e.g. why an element is hidden or a var isn\'t applying).\n' +
-    '- System awareness: "system status" / "how\'s my CPU" / "what\'s using memory" → CPU%, RAM, top processes.\n' +
-    '- Web search: "search <x>" / "open a new tab and search <x>".\n' +
-    '- Music (AudioPulse/Spotify): "play <song>", "play my liked songs", "shuffle on", "skip", "pause", "launch spotify".\n' +
-    '- Page actions: "/act <do something on this page>" (one step) or "/task <multi-step goal>" (reads and drafts run on their own; the user approves what sends, buys, posts or deletes). You can also chat grounded in the current page or all open tabs.\n' +
-    '- Chain several of the above in one request: join steps with "then" / "+" — e.g. "read src/foo.rs then fix the bug then run the tests" or "play my liked songs + shuffle on". Each step runs in order; edits/commands still ask for approval.\n' +
-    '- Adaptive goal loop: "/fix <goal>" (e.g. "/fix make the tests in src/foo.rs pass") — you run one step, read the result, and re-plan: run → read the failure → edit a fix → re-run, until it\'s done or stuck. Each edit/command still asks for approval.\n' +
-    '- Power Platform (Power Apps / Power Automate ALM): "/pac <request>" maps to ONE Power Platform CLI command — e.g. "/pac export my solution Contoso", "/pac unpack the solution zip", "/pac list my canvas apps". It runs the command via the approval card; environment-mutating ones (import/delete/publish) are flagged first.\n' +
-    '- Named places: the user can say "onyx", "scribe", "downloads" or "home" instead of a path, and name a vault folder ("save it to onyx under 00 - Optimization"). The paths and the vault\'s folder names are listed below — use them verbatim; never ask for a path you have been given, and never invent a folder that isn\'t listed.\n' +
-    '- Notes: asking in plain words ("save this into my Convex notebook") or "/note <what to add>" drafts something to ADD to the user\'s Onyx vault or a Scribe notebook — a new note/page, or an append to an existing one. They see the exact text and approve it before anything is written. You can never edit, rewrite or delete what is already there.\n' +
-    '- Voice: always-on "Hey Gemma" + push-to-talk; the user can interrupt you by talking or the Stop button.\n' +
-    "When asked what you can do, summarize the above. Don't claim abilities not listed.\n" +
-    "\n" +
-    "HOW TO ACT. Your tools fire from the user's message, not from anything you say. So:\n" +
-    '- NEVER announce an action in the future tense. "I will now list the files", "let me read those", ' +
-    '"listing them now" — none of these do anything. You will simply have said it, and the user waits ' +
-    'for a result that is never coming. If you catch yourself writing "I\'ll" or "I\'m about to", stop.\n' +
-    "- NEVER ask permission to look at something. Reading a file, listing a folder and reading the " +
-    "terminal have no side effects and need no approval. Anything that DOES — running a command, " +
-    "editing a file, writing a note — already stops at its own approval card, so asking first just " +
-    "adds a round trip.\n" +
-    "- A request that needs several steps over files ('go through these PDFs and summarise them') " +
-    "runs as a multi-step task automatically: it lists, reads each file, and drafts the note, one " +
-    "step at a time. You don't need to ask the user to start it, and you must not offer to.\n" +
-    "- If you genuinely can't do something, say so in one sentence and say what would work instead. " +
-    "Don't offer to do it and then not do it.\n" +
-    "- NEVER speculate about Flux's own plumbing. \"It depends on whether the text is being captured " +
-    'and sent to me" tells the user nothing they can act on and is usually wrong. Either the page ' +
-    "text is in your context or it isn't: if it is, use it; if it isn't, say what you can see (the " +
-    "title, the file) and ask for the one thing you need. When a document IS in context but says it " +
-    "has no readable text, that is a fact about the document — say so and point at the fix, don't " +
-    "ask the user to paste it in.";
-
   // Conversation memory: prepend persona + capabilities + the recent turns so the
   // model has context. The trailing "user" entry is the message we just pushed, so
   // it's excluded. Capped to the last few turns to keep prompt-eval fast.
@@ -1198,7 +1156,8 @@ const AgentPanel: Component = () => {
     }
   };
 
-  const convoPrompt = (current: string): string => {
+  const convoPrompt = async (current: string): Promise<string> => {
+    const { CAPABILITIES } = await import("./agentCapabilities");
     const mem = memText().trim();
     const p0 = persona() ? `${persona()}\n\n` : "";
     const preamble =
@@ -1212,7 +1171,9 @@ const AgentPanel: Component = () => {
       turns.length && turns[turns.length - 1]?.role === "user" ? turns.slice(0, -1) : turns
     ).slice(-8);
     if (!prior.length) return preamble ? `${preamble}User: ${current}` : current;
-    const transcript = prior.map((it) => `${it.role === "user" ? "User" : "Gemma"}: ${it.text}`).join("\n");
+    const transcript = prior
+      .map((it) => `${it.role === "user" ? "User" : "Gemma"}: ${it.text.replace(CITE_MARK, "")}`)
+      .join("\n");
     return `${preamble}Conversation so far:\n${transcript}\n\nReply to the new message, using the memory + conversation above for context.\nUser: ${current}`;
   };
 
@@ -1700,7 +1661,7 @@ const AgentPanel: Component = () => {
       "🖥 System — “system status” · “how's my CPU” · “what's using memory”\n" +
       "🔎 Search — “search …” · “open a new tab and search …”\n" +
       "🎵 Music — “play my liked songs” · “shuffle on” · “skip” · “launch spotify”\n" +
-      "📄 Page — “/act <do X here>” · “/task <multi-step goal>” · ask about the page or all tabs\n" +
+      "📄 Page — “/act <do X here>” · “/task <goal>” · “/restyle <how>” · ask about the page (with citations) or all tabs\n" +
       "🔗 Chains — join steps with “then”/“+”, e.g. “read foo.rs then fix the bug then run the tests”\n" +
       "🛠 Fix loop — “/fix <goal>”, e.g. “/fix make the tests pass”; I run → read the failure → fix → re-run\n" +
       "⚡ Power Platform — “/pac <request>”, e.g. “/pac export my solution Contoso”; I map it to a pac CLI command you approve\n" +
@@ -1871,7 +1832,7 @@ const AgentPanel: Component = () => {
     }
     const shellReply = await maybeShellPlan(stripped);
     if (shellReply !== null) return shellReply;
-    const cp = convoPrompt(t); // memory
+    const cp = await convoPrompt(t); // memory
     const gen = ++replyGen; // ■ Stop bumps replyGen; the voice path must honour it too
     const idx = feed().length;
     setFeed((f) => [...f, { role: "assistant", text: "" }]);
@@ -2404,6 +2365,22 @@ const AgentPanel: Component = () => {
         void runTask(task[1].trim());
         return;
       }
+      // "/restyle <how>" drafts CSS for this site: checked against the page and
+      // previewing there, saved as a Boost only when you say so.
+      const restyle = p.match(/^\/restyle\s+([\s\S]+)/i);
+      if (restyle?.[1]) {
+        setPrompt("");
+        const idx = feed().length + 1;
+        setFeed((f) => [...f, { role: "user", text: p }, { role: "assistant", text: "Drafting a restyle…" }]);
+        setBusy(true);
+        void boostDraft(restyle[1].trim())
+          .then((d) => setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: "", restyle: d } : it))))
+          .catch((e) =>
+            setFeed((f) => f.map((it, i) => (i === idx ? { role: "error" as const, text: String(e) } : it))),
+          )
+          .finally(() => setBusy(false));
+        return;
+      }
       // "/note <request>" drafts something to ADD to your notes. Explicitly a
       // slash command, not an inference from phrasing: writing is the one thing
       // here that changes your own files, and it should never happen because a
@@ -2721,7 +2698,7 @@ const AgentPanel: Component = () => {
         // silently skipped when there's nothing selected — "this" may well mean
         // a file already in context or the page on screen.
         if (EXPLAIN_RE.test(p.trim())) await loadSelection();
-        const cp = convoPrompt(p); // build memory before pushing the empty reply bubble
+        const cp = await convoPrompt(p); // build memory before pushing the empty reply bubble
         const gen = ++replyGen; // Stop button bumps replyGen to abandon this stream
         const idx = feed().length;
         setFeed((f) => [...f, { role: "assistant", text: "" }]);
@@ -2731,17 +2708,29 @@ const AgentPanel: Component = () => {
           acc += chunk;
           setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + chunk } : it)));
         };
+        // This page: an answer that cites the page's passages (cite.rs).
+        let cited: Cited | undefined;
+        const fromPage = (q: string) =>
+          agentPageAnswer(q, (e) => {
+            if (gen !== replyGen) return;
+            if (e.kind === "token") append(e.text);
+            else cited = { answer: e.answer, tab: e.tab, url: e.url, title: e.title, question: p };
+          });
         if (scope() === "tabs") await agentChatTabsStream(cp, browserTabIds(), append);
-        else await agentChatStream(cp, append);
+        else if (scope() === "page") {
+          void import("./CitedAnswer"); // ready by the time the answer is
+          // No page with text to cite: an ordinary answer.
+          await fromPage(cp).catch(() => agentChatStream(cp, append));
+        } else await agentChatStream(cp, append);
         if (gen !== replyGen) return; // stopped mid-stream — don't finalize/speak
         // Small local models sometimes return nothing on a terse, symbol-heavy
         // prompt buried under the big system preamble. Give it one clean shot with
         // just the bare question before giving up.
-        if (!acc.trim()) await agentChatStream(p, append);
+        if (!acc.trim()) await (cited ? fromPage(p) : agentChatStream(p, append));
         if (gen !== replyGen) return;
-        const text = acc.trim() || "(no response)";
-        setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text } : it)));
-        void speak(text);
+        const text = (cited ? cited.answer.prose : acc).trim() || "(no response)";
+        setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text, cited } : it)));
+        void speak(text.replace(CITE_MARK, ""));
       }
     } catch (err) {
       setFeed((f) => [...f, { role: "error", text: String(err) }]);
@@ -2924,7 +2913,7 @@ const AgentPanel: Component = () => {
     let acc = "";
     setBusy(true);
     try {
-      await agentChatStream(convoPrompt(raw), (c) => {
+      await agentChatStream(await convoPrompt(raw), (c) => {
         acc += c;
         setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + c } : it)));
       });
@@ -3427,7 +3416,13 @@ const AgentPanel: Component = () => {
                       ⚛ {item.voice} specialist
                     </div>
                   </Show>
-                  <div>{item.text}</div>
+                  <Show
+                    when={item.cited || (item.role === "assistant" && /\[P\d/i.test(item.text))}
+                    fallback={<div>{item.text}</div>}
+                  >
+                    <CitedAnswer text={item.text} cited={item.cited} />
+                  </Show>
+                  <Show when={item.restyle}>{(d) => <RestyleCard draft={d()} />}</Show>
                   <Show when={item.citations?.length}>
                     <div class="agent-cites">
                       <For each={item.citations}>

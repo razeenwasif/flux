@@ -82,6 +82,22 @@ const formPage = `<!doctype html><html lang="en"><meta charset="utf-8">
 <div class="q"><label>Card number <input id="card" name="card" autocomplete="cc-number"></label></div>
 <form id="signin"><label>Login <input id="login" name="login"></label><label>Password <input id="pw" type="password"></label></form>
 </html>`;
+// Cited answers (cite.rs): an article to ask about, with footnote marks of its
+// own, a passage split across inline elements, and a sidebar to restyle away.
+const articlePage = `<!doctype html><html lang="en"><meta charset="utf-8">
+<title>Positional encoding — Flux Smoke</title>
+<style>body{font:17px/1.6 Georgia,serif;margin:0;background:#fafafa;color:#18202c;display:flex}
+nav.sidebar{width:220px;padding:24px;background:#eef0f3;font:14px system-ui}main.article{max-width:680px;padding:32px 40px}</style>
+<nav class="sidebar"><b>Contents</b><ol><li>Positional encoding</li><li>Learned embeddings</li><li>Why self-attention</li></ol></nav>
+<main class="article">
+<h1>Positional encoding</h1>
+<p>With no recurrence and no convolution, the model has to be told where each token sits if it is to use the order of the sequence.[1] Positional encodings are added to the input embeddings at the bottom of the encoder and decoder stacks.</p>
+<p>Each dimension is a <em>sinusoid</em>, with wavelengths in a geometric progression from 2π to 10000 · 2π, so a fixed offset becomes a linear function of the encoding.[2]</p>
+<h2>Learned embeddings</h2>
+<p>Learned positional embeddings gave nearly identical results. The sinusoidal version was kept because it may let the model extrapolate to longer sequences than it saw in training.</p>
+<h2>Why self-attention</h2>
+<p>Self-attention layers are compared with recurrent and convolutional ones on three counts: computation per layer, how much can run in parallel, and the path length between distant positions.</p>
+</main></html>`;
 const server = createServer((req, res) => {
   const path = new URL(req.url, "http://127.0.0.1").pathname;
   res.setHeader("Cache-Control", "no-store");
@@ -114,9 +130,9 @@ const server = createServer((req, res) => {
           ? signInPage
           : `<!doctype html><meta charset="utf-8"><title>Message sent</title><h1>Message sent</h1><a href="/agent">Back</a>`,
     );
-  } else if (path === "/form") {
+  } else if (path === "/form" || path === "/article") {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.end(formPage);
+    res.end(path === "/form" ? formPage : articlePage);
   } else if (path === "/" || path === "/second") {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.end(page(path === "/second"));

@@ -336,6 +336,100 @@ pub async fn boost_author(app: AppHandle, instruction: String) -> Result<Boost, 
     Ok(boost)
 }
 
+/// A restyle drafted from a sentence, checked against the page and previewed
+/// there, not yet saved (`boost_save` saves it; `boost_preview_clear` drops it).
+#[derive(Serialize, Clone, specta::Type)]
+pub struct BoostDraft {
+    pub tab: crate::state::TabId,
+    pub host: String,
+    pub name: String,
+    pub css: String,
+    /// Rules kept, and rules dropped for matching nothing or not parsing.
+    pub kept: u32,
+    pub dropped: u32,
+    /// False where Flux can't reach the page (no isolated world): then the CSS
+    /// is unchecked against it and isn't showing.
+    pub previewed: bool,
+}
+
+const RESTYLE_JS: &str = include_str!("../assets/restyle.js");
+
+#[derive(Deserialize)]
+struct Checked {
+    css: String,
+    kept: u32,
+    dropped: u32,
+}
+
+/// Draft a restyle of the active page from `instruction`: the agent writes the
+/// CSS (nothing that loads a resource), WebKit's parser reads it, rules that
+/// match nothing on the page go, and what's left previews on the page.
+#[tauri::command]
+pub async fn boost_draft(app: AppHandle, instruction: String) -> Result<BoostDraft, String> {
+    let state = app.state::<crate::state::FluxState>();
+    let snap = crate::dom::active_fresh(&app, &state)
+        .await
+        .ok_or("open a page first")?;
+    let host = host_of(&snap.url);
+    if host.is_empty() || !snap.url.starts_with("http") {
+        return Err("this page can't be restyled".into());
+    }
+    let page = std::sync::Arc::clone(&snap.text);
+    let instr = instruction.clone();
+    let css = tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().author_css(&instr, &page)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    let args = serde_json::json!({ "css": css }).to_string();
+    let checked = crate::pagejs::run_isolated(
+        &app,
+        snap.tab,
+        "flux-restyle",
+        RESTYLE_JS.replace("__ARGS__", &args),
+        std::time::Duration::from_secs(3),
+    )
+    .await
+    .and_then(|s| serde_json::from_str::<Checked>(&s).ok());
+    let previewed = checked.is_some();
+    let (css, kept, dropped) = match checked {
+        Some(c) => (c.css, c.kept, c.dropped),
+        None => (css, 0, 0),
+    };
+    // WebKit's re-serialization is checked like the draft was.
+    if css.trim().is_empty() || !flux_agent::css_is_inert(&css) {
+        boost_preview_clear(app.clone(), snap.tab).await;
+        return Err(if css.trim().is_empty() {
+            "none of the CSS matched anything on this page — try describing it differently".into()
+        } else {
+            "the CSS loads something from elsewhere; restyles may not".into()
+        });
+    }
+    Ok(BoostDraft {
+        tab: snap.tab,
+        host,
+        name: instruction.trim().chars().take(60).collect(),
+        css,
+        kept,
+        dropped,
+        previewed,
+    })
+}
+
+/// Take a restyle preview off `tab`.
+#[tauri::command]
+pub async fn boost_preview_clear(app: AppHandle, tab: crate::state::TabId) {
+    let _ = crate::pagejs::run_isolated(
+        &app,
+        tab,
+        "flux-restyle",
+        RESTYLE_JS.replace("__ARGS__", r#"{"clear":true}"#),
+        std::time::Duration::from_secs(2),
+    )
+    .await;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

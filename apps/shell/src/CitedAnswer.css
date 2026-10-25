@@ -1,0 +1,206 @@
+/* Cited answers and restyles in the agent panel (CitedAnswer.tsx, RestyleCard.tsx).
+   Loaded with them, so the boot stylesheet doesn't carry it. */
+.ca {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.ca-prose {
+  white-space: pre-wrap;
+}
+.ca-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  margin: 0 2px;
+  padding: 0 4px;
+  vertical-align: 1px;
+  border: 0;
+  border-radius: 5px;
+  font: 600 10.5px/1 inherit;
+  color: var(--flux-text);
+  background: color-mix(in srgb, var(--flux-violet) 26%, var(--flux-surface-2));
+  cursor: pointer;
+}
+.ca-chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--flux-magenta) 45%, var(--flux-surface-2));
+}
+.ca-chip:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.ca-card {
+  position: relative;
+  margin-top: 8px;
+  padding: 16px 12px 10px;
+  border: 1px solid var(--flux-border);
+  border-radius: 12px;
+  background: var(--flux-surface);
+  min-width: 0;
+}
+.ca-legend {
+  position: absolute;
+  top: -8px;
+  left: 12px;
+  padding: 0 7px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--flux-text);
+  background: var(--flux-surface);
+  border-radius: 6px;
+}
+.ca-table-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+  margin-bottom: 6px;
+}
+.ca-table-wrap {
+  overflow-x: auto;
+}
+.ca-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  /* Whole words: the chat bubble breaks anywhere; a narrow panel scrolls the table instead. */
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.ca-table th {
+  white-space: nowrap;
+}
+.ca-table th,
+.ca-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px 8px 6px 0;
+  border-bottom: 1px solid var(--flux-border);
+}
+.ca-table tr:last-child td {
+  border-bottom: 0;
+}
+.ca-table th button {
+  all: unset;
+  cursor: pointer;
+  font-weight: 650;
+  color: var(--flux-text-dim);
+}
+.ca-table td {
+  color: var(--flux-text);
+}
+.ca-source {
+  white-space: nowrap;
+}
+.ca-none {
+  color: var(--flux-text-mute);
+  margin: 0 6px 0 2px;
+}
+.ca-claim {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.ca-claim.supported {
+  color: var(--flux-ok, #9be3c1);
+  background: color-mix(in srgb, var(--flux-ok, #9be3c1) 16%, transparent);
+}
+.ca-claim.inferred {
+  color: var(--flux-violet-bright, var(--flux-violet));
+  background: color-mix(in srgb, var(--flux-violet) 18%, transparent);
+}
+.ca-claim.unverified {
+  color: var(--flux-warn, #f2c879);
+  background: color-mix(in srgb, var(--flux-warn, #f2c879) 16%, transparent);
+}
+.ca-claim.contradicted {
+  color: #ff8fa3;
+  background: color-mix(in srgb, #ff8fa3 16%, transparent);
+}
+.ca-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--flux-text-mute);
+}
+.ca-key .ca-claim {
+  margin-left: 0;
+}
+.ca-key-what {
+  margin-left: auto;
+}
+.ca-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ca-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--flux-border);
+  color: var(--flux-text);
+  background: var(--flux-surface);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ca-btn:hover:not(:disabled) {
+  background: var(--flux-surface-2);
+}
+.ca-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.ca-count {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+}
+.ca-tasks {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--flux-border);
+  border-radius: 12px;
+  font-size: 12.5px;
+}
+.ca-tasks label {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.ca-note {
+  font-size: 12px;
+  color: var(--flux-text-mute);
+  overflow-wrap: anywhere;
+}
+.ca-restyle-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.ca-css {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: 8px;
+  font: 11.5px/1.5 var(--flux-mono, ui-monospace, monospace);
+  white-space: pre-wrap;
+  color: var(--flux-text);
+  background: var(--flux-bg, rgba(0, 0, 0, 0.25));
+}

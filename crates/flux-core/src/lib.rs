@@ -10,6 +10,7 @@ pub mod audioviz;
 pub mod bindings;
 pub mod bookmarks;
 pub mod boosts;
+pub mod cite;
 pub mod boot;
 pub mod broker;
 pub mod cache;
@@ -1490,6 +1491,8 @@ pub fn run(intent: cli::LaunchIntent) {
             boosts::boost_delete,
             boosts::boost_set_enabled,
             boosts::boost_author,
+            boosts::boost_draft,
+            boosts::boost_preview_clear,
             macros::macros_list,
             macros::macros_status,
             macros::macro_start_record,
@@ -1593,6 +1596,10 @@ pub fn run(intent: cli::LaunchIntent) {
             agent::agent_page_facts,
             agent::agent_step_guard,
             agent::agent_verify_step,
+            cite::agent_page_answer,
+            cite::agent_cite_show,
+            cite::agent_cite_clear,
+            cite::agent_tasks_from,
             tabsleep::memory_pressure,
             leanmode::lean_status,
             leanmode::lean_set_enabled,
