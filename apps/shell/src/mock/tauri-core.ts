@@ -1628,6 +1628,25 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "md_note_delete":
       mockMdNotes.delete(String(args?.name));
       return Promise.resolve(undefined as T);
+    case "gecko_import_preview":
+      return Promise.resolve([
+        {
+          browser: "Zen",
+          name: "Default (release)",
+          dir: "~/Library/Application Support/zen/Profiles/k5.Default (release)",
+          bookmark_count: 247,
+          in_use: true,
+        },
+        {
+          browser: "Zen",
+          name: "Default Profile",
+          dir: "~/Library/Application Support/zen/Profiles/w6.Default Profile",
+          bookmark_count: 0,
+          in_use: false,
+        },
+      ] as T);
+    case "bookmarks_import_gecko":
+      return Promise.resolve(247 as T);
     case "mail_config":
       return Promise.resolve({ email: "razeen@example.com", host: "imap.gmail.com", port: 993 } as T);
     case "mail_fetch": {

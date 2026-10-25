@@ -577,3 +577,7 @@ export type ChromeProfilePreview = { dir: string; name: string; bookmark_count: 
  * Flux bookmark store can rebuild the tree (or just display the path).
  */
 export type ChromeBookmark = { name: string; url: string; folder: string }
+/**
+ * One profile, as the import menu lists it.
+ */
+export type GeckoProfile = { browser: string; name: string; dir: string; bookmark_count: number; in_use: boolean }

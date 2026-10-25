@@ -7,11 +7,13 @@
 //!     native webviews (no chrome.* runtime); we read each installed
 //!     extension's manifest so Flux can show "you had these N extensions"
 //!     and suggest built-in equivalents (BACKLOG #24).
+//!   * Zen and Firefox bookmarks — full import from `places.sqlite` (gecko.rs).
 //!   * Saved tab groups — DISCOVERY only for now. Chrome keeps them in a
 //!     per-profile SQLite database with a sync-internals schema; full import
 //!     is BACKLOG #23.
 
 pub mod chrome;
+pub mod gecko;
 
 use thiserror::Error;
 
@@ -21,6 +23,8 @@ pub enum ImportError {
     NotFound,
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Other(String),
     #[error("malformed {file}: {source}")]
     Parse {
         file: &'static str,

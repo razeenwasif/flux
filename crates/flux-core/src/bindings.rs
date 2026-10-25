@@ -243,6 +243,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<crate::trace::TabThread>(&c),
         specta::ts::export::<flux_import::chrome::ProfilePreview>(&c),
         specta::ts::export::<flux_import::chrome::Bookmark>(&c),
+        specta::ts::export::<flux_import::gecko::GeckoProfile>(&c),
     ];
     let mut out = String::from(HEADER);
     for p in parts {

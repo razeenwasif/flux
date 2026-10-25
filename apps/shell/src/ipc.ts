@@ -149,6 +149,7 @@ import type {
   Workspace as GenWorkspace,
   LaunchIntent as GenLaunchIntent,
   ChromeProfilePreview as GenChromeProfilePreview,
+  GeckoProfile as GenGeckoProfile,
   ChromeBookmark as GenChromeBookmark,
   AgentAction as GenAgentAction,
   NoteAction as GenNoteAction,
@@ -287,6 +288,8 @@ export const tabRename = (tabId: number, name: string | null) =>
 
 export type LaunchIntent = GenLaunchIntent;
 export type ChromeProfilePreview = GenChromeProfilePreview;
+/** A Zen or Firefox profile the bookmark import can read. */
+export type GeckoProfile = GenGeckoProfile;
 export type ChromeBookmark = GenChromeBookmark;
 export type AgentAction = GenAgentAction;
 
@@ -1660,6 +1663,12 @@ export const bookmarksClear = () => invoke<void>("bookmarks_clear");
 /** Import every bookmark from a Chrome profile; returns the count added. */
 export const bookmarksImportChrome = (profileDir: string) =>
   invoke<number>("bookmarks_import_chrome", { profileDir });
+/** Zen and Firefox profiles on this machine, each browser's one in use first. */
+export const geckoImportPreview = () => invoke<GeckoProfile[]>("gecko_import_preview");
+/** Import every bookmark from a Zen or Firefox profile (under "Zen/…" or
+ *  "Firefox/…"); returns the count added. Importing again adds only new ones. */
+export const bookmarksImportGecko = (profileDir: string, browser: string) =>
+  invoke<number>("bookmarks_import_gecko", { profileDir, browser });
 
 // ─── Settings page (BACKLOG #78) ─────────────────────────────────────────────
 export const SETTINGS_URL = "flux://settings";

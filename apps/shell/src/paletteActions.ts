@@ -28,6 +28,8 @@ import {
   TRAIL_URL,
   VAULT_URL,
   WHITEBOARD_URL,
+  bookmarksImportGecko,
+  geckoImportPreview,
   webviewReload,
   type TabMeta,
 } from "./ipc";
@@ -166,6 +168,32 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
     { id: "new-files", label: "New files tab", icon: "📁", run: () => void openTab("files") },
     { id: "history", label: "Open History", icon: "🕘", run: () => go(HISTORY_URL) },
     { id: "bookmarks", label: "Open Bookmarks", icon: "🔖", run: () => go(BOOKMARKS_URL) },
+    {
+      id: "import-zen",
+      label: "Import bookmarks from Zen",
+      icon: "🔖",
+      // The profile Zen opens, straight in; Bookmarks → Import… lists the others.
+      run: () =>
+        void geckoImportPreview()
+          .then((all) => {
+            const zen =
+              all.find((p) => p.browser === "Zen" && p.in_use) ?? all.find((p) => p.browser === "Zen");
+            if (!zen) {
+              toast("No Zen profile found on this machine.", "warn");
+              return;
+            }
+            return bookmarksImportGecko(zen.dir, "Zen").then((n) => {
+              window.dispatchEvent(new Event("flux:bookmarks-changed"));
+              toast(
+                n
+                  ? `Imported ${n} bookmark${n === 1 ? "" : "s"} from Zen (${zen.name}), under “Zen”.`
+                  : `Nothing new: your Zen bookmarks are already here.`,
+                "ok",
+              );
+            });
+          })
+          .catch((e) => toast(`Couldn't import from Zen: ${String(e).replace(/^Error:\s*/, "")}`, "warn")),
+    },
     // Bookmarking the current page was reachable only by Ctrl+D — no palette
     // entry, so it was undiscoverable and unusable from the spotlight.
     { id: "bookmark-page", label: "Bookmark this page", icon: "🔖", run: () => toggleBookmark() },

@@ -3,7 +3,8 @@
  * the content card (no webview), like flux://history. Search at the top; bookmarks
  * are grouped by folder. Each folder can be **opened as a Flux tab group** — the
  * practical bridge for "import my Chrome tab groups". Import pulls every bookmark
- * from a Chrome profile (via flux-import) under an "Imported" folder.
+ * from a Zen or Firefox profile (under "Zen" / "Firefox") or a Chrome profile
+ * (under "Imported"), via flux-import.
  */
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
@@ -12,10 +13,13 @@ import {
   bookmarkRename,
   bookmarksClear,
   bookmarksImportChrome,
+  bookmarksImportGecko,
   bookmarksList,
   chromeImportPreview,
+  geckoImportPreview,
   type Bookmark,
   type ChromeProfilePreview,
+  type GeckoProfile,
 } from "./ipc";
 import { ensureFavicon, faviconFor, openUrlsAsGroup, titleInternalTab } from "./store";
 import { askConfirm } from "./ask";
@@ -62,10 +66,17 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
   // A plain signal: the one-argument createResource ran its fetcher once, untracked,
   // at creation (menu closed → []), so chromeImportPreview() never actually ran.
   const [profiles, setProfiles] = createSignal<ChromeProfilePreview[]>([]);
-  const loadProfiles = () =>
+  // Zen and Firefox too, listed first: the one each browser opens is marked.
+  const [gecko, setGecko] = createSignal<GeckoProfile[] | null>(null);
+  const loadProfiles = () => {
     void chromeImportPreview()
       .then(setProfiles)
       .catch(() => setProfiles([]));
+    setGecko(null);
+    void geckoImportPreview()
+      .then(setGecko)
+      .catch(() => setGecko([]));
+  };
 
   // Filter by query (flat), then group the result by folder.
   const groups = createMemo<[string, Bookmark[]][]>(() => {
@@ -122,6 +133,22 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
     setNote(`Imported ${n} new bookmark${n === 1 ? "" : "s"} from Chrome.`);
     load();
   };
+  const doImportGecko = async (p: GeckoProfile) => {
+    setNote(`Importing from ${p.browser}…`);
+    try {
+      const n = await bookmarksImportGecko(p.dir, p.browser);
+      setImporting(false);
+      setNote(
+        n
+          ? `Imported ${n} new bookmark${n === 1 ? "" : "s"} from ${p.browser}, under “${p.browser}”.`
+          : `Nothing new: your ${p.browser} bookmarks are already here.`,
+      );
+      load();
+      window.dispatchEvent(new Event("flux:bookmarks-changed"));
+    } catch (e) {
+      setNote(`Couldn't import from ${p.browser}: ${String(e).replace(/^Error:\s*/, "")}`);
+    }
+  };
 
   let noteTimer: number | undefined;
   const flashNote = () => {
@@ -149,7 +176,7 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
             if (opening) loadProfiles();
           }}
         >
-          Import from Chrome
+          Import…
         </button>
         <button class="hist-clear" onClick={clearAll}>
           Clear all
@@ -158,17 +185,32 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
 
       <Show when={importing()}>
         <div class="bm-import">
+          <Show when={gecko()} fallback={<span class="bm-note">Looking for Zen and Firefox…</span>}>
+            {(list) => (
+              <Show when={list().length > 0}>
+                <span class="bm-note">Zen and Firefox: everything, folders kept.</span>
+                <For each={list()}>
+                  {(p) => (
+                    <button class="bm-profile" onClick={() => void doImportGecko(p)}>
+                      {p.browser} · {p.name}
+                      {p.in_use ? " (in use)" : ""} · {p.bookmark_count} bookmarks
+                    </button>
+                  )}
+                </For>
+              </Show>
+            )}
+          </Show>
           <Show
             when={(profiles() ?? []).length > 0}
             fallback={
               <span class="bm-note">No Chrome profile found (looked in the default user-data dir).</span>
             }
           >
-            <span class="bm-note">Pick a profile to import its bookmarks:</span>
+            <span class="bm-note">Chrome (under “Imported”):</span>
             <For each={profiles()}>
               {(p) => (
                 <button class="bm-profile" onClick={() => void doImport(p.dir)}>
-                  {p.name} · {p.bookmark_count} bookmarks
+                  Chrome · {p.name} · {p.bookmark_count} bookmarks
                 </button>
               )}
             </For>
@@ -190,7 +232,7 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
             <div class="hist-empty">
               {query()
                 ? "No matching bookmarks."
-                : "No bookmarks yet — bookmark a page (🔖) or import from Chrome."}
+                : "No bookmarks yet — bookmark a page (🔖), or Import… from Zen, Firefox or Chrome."}
             </div>
           }
         >

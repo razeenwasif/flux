@@ -332,6 +332,38 @@ pub fn bookmarks_import_chrome(
     Ok(store.import(incoming, "Imported"))
 }
 
+/// The Zen and Firefox profiles the import menu offers, each browser's
+/// profile in use first. Off the main thread: counting reads each database.
+#[tauri::command]
+pub async fn gecko_import_preview() -> Vec<flux_import::gecko::GeckoProfile> {
+    tauri::async_runtime::spawn_blocking(flux_import::gecko::discover_profiles)
+        .await
+        .unwrap_or_default()
+}
+
+/// Import every bookmark from a Zen or Firefox profile into the store, under
+/// a folder named for the browser ("Zen/Toolbar/Uni"). Importing again adds
+/// only what's new. Returns how many were added.
+#[tauri::command]
+pub async fn bookmarks_import_gecko(
+    store: State<'_, BookmarkStore>,
+    profile_dir: String,
+    browser: String,
+) -> Result<usize, String> {
+    let books = tauri::async_runtime::spawn_blocking(move || {
+        flux_import::gecko::read_bookmarks(std::path::Path::new(&profile_dir))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    let prefix = if browser == "Firefox" { "Firefox" } else { "Zen" };
+    let incoming = books
+        .into_iter()
+        .map(|b| (b.name, b.url, b.folder))
+        .collect();
+    Ok(store.import(incoming, prefix))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
