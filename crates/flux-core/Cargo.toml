@@ -158,6 +158,12 @@ criterion = { version = "0.5", default-features = false, features = ["cargo_benc
 name = "ipc"
 harness = false
 
+# Shields on macOS: WebKit compiles the content-blocker JSON (its own main; it
+# has to spin the main run loop). Prints "skipped" elsewhere.
+[[test]]
+name = "webkit_rules"
+harness = false
+
 [features]
 default = []
 # Local native smoke harness only. Requires the distinct smoke app identifier;

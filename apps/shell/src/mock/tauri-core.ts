@@ -356,6 +356,7 @@ const ipcLog: string[] = [];
 (window as unknown as { __fluxPreviewIpc: string[] }).__fluxPreviewIpc = ipcLog;
 let mockDefaultEngine = "ddg";
 let mockShieldsOn = true;
+let mockHidden = 1;
 let mockHttpsOn = false;
 
 let mockTuiApps = [
@@ -1000,19 +1001,39 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
           ],
         }) as T,
       );
-    case "shields_status":
+    case "shields_status": {
+      // ?previewProtection=webkit: the old fixed list; =mac: WebKit with its
+      // block reports, the switches and the element picker.
+      const mode = previewParams.get("previewProtection");
+      const webkit = mode === "webkit" || mode === "mac";
       return Promise.resolve({
         enabled: mockShieldsOn,
         blocked: 42,
         sites_off: [],
         cache_hit_pct: 75,
         cache_len: 20,
-        rules_fired: 6,
-        backend: previewParams.get("previewProtection") === "webkit" ? "webkit" : "webview2",
-        request_metrics: previewParams.get("previewProtection") !== "webkit",
-        request_controls: previewParams.get("previewProtection") !== "webkit",
-        attachment: previewParams.get("previewProtection") === "failed" ? "failed" : "attached",
+        rules_fired: webkit ? 0 : 6,
+        backend: webkit ? "webkit" : "webview2",
+        request_metrics: mode !== "webkit",
+        request_controls: !webkit,
+        site_controls: mode !== "webkit",
+        element_picker: mode === "mac",
+        attachment: mode === "failed" ? "failed" : "attached",
+        page_blocked: 17,
+        page_domains: [
+          { domain: "doubleclick.net", count: 9 },
+          { domain: "google-analytics.com", count: 5 },
+          { domain: "facebook.net", count: 3 },
+        ],
+        site_hidden: mockHidden,
       } as T);
+    }
+    case "shields_pick_element":
+      mockHidden += 1;
+      return Promise.resolve(true as T);
+    case "shields_unhide_site":
+      mockHidden = 0;
+      return Promise.resolve(undefined as T);
     case "shields_set_enabled":
       mockShieldsOn = Boolean(args?.on);
       return Promise.resolve(undefined as T);

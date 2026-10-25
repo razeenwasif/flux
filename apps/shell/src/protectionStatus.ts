@@ -12,8 +12,8 @@ export function protectionStatus(
     return "Rules could not be attached. Close and reopen this tab to retry.";
   if (status.attachment === "pending") return "Preparing protection for this page…";
   if (status.attachment !== "attached") return "Protection has not been confirmed for this page.";
-  if (status.request_controls && !status.enabled) return "Request blocking is turned off.";
-  if (status.request_controls && host && status.sites_off.includes(host))
+  if (status.site_controls && !status.enabled) return "Request blocking is turned off.";
+  if (status.site_controls && host && status.sites_off.includes(host))
     return "Request blocking is turned off for this site.";
   return status.backend === "webkit"
     ? "Native blocking rules attached to this page."
@@ -24,12 +24,16 @@ export const protectionMetrics = (status: ShieldsStatus | null): string =>
   !status
     ? "Checking protection…"
     : status.request_metrics
-      ? `${status.blocked.toLocaleString()} blocked this session · ${status.rules_fired} rules matched`
+      ? // WebKit runs the rules itself (macOS), so which rules fired is unknown.
+        `${status.blocked.toLocaleString()} blocked this session` +
+        (status.backend === "webkit" ? "" : ` · ${status.rules_fired} rules matched`)
       : "Blocked-request counts are unavailable on this platform.";
 
 export const requestControlsHint = (status: ShieldsStatus | null): string =>
   !status
     ? "Protection capabilities could not be loaded."
     : status.backend === "webkit"
-      ? "This platform uses a fixed native rule list. Request-blocking switches, HTTPS-only upgrades and Lean mode are not supported yet."
+      ? status.site_controls
+        ? "HTTPS-only upgrades, tracking levels and Lean mode aren't supported here yet."
+        : "This platform uses a fixed native rule list. Request-blocking switches, HTTPS-only upgrades and Lean mode are not supported yet."
       : "Native request blocking, HTTPS-only upgrades and Lean mode are unavailable on this platform.";

@@ -17,12 +17,149 @@
 //! WebKit itself. Trade-off vs Windows: no per-request verdicts, so the
 //! tracker graph and HTTPS-only upgrades don't populate on this path.
 //!
+//! **macOS (WKWebView):** the same JSON compiles into a `WKContentRuleList`.
+//! WebKit has no public per-request hook either, but it reports every block to
+//! the navigation delegate through the private
+//! `_webView:contentRuleListWithIdentifier:performedAction:forURL:`, which Flux
+//! adds to wry's delegate class: that feeds the page counts and the tracker
+//! graph. The Shields switches add or remove the list per webview, decided as
+//! each main-frame navigation starts.
+//!
 //! The COM usage was compile-verified against `x86_64-pc-windows-msvc`; only its
 //! runtime behavior needs a Windows smoke test. The `flux::netfilter` tracing
 //! lines (in the `tauri dev` terminal) trace install + per-request verdicts.
 
+use std::collections::HashSet;
+use std::sync::OnceLock;
+use std::time::Duration;
+
 use tauri::webview::Webview;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter, Manager};
+
+use crate::state::TabId;
+
+static APP: OnceLock<AppHandle> = OnceLock::new();
+
+// The per-page tallies come from macOS's WebKit reports and Windows' request
+// hook; Linux's content filter reports nothing back.
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+fn tab_of(label: &str) -> Option<TabId> {
+    label.strip_prefix("tab-")?.parse().ok()
+}
+
+/// Whether blocked requests are counted here. Windows sees every request;
+/// macOS once the WebKit callback is in place (the first page's install).
+pub fn reports_blocks() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        mac::hooked()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// Whether "Hide an element" works: it runs the picker in its own JavaScript
+/// world (WebKit's `callAsyncJavaScript`), so the page can't fake a pick.
+pub fn can_pick_elements() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// Apply the Shields switches to every open page (macOS adds or removes the
+/// rule list; elsewhere the per-request check already reads them). Takes
+/// effect from each page's next load.
+pub fn reapply(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app.run_on_main_thread(|| unsafe { mac::reapply_all() });
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
+/// Run the element picker on `tab`'s page: the CSS selector of what the user
+/// clicked, or `None` if they pressed Esc, left the page or waited too long.
+pub async fn pick_element(app: &AppHandle, tab: TabId) -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let webview = app
+            .get_webview(&format!("tab-{tab}"))
+            .ok_or("that tab isn't open")?;
+        let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
+        webview
+            .with_webview(move |platform| unsafe {
+                mac::pick(platform.inner() as *mut objc::runtime::Object, tx)
+            })
+            .map_err(|e| e.to_string())?;
+        // The page has the pointer; give it the keys too, for Esc.
+        let _ = webview.set_focus();
+        tauri::async_runtime::spawn_blocking(move || {
+            rx.recv_timeout(Duration::from_secs(300)).ok().flatten()
+        })
+        .await
+        .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, tab);
+        Err("Hide an element works on macOS only for now".into())
+    }
+}
+
+/// Tabs whose page tally changed since the last `flux://shields-page` event,
+/// and whether a send is already scheduled.
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+static DIRTY: std::sync::LazyLock<parking_lot::Mutex<(HashSet<TabId>, bool)>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Tell the shell a page's blocked count went up, at most every 300 ms: a page
+/// can have hundreds of requests blocked as it loads.
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+fn page_changed(tab: TabId) {
+    {
+        let mut dirty = DIRTY.lock();
+        dirty.0.insert(tab);
+        if dirty.1 {
+            return;
+        }
+        dirty.1 = true;
+    }
+    let Some(app) = APP.get().cloned() else {
+        return;
+    };
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let tabs = {
+            let mut dirty = DIRTY.lock();
+            dirty.1 = false;
+            std::mem::take(&mut dirty.0)
+        };
+        let Some(shields) = app.try_state::<crate::shields::ShieldsState>() else {
+            return;
+        };
+        for tab in tabs {
+            let _ = app.emit("flux://shields-page", (tab, shields.page_count(tab)));
+        }
+    });
+}
+
+/// One request the native rules blocked on the page in `label`.
+#[cfg(target_os = "macos")]
+fn blocked_natively(label: &str, page: &str, url: &str) {
+    let Some(app) = APP.get() else { return };
+    let tab = tab_of(label);
+    tracing::debug!(target: "flux::netfilter", label, url, "WebKit blocked");
+    if let Some(s) = app.try_state::<crate::shields::ShieldsState>() {
+        s.record_native_block(tab, url);
+    }
+    if let Some(t) = app.try_state::<crate::trackers::TrackerStore>() {
+        t.record(page, url, true);
+    }
+    if let Some(tab) = tab {
+        page_changed(tab);
+    }
+}
 
 // Each install owns its report. A late compile from a closed/recreated webview
 // can only update its old handle, never the replacement's status.
@@ -46,16 +183,24 @@ pub fn attachment(tab_id: Option<crate::state::TabId>) -> String {
 
 pub fn forget(tab_id: crate::state::TabId) {
     INSTALLS.remove(&format!("tab-{tab_id}"));
+    if let Some(s) = APP
+        .get()
+        .and_then(|a| a.try_state::<crate::shields::ShieldsState>())
+    {
+        s.forget_page(tab_id);
+    }
 }
 
 /// Install the content-blocker interceptor on a freshly-created tab webview.
 pub fn install(app: &AppHandle, webview: &Webview) {
+    let _ = APP.set(app.clone());
     let report = begin(webview.label());
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
         let app = app.clone();
         let pending = report.clone();
-        let r = webview.with_webview(move |platform| wire(&app, platform, pending));
+        let label = webview.label().to_string();
+        let r = webview.with_webview(move |platform| wire(&app, platform, pending, label));
         if let Err(e) = r {
             *report.write() = "failed".into();
             tracing::warn!(target: "flux::netfilter", "with_webview failed: {e}");
@@ -72,12 +217,14 @@ pub fn install(app: &AppHandle, webview: &Webview) {
 /// #50) — peeks are their own window, not a `tab-*` child webview, so they'd
 /// otherwise miss shields/HTTPS-only/lean entirely.
 pub fn install_on_window(app: &AppHandle, window: &tauri::WebviewWindow) {
+    let _ = APP.set(app.clone());
     let report = begin(window.label());
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
         let app = app.clone();
         let pending = report.clone();
-        let r = window.with_webview(move |platform| wire(&app, platform, pending));
+        let label = window.label().to_string();
+        let r = window.with_webview(move |platform| wire(&app, platform, pending, label));
         if let Err(e) = r {
             *report.write() = "failed".into();
             tracing::warn!(target: "flux::netfilter", "with_webview (window) failed: {e}");
@@ -94,8 +241,12 @@ pub fn install_on_window(app: &AppHandle, window: &tauri::WebviewWindow) {
 /// Runs on the GTK main thread (where `with_webview` puts us) — required by
 /// both the filter store and the thread-local compile state in `gtk`.
 #[cfg(target_os = "linux")]
-fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: InstallReport) {
-    use tauri::Manager;
+fn wire(
+    app: &AppHandle,
+    platform: tauri::webview::PlatformWebview,
+    report: InstallReport,
+    _label: String,
+) {
     let Some(shields) = app.try_state::<crate::shields::ShieldsState>() else {
         *report.write() = "failed".into();
         return;
@@ -115,8 +266,12 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: Inst
 /// `WKContentRuleList`, so macOS is declarative like Linux (not per-request like
 /// Windows). Runs on the webview's main thread (where `with_webview` puts us).
 #[cfg(target_os = "macos")]
-fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: InstallReport) {
-    use tauri::Manager;
+fn wire(
+    app: &AppHandle,
+    platform: tauri::webview::PlatformWebview,
+    report: InstallReport,
+    label: String,
+) {
     let Some(shields) = app.try_state::<crate::shields::ShieldsState>() else {
         *report.write() = "failed".into();
         return;
@@ -130,6 +285,7 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: Inst
         platform.inner() as *mut objc::runtime::Object,
         &json_path,
         report,
+        label,
     );
 }
 
@@ -146,13 +302,22 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: Inst
 #[cfg(target_os = "macos")]
 mod mac {
     use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::ffi::CStr;
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::OnceLock;
 
     use block::ConcreteBlock;
-    use objc::runtime::Object;
+    use objc::rc::{StrongPtr, WeakPtr};
+    use objc::runtime::{self, Class, Imp, Method, Object, Sel, BOOL, NO};
     use objc::{class, msg_send, sel, sel_impl};
+    use tauri::Manager;
 
     const NSUTF8_STRING_ENCODING: usize = 4;
+
+    /// The element picker, run with `callAsyncJavaScript` in Flux's own world.
+    const PICKER_JS: &str = include_str!("../assets/element-picker.js");
 
     enum CbState {
         /// No compile started yet.
@@ -165,8 +330,32 @@ mod mac {
         Failed,
     }
 
+    /// A page webview Shields looks after: whose it is, and whether the rule
+    /// list is on it right now. Held weakly: a closed tab's entry goes dead.
+    struct View {
+        label: String,
+        webview: WeakPtr,
+        rules_on: bool,
+    }
+
     thread_local! {
         static STATE: RefCell<CbState> = const { RefCell::new(CbState::Untried) };
+        static VIEWS: RefCell<HashMap<usize, View>> = RefCell::new(HashMap::new());
+    }
+
+    /// The WebKit callback and the navigation hook are on wry's delegate class.
+    static HOOKED: AtomicBool = AtomicBool::new(false);
+    /// wry's own `webView:decidePolicyForNavigationAction:decisionHandler:`,
+    /// which Flux's runs first.
+    static WRY_DECIDE: OnceLock<usize> = OnceLock::new();
+
+    /// `_webView:contentRuleListWithIdentifier:performedAction:forURL:`
+    type ReportFn = extern "C" fn(&Object, Sel, *mut Object, *mut Object, *mut Object, *mut Object);
+    /// `webView:decidePolicyForNavigationAction:decisionHandler:`
+    type DecideFn = extern "C" fn(&Object, Sel, *mut Object, *mut Object, *mut Object);
+
+    pub fn hooked() -> bool {
+        HOOKED.load(Ordering::Relaxed)
     }
 
     unsafe fn nsstring(s: &str) -> *mut Object {
@@ -174,30 +363,109 @@ mod mac {
         msg_send![obj, initWithBytes: s.as_ptr() length: s.len() encoding: NSUTF8_STRING_ENCODING]
     }
 
-    /// Add a compiled list to one webview's user content controller.
-    unsafe fn add_list(webview: *mut Object, list: *mut Object) -> bool {
+    unsafe fn rust_string(ns: *mut Object) -> String {
+        if ns.is_null() {
+            return String::new();
+        }
+        let utf8: *const std::os::raw::c_char = msg_send![ns, UTF8String];
+        if utf8.is_null() {
+            return String::new();
+        }
+        CStr::from_ptr(utf8).to_string_lossy().into_owned()
+    }
+
+    unsafe fn url_string(url: *mut Object) -> String {
+        if url.is_null() {
+            return String::new();
+        }
+        rust_string(msg_send![url, absoluteString])
+    }
+
+    unsafe fn page_url(webview: *mut Object) -> String {
+        url_string(msg_send![webview, URL])
+    }
+
+    fn ready_list() -> Option<*mut Object> {
+        STATE.with(|s| match &*s.borrow() {
+            CbState::Ready(list) => Some(*list),
+            _ => None,
+        })
+    }
+
+    /// Whether Shields should run on a page at `url`.
+    fn wanted(url: &str) -> bool {
+        super::APP
+            .get()
+            .and_then(|app| app.try_state::<crate::shields::ShieldsState>())
+            .is_none_or(|s| s.applies_to(url))
+    }
+
+    unsafe fn controller(webview: *mut Object) -> *mut Object {
         let config: *mut Object = msg_send![webview, configuration];
         if config.is_null() {
-            return false;
+            return std::ptr::null_mut();
         }
-        let ucc: *mut Object = msg_send![config, userContentController];
+        msg_send![config, userContentController]
+    }
+
+    /// Put the compiled list on `webview` or take it off, as the switches say
+    /// for a page at `url`. False when the webview has no content controller.
+    unsafe fn apply(webview: *mut Object, url: &str, list: *mut Object) -> bool {
+        let ucc = controller(webview);
         if ucc.is_null() {
             return false;
         }
-        let _: () = msg_send![ucc, addContentRuleList: list];
+        let on = wanted(url);
+        VIEWS.with(|v| {
+            if let Some(view) = v.borrow_mut().get_mut(&(webview as usize)) {
+                if view.rules_on != on {
+                    if on {
+                        let _: () = msg_send![ucc, addContentRuleList: list];
+                    } else {
+                        let _: () = msg_send![ucc, removeContentRuleList: list];
+                    }
+                    view.rules_on = on;
+                }
+            }
+        });
         true
     }
 
-    pub fn attach(webview: *mut Object, json_path: &Path, report: super::InstallReport) {
+    unsafe fn register(webview: *mut Object, label: String) {
+        VIEWS.with(|v| {
+            let mut views = v.borrow_mut();
+            views.retain(|_, view| !view.webview.load().is_null());
+            views.insert(
+                webview as usize,
+                View {
+                    label,
+                    webview: WeakPtr::new(webview),
+                    rules_on: false,
+                },
+            );
+        });
+    }
+
+    pub fn attach(
+        webview: *mut Object,
+        json_path: &Path,
+        report: super::InstallReport,
+        label: String,
+    ) {
         if webview.is_null() {
             *report.write() = "failed".into();
             return;
+        }
+        unsafe {
+            install_hooks(webview);
+            register(webview, label);
         }
         let id = STATE.with(|s| {
             let mut state = s.borrow_mut();
             match &mut *state {
                 CbState::Ready(list) => {
-                    let ok = unsafe { add_list(webview, *list) };
+                    // `apply` reads the views, not this state: safe in the borrow.
+                    let ok = unsafe { apply(webview, &page_url(webview), *list) };
                     *report.write() = if ok { "attached" } else { "failed" }.into();
                     None
                 }
@@ -229,6 +497,176 @@ mod mac {
         // Look up or compile outside the borrow: `compiled` takes it again.
         let Some(id) = id else { return };
         unsafe { look_up_or_compile(id, json_path.to_path_buf()) }
+    }
+
+    /// Apply the switches to every page Shields looks after.
+    pub unsafe fn reapply_all() {
+        let Some(list) = ready_list() else { return };
+        let live: Vec<StrongPtr> = VIEWS.with(|v| {
+            v.borrow()
+                .values()
+                .map(|view| view.webview.load())
+                .filter(|strong| !strong.is_null())
+                .collect()
+        });
+        for webview in live {
+            apply(*webview, &page_url(*webview), list);
+        }
+    }
+
+    /// Teach wry's navigation delegate two things, once: WebKit's private
+    /// report of each block, and a look at every main-frame navigation before
+    /// wry decides it, so the switches apply to the page about to load. Only on
+    /// the class this was written against: anything else is left alone.
+    unsafe fn install_hooks(webview: *mut Object) {
+        let delegate: *mut Object = msg_send![webview, navigationDelegate];
+        if delegate.is_null() {
+            return;
+        }
+        if !HOOKED.load(Ordering::Relaxed) {
+            let cls = runtime::object_getClass(delegate) as *mut Class;
+            let name = CStr::from_ptr(runtime::class_getName(cls)).to_string_lossy();
+            // objc2 registers it with its module path and wry's version
+            // (`wry::…::WryNavigationDelegate0.55.1`).
+            if !name.contains("::WryNavigationDelegate")
+                || Class::get("_WKContentRuleListAction").is_none()
+            {
+                tracing::warn!(target: "flux::netfilter", %name, "no WebKit block reports: unexpected delegate");
+                return;
+            }
+            let decide = runtime::class_getInstanceMethod(
+                cls,
+                sel!(webView:decidePolicyForNavigationAction:decisionHandler:),
+            ) as *mut Method;
+            if decide.is_null() {
+                return;
+            }
+            let added = runtime::class_addMethod(
+                cls,
+                sel!(_webView:contentRuleListWithIdentifier:performedAction:forURL:),
+                std::mem::transmute::<ReportFn, Imp>(rule_action),
+                c"v@:@@@@".as_ptr(),
+            );
+            if added == NO {
+                return;
+            }
+            let _ = WRY_DECIDE.set(runtime::method_getImplementation(decide) as usize);
+            runtime::method_setImplementation(
+                decide,
+                std::mem::transmute::<DecideFn, Imp>(decide_policy),
+            );
+            HOOKED.store(true, Ordering::Relaxed);
+            tracing::info!(target: "flux::netfilter", "counting WebKit content-rule blocks");
+        }
+        // WebKit notes which optional delegate methods exist when the delegate
+        // is set: set it again, so a webview made before the hook sees it.
+        let _: () = msg_send![webview, setNavigationDelegate: delegate];
+    }
+
+    /// `_webView:contentRuleListWithIdentifier:performedAction:forURL:`: a rule
+    /// list acted on a request. Only blocked loads count.
+    extern "C" fn rule_action(
+        _this: &Object,
+        _cmd: Sel,
+        webview: *mut Object,
+        _identifier: *mut Object,
+        action: *mut Object,
+        url: *mut Object,
+    ) {
+        unsafe {
+            if action.is_null() {
+                return;
+            }
+            let blocked: BOOL = msg_send![action, blockedLoad];
+            if blocked == NO {
+                return;
+            }
+            let label = VIEWS.with(|v| {
+                v.borrow()
+                    .get(&(webview as usize))
+                    .map(|view| view.label.clone())
+            });
+            let Some(label) = label else { return };
+            super::blocked_natively(&label, &page_url(webview), &url_string(url));
+        }
+    }
+
+    /// Flux's turn at `decidePolicyForNavigationAction`, then wry's.
+    extern "C" fn decide_policy(
+        this: &Object,
+        cmd: Sel,
+        webview: *mut Object,
+        action: *mut Object,
+        handler: *mut Object,
+    ) {
+        unsafe {
+            if !action.is_null() {
+                let frame: *mut Object = msg_send![action, targetFrame];
+                let main: BOOL = if frame.is_null() {
+                    NO
+                } else {
+                    msg_send![frame, isMainFrame]
+                };
+                if main != NO {
+                    let tracked = VIEWS.with(|v| v.borrow().contains_key(&(webview as usize)));
+                    if let (true, Some(list)) = (tracked, ready_list()) {
+                        let request: *mut Object = msg_send![action, request];
+                        let url = if request.is_null() {
+                            String::new()
+                        } else {
+                            url_string(msg_send![request, URL])
+                        };
+                        apply(webview, &url, list);
+                    }
+                }
+            }
+            if let Some(&wry) = WRY_DECIDE.get() {
+                let wry = std::mem::transmute::<usize, DecideFn>(wry);
+                wry(this, cmd, webview, action, handler);
+            }
+        }
+    }
+
+    /// Run the picker on `webview`'s page; `tx` gets the picked selector, or
+    /// `None` for Esc, a page that went away, or an error.
+    pub unsafe fn pick(webview: *mut Object, tx: std::sync::mpsc::Sender<Option<String>>) {
+        // `callAsyncJavaScript` and content worlds are macOS 11+.
+        let can: BOOL = if webview.is_null() {
+            NO
+        } else {
+            msg_send![webview, respondsToSelector:
+                sel!(callAsyncJavaScript:arguments:inFrame:inContentWorld:completionHandler:)]
+        };
+        if can == NO {
+            let _ = tx.send(None);
+            return;
+        }
+        let tx = std::sync::Mutex::new(Some(tx));
+        let block = ConcreteBlock::new(move |result: *mut Object, err: *mut Object| {
+            let text = if err.is_null() && !result.is_null() {
+                let is_text: BOOL = msg_send![result, isKindOfClass: class!(NSString)];
+                (is_text != NO).then(|| rust_string(result))
+            } else {
+                None
+            };
+            if let Some(tx) = tx.lock().ok().and_then(|mut t| t.take()) {
+                let _ = tx.send(text.filter(|s| !s.is_empty()));
+            }
+        });
+        let block = block.copy();
+        let name = nsstring("flux-picker");
+        let world: *mut Object = msg_send![class!(WKContentWorld), worldWithName: name];
+        let body = nsstring(PICKER_JS);
+        let args: *mut Object = msg_send![class!(NSDictionary), dictionary];
+        let no_frame: *mut Object = std::ptr::null_mut();
+        let _: () = msg_send![webview,
+            callAsyncJavaScript: body
+            arguments: args
+            inFrame: no_frame
+            inContentWorld: world
+            completionHandler: &*block];
+        let _: () = msg_send![body, release];
+        let _: () = msg_send![name, release];
     }
 
     const ID_PREFIX: &str = "flux-shields";
@@ -344,7 +782,7 @@ mod mac {
             _ => Vec::new(),
         });
         for (webview, report) in waiting {
-            let attached = ok && add_list(webview, list);
+            let attached = ok && apply(webview, &page_url(webview), list);
             *report.write() = if attached { "attached" } else { "failed" }.into();
             let _: () = msg_send![webview, release];
         }
@@ -355,8 +793,13 @@ mod mac {
 /// Runs on the webview's UI thread (where `with_webview` puts us) — the only
 /// place the WebView2 event handler may be installed.
 #[cfg(windows)]
-fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: InstallReport) {
-    use tauri::Manager;
+fn wire(
+    app: &AppHandle,
+    platform: tauri::webview::PlatformWebview,
+    report: InstallReport,
+    label: String,
+) {
+    let tab = tab_of(&label);
     let controller = platform.controller();
     unsafe {
         let core = match controller.CoreWebView2() {
@@ -385,6 +828,12 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: Inst
                 t.record(source, url, blocked);
             }
             if blocked {
+                if let Some(s) = policy_app.try_state::<crate::shields::ShieldsState>() {
+                    s.note_page_block(tab, url);
+                }
+                if let Some(tab) = tab {
+                    page_changed(tab);
+                }
                 return win::Decision::Block;
             }
             if let Some(h) = policy_app.try_state::<crate::https::HttpsState>() {

@@ -44,7 +44,7 @@ use crate::semfind::FindHit;
 use crate::services::ServiceStatus;
 use crate::sessions::{DaySnapshot, SavedSession, SavedTab};
 use crate::shellhist::ShellHistHit;
-use crate::shields::{HotRule, ShieldsStatus};
+use crate::shields::{BlockedDomain, HotRule, ShieldsStatus};
 use crate::specialists::Specialist;
 use crate::spotify::{SpotifyPlaylist, SpotifyState};
 use crate::state::{
@@ -156,6 +156,7 @@ pub fn generate_ts() -> String {
         // sync, omni/reader, and the wire shape of a full archive entry.
         specta::ts::export::<OmniHit>(&c),
         specta::ts::export::<ReaderBlock>(&c),
+        specta::ts::export::<BlockedDomain>(&c),
         specta::ts::export::<ShieldsStatus>(&c),
         specta::ts::export::<HotRule>(&c),
         specta::ts::export::<LeanStatus>(&c),

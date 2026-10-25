@@ -146,7 +146,7 @@ fn node_idx(
 /// URL/host → registrable domain (last two labels), `None` for hostless schemes,
 /// IPs, localhost, or single-label hosts. Crude (no Public Suffix List) but good
 /// enough to collapse `ssl.google-analytics.com` → `google-analytics.com`.
-fn registrable(url: &str) -> Option<String> {
+pub(crate) fn registrable(url: &str) -> Option<String> {
     let after_scheme = url.split("://").nth(1).unwrap_or(url);
     let authority = after_scheme.split(['/', '?', '#']).next()?;
     let host = authority

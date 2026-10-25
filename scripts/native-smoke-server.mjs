@@ -13,19 +13,31 @@ const page = (second) => `<!doctype html><html lang="en"><meta charset="utf-8">
 <label>Unsaved page text <input id="draft" placeholder="Type a persistence marker"></label>
 <button id="probe">Run blocking probe</button>
 <pre id="results" role="status">Probe not run.</pre>
+<div id="promo" class="promo" style="padding:16px;margin-top:16px;background:#ffe8a3">A pretend promo box, for Shields → Hide an element.</div>
 <script>
 document.querySelector('#title').onclick=()=>{document.title='Flux Smoke ${second ? "B" : "A"} — Updated';};
-document.querySelector('#probe').onclick=async()=>{
+const probe=async()=>{
  const run=(path)=>new Promise(resolve=>{const s=document.createElement('script');s.src=path+'?run='+Date.now();s.onload=()=>resolve('loaded');s.onerror=()=>resolve('blocked or failed');document.head.append(s);});
  const allowed=await run('/flux-smoke-allowed.js');
  const blocked=await run('/flux-smoke-blocked.js');
  document.querySelector('#results').textContent='Allowed resource: '+allowed+'\\nBlocked resource: '+blocked+'\\nCheck the server request log to distinguish blocking from a server failure.';
 };
+document.querySelector('#probe').onclick=probe;
+// ?auto runs the probe on load, for a check without clicking.
+if(location.search.includes('auto'))probe();
+// Whether the promo box shows, once Flux has injected its cosmetic CSS: logged
+// by the server, for the Hide-an-element check.
+setTimeout(()=>fetch('/report?promo='+getComputedStyle(document.querySelector('#promo')).display),800);
 </script></html>`;
 const server = createServer((req, res) => {
   const path = new URL(req.url, "http://127.0.0.1").pathname;
   res.setHeader("Cache-Control", "no-store");
-  if (path === "/results") {
+  if (path === "/report") {
+    const promo = new URL(req.url, "http://127.0.0.1").searchParams.get("promo");
+    requests.push({ path, promo, at: new Date().toISOString() });
+    console.log(`Page reported promo display: ${promo}`);
+    res.end("ok");
+  } else if (path === "/results") {
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify(requests));
   } else if (path === "/flux-smoke-allowed.js" || path === "/flux-smoke-blocked.js") {

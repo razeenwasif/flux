@@ -5,7 +5,13 @@
 //! before the engine runs. The native request interceptor (ADR 0007) calls
 //! [`ShieldsState::should_block`] for every request; the frontend drives the
 //! toggles and reads the blocked-request count for the shields badge.
+//!
+//! On macOS the rules run inside WebKit, which reports each block back through a
+//! private navigation-delegate callback (`netfilter`); that feeds the same
+//! per-page counts Windows gets from its request hook. Elements the user hides
+//! with the picker are saved per site and served with the cosmetic CSS.
 
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
@@ -65,6 +71,8 @@ const CB_MAX_RULES: usize = 75_000;
 struct ShieldsPrefs {
     enabled: bool,
     sites_off: Vec<String>,
+    /// Elements hidden with the picker: host → CSS selectors.
+    hidden: BTreeMap<String, Vec<String>>,
 }
 
 impl Default for ShieldsPrefs {
@@ -72,8 +80,24 @@ impl Default for ShieldsPrefs {
         Self {
             enabled: true,
             sites_off: Vec::new(),
+            hidden: BTreeMap::new(),
         }
     }
+}
+
+/// Hidden elements kept per site, and the longest selector kept: a picked
+/// element's path is a few hundred bytes at most.
+const HIDDEN_PER_SITE: usize = 200;
+const SELECTOR_MAX: usize = 1000;
+/// Blocked domains listed per page in the popover.
+const PAGE_DOMAINS: usize = 12;
+
+/// What one page has had blocked since it loaded.
+#[derive(Default)]
+struct PageBlocks {
+    blocked: u32,
+    /// Registrable domain → requests blocked.
+    domains: HashMap<String, u32>,
 }
 
 pub struct ShieldsState {
@@ -82,6 +106,10 @@ pub struct ShieldsState {
     off_for: DashMap<String, ()>,
     enabled: AtomicBool,
     blocked: AtomicU64,
+    /// Per tab: what its current page has had blocked (reset at each commit).
+    pages: DashMap<crate::state::TabId, PageBlocks>,
+    /// Elements the user hid with the picker: host → CSS selectors.
+    hidden: DashMap<String, Vec<String>>,
     /// Memoized engine verdicts: `(url \u{1} source-host \u{1} type) → blocked?`
     /// The global toggle + per-site allowlist are checked *before* this, so a
     /// cached value is the pure rule-engine decision and stays valid across
@@ -119,6 +147,8 @@ impl ShieldsState {
             off_for: DashMap::new(),
             enabled: AtomicBool::new(true),
             blocked: AtomicU64::new(0),
+            pages: DashMap::new(),
+            hidden: DashMap::new(),
             decisions: TtlCache::new(DECISION_CACHE_CAP, Some(DECISION_CACHE_TTL)),
             fired_rules: DashMap::new(),
             filters_dir,
@@ -145,6 +175,7 @@ impl ShieldsState {
             .unwrap_or_default();
         *self.enabled.get_mut() = saved.enabled;
         self.off_for = saved.sites_off.into_iter().map(|h| (h, ())).collect();
+        self.hidden = saved.hidden.into_iter().collect();
         self.prefs = Some(path);
         self
     }
@@ -154,9 +185,18 @@ impl ShieldsState {
         let mut sites_off: Vec<String> = self.off_for.iter().map(|e| e.key().clone()).collect();
         sites_off.sort();
         let enabled = self.enabled.load(Ordering::Relaxed);
+        let hidden = self
+            .hidden
+            .iter()
+            .map(|e| (e.key().clone(), e.value().clone()))
+            .collect();
         crate::persist::queue_json_pretty(
             path,
-            &ShieldsPrefs { enabled, sites_off },
+            &ShieldsPrefs {
+                enabled,
+                sites_off,
+                hidden,
+            },
             crate::persist::Durability::Barrier,
         );
     }
@@ -329,11 +369,113 @@ impl ShieldsState {
                 return String::new();
             }
         }
-        self.filter.read().cosmetic_css(url)
+        let mut css = self.filter.read().cosmetic_css(url);
+        if let Some(picked) = host_of(url).and_then(|h| self.hidden.get(h)) {
+            // One rule per selector: an invalid one in a list would void the rest.
+            for sel in picked.iter() {
+                css.push_str(sel);
+                css.push_str("{display:none!important}\n");
+            }
+        }
+        css
     }
 
-    fn status(&self) -> ShieldsStatus {
+    /// Whether the rules should run on a page at `url` (on, and not turned off
+    /// for its site). The native layers apply this per navigation.
+    pub fn applies_to(&self, url: &str) -> bool {
+        self.enabled.load(Ordering::Relaxed)
+            && host_of(url).is_none_or(|h| !self.off_for.contains_key(h))
+    }
+
+    /// A request the native rules blocked (macOS: WebKit reports it after the
+    /// fact). Counts toward the session total and the page's tally.
+    pub fn record_native_block(&self, tab: Option<crate::state::TabId>, url: &str) {
+        self.blocked.fetch_add(1, Ordering::Relaxed);
+        self.note_page_block(tab, url);
+    }
+
+    /// Add one blocked request to `tab`'s current page.
+    pub fn note_page_block(&self, tab: Option<crate::state::TabId>, url: &str) {
+        let Some(tab) = tab else { return };
+        let domain = crate::trackers::registrable(url)
+            .or_else(|| host_of(url).map(str::to_string))
+            .unwrap_or_else(|| "other".into());
+        let mut page = self.pages.entry(tab).or_default();
+        page.blocked = page.blocked.saturating_add(1);
+        *page.domains.entry(domain).or_insert(0) += 1;
+    }
+
+    /// Requests blocked on `tab`'s current page.
+    pub fn page_count(&self, tab: crate::state::TabId) -> u32 {
+        self.pages.get(&tab).map_or(0, |p| p.blocked)
+    }
+
+    /// A new document committed in `tab`: its tally starts over.
+    pub fn page_reset(&self, tab: crate::state::TabId) {
+        self.pages.remove(&tab);
+    }
+
+    /// The tab closed.
+    pub fn forget_page(&self, tab: crate::state::TabId) {
+        self.pages.remove(&tab);
+    }
+
+    /// `tab`'s page: requests blocked, and the busiest domains.
+    fn page_view(&self, tab: Option<crate::state::TabId>) -> (u32, Vec<BlockedDomain>) {
+        let Some(page) = tab.and_then(|t| self.pages.get(&t)) else {
+            return (0, Vec::new());
+        };
+        let mut domains: Vec<BlockedDomain> = page
+            .domains
+            .iter()
+            .map(|(d, n)| BlockedDomain {
+                domain: d.clone(),
+                count: *n,
+            })
+            .collect();
+        domains.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.domain.cmp(&b.domain)));
+        domains.truncate(PAGE_DOMAINS);
+        (page.blocked, domains)
+    }
+
+    /// Keep an element the user picked hidden on `host`. False when the
+    /// selector isn't usable (empty, too long, or a rule-breaking character).
+    pub fn hide_on_site(&self, host: &str, selector: &str) -> bool {
+        let sel = selector.trim();
+        if host.is_empty()
+            || sel.is_empty()
+            || sel.len() > SELECTOR_MAX
+            || sel.contains(['{', '}', '<'])
+        {
+            return false;
+        }
+        {
+            let mut list = self.hidden.entry(host.to_string()).or_default();
+            if !list.iter().any(|s| s == sel) {
+                if list.len() >= HIDDEN_PER_SITE {
+                    list.remove(0);
+                }
+                list.push(sel.to_string());
+            }
+        }
+        self.save_prefs();
+        true
+    }
+
+    /// Show everything the picker hid on `host` again.
+    pub fn unhide_site(&self, host: &str) {
+        if self.hidden.remove(host).is_some() {
+            self.save_prefs();
+        }
+    }
+
+    fn hidden_on(&self, host: &str) -> u32 {
+        self.hidden.get(host).map_or(0, |l| l.len() as u32)
+    }
+
+    fn status(&self, tab: Option<crate::state::TabId>, host: Option<&str>) -> ShieldsStatus {
         let cache = self.decisions.stats();
+        let (page_blocked, page_domains) = self.page_view(tab);
         ShieldsStatus {
             backend: if cfg!(windows) {
                 "webview2"
@@ -343,8 +485,10 @@ impl ShieldsState {
                 "unsupported"
             }
             .into(),
-            request_metrics: cfg!(windows),
+            request_metrics: cfg!(windows) || crate::netfilter::reports_blocks(),
             request_controls: cfg!(windows),
+            site_controls: cfg!(windows) || crate::netfilter::reports_blocks(),
+            element_picker: crate::netfilter::can_pick_elements(),
             attachment: "not_requested".into(),
             enabled: self.enabled.load(Ordering::Relaxed),
             blocked: self.blocked.load(Ordering::Relaxed),
@@ -352,6 +496,9 @@ impl ShieldsState {
             cache_hit_pct: cache.hit_pct(),
             cache_len: cache.len,
             rules_fired: self.fired_rules.len(),
+            page_blocked,
+            page_domains,
+            site_hidden: host.map_or(0, |h| self.hidden_on(h)),
         }
     }
 
@@ -381,8 +528,12 @@ pub struct ShieldsStatus {
     pub backend: String,
     /// Whether the native request path reports counters.
     pub request_metrics: bool,
-    /// Whether global/site request policy, HTTPS upgrades and lean mode are wired.
+    /// Whether HTTPS upgrades, lean mode and tracking levels are wired.
     pub request_controls: bool,
+    /// Whether the global and per-site Shields switches take effect.
+    pub site_controls: bool,
+    /// Whether "Hide an element" works here (macOS).
+    pub element_picker: bool,
     /// Requested tab's installation: not_requested, pending, attached, failed, unavailable.
     pub attachment: String,
     /// Global shields on/off.
@@ -400,6 +551,18 @@ pub struct ShieldsStatus {
     /// tens of thousands of loaded rules — the 1810.09160 "most rules are dead"
     /// signal, on the user's own traffic).
     pub rules_fired: usize,
+    /// Requests blocked on the requested tab's current page.
+    pub page_blocked: u32,
+    /// The domains they went to, busiest first.
+    pub page_domains: Vec<BlockedDomain>,
+    /// Elements hidden with the picker on the requested tab's site.
+    pub site_hidden: u32,
+}
+
+#[derive(Serialize, specta::Type)]
+pub struct BlockedDomain {
+    pub domain: String,
+    pub count: u32,
 }
 
 #[derive(Serialize, specta::Type)]
@@ -458,31 +621,65 @@ fn fetch(url: &str) -> Result<String, String> {
 
 // ─── Commands ────────────────────────────────────────────────────────────────
 
+/// The host of `tab`'s page, from Flux's own record of it.
+fn tab_host(app: &AppHandle, tab: Option<crate::state::TabId>) -> Option<String> {
+    let state = app.try_state::<crate::state::FluxState>()?;
+    let url = state.tabs.get(&tab?)?.url.clone();
+    host_of(&url).map(str::to_string)
+}
+
 #[tauri::command]
 pub fn shields_status(
+    app: AppHandle,
     state: State<'_, ShieldsState>,
     tab_id: Option<crate::state::TabId>,
 ) -> ShieldsStatus {
-    let mut status = state.status();
+    let host = tab_host(&app, tab_id);
+    let mut status = state.status(tab_id, host.as_deref());
     status.attachment = crate::netfilter::attachment(tab_id);
     status
 }
 
 #[tauri::command]
-pub fn shields_set_enabled(state: State<'_, ShieldsState>, on: bool) {
+pub fn shields_set_enabled(app: AppHandle, state: State<'_, ShieldsState>, on: bool) {
     state.enabled.store(on, Ordering::Relaxed);
     state.save_prefs();
+    crate::netfilter::reapply(&app);
 }
 
 /// Turn shields on/off for one site (`on = false` allowlists the host).
 #[tauri::command]
-pub fn shields_set_site(state: State<'_, ShieldsState>, host: String, on: bool) {
+pub fn shields_set_site(app: AppHandle, state: State<'_, ShieldsState>, host: String, on: bool) {
     if on {
         state.off_for.remove(&host);
     } else {
         state.off_for.insert(host, ());
     }
     state.save_prefs();
+    crate::netfilter::reapply(&app);
+}
+
+/// Let the user click an element on `tab_id`'s page to hide it there for good.
+/// Resolves when they pick one (true) or press Esc (false).
+#[tauri::command]
+pub async fn shields_pick_element(
+    app: AppHandle,
+    tab_id: crate::state::TabId,
+) -> Result<bool, String> {
+    let Some(selector) = crate::netfilter::pick_element(&app, tab_id).await? else {
+        return Ok(false);
+    };
+    let host = tab_host(&app, Some(tab_id)).ok_or("this page has no site to remember it for")?;
+    if !app.state::<ShieldsState>().hide_on_site(&host, &selector) {
+        return Err("that element can't be hidden by a rule".into());
+    }
+    Ok(true)
+}
+
+/// Show the elements hidden on `host` again (from the next load).
+#[tauri::command]
+pub fn shields_unhide_site(state: State<'_, ShieldsState>, host: String) {
+    state.unhide_site(&host);
 }
 
 /// Diagnostic / agent hook: would this request be blocked? (Does not count.)
@@ -567,7 +764,7 @@ mod tests {
         assert!(s.should_block(url, page, "script"));
         assert!(s.should_block(url, page, "script"));
 
-        let st = s.status();
+        let st = s.status(None, None);
         assert!(
             st.cache_hit_pct > 0,
             "repeats should hit the cache: {}",
@@ -589,10 +786,10 @@ mod tests {
         let s = ShieldsState::new(None);
         assert!(s.should_block("https://doubleclick.net/ad", "https://news.com", "image"));
         s.should_block("https://doubleclick.net/ad", "https://news.com", "image");
-        assert!(s.status().cache_len >= 1);
+        assert!(s.status(None, None).cache_len >= 1);
         s.install_filter(Filter::from_list(DEFAULT_FILTERS)); // the swap refresh() performs
         assert_eq!(
-            s.status().cache_len,
+            s.status(None, None).cache_len,
             0,
             "rebuilding the rule set must invalidate verdicts"
         );
@@ -644,7 +841,7 @@ mod tests {
         s.save_prefs();
         let back = ShieldsState::new(None).with_prefs(path.clone());
         assert!(back
-            .status()
+            .status(None, None)
             .sites_off
             .contains(&"broken.example".to_string()));
         assert!(back.enabled.load(Ordering::Relaxed));
@@ -655,6 +852,74 @@ mod tests {
             .with_prefs(path)
             .enabled
             .load(Ordering::Relaxed));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_page_tallies_its_blocks_and_starts_over_on_commit() {
+        let s = ShieldsState::new(None);
+        s.record_native_block(Some(7), "https://stats.doubleclick.net/a.js");
+        s.record_native_block(Some(7), "https://ad.doubleclick.net/b.gif");
+        s.record_native_block(Some(7), "https://www.google-analytics.com/ga.js");
+        s.record_native_block(None, "https://ad.doubleclick.net/peek.gif");
+        let st = s.status(Some(7), None);
+        assert_eq!(st.blocked, 4, "the session total counts every block");
+        assert_eq!(st.page_blocked, 3);
+        assert_eq!(st.page_domains[0].domain, "doubleclick.net");
+        assert_eq!(st.page_domains[0].count, 2);
+        assert_eq!(st.page_domains[1].domain, "google-analytics.com");
+        assert_eq!(s.page_count(7), 3);
+        s.page_reset(7);
+        assert_eq!(s.status(Some(7), None).page_blocked, 0);
+        assert_eq!(s.status(Some(7), None).blocked, 4);
+    }
+
+    #[test]
+    fn the_switches_decide_where_the_rules_run() {
+        let s = ShieldsState::new(None);
+        assert!(s.applies_to("https://news.com/story"));
+        assert!(s.applies_to("about:blank"), "no site: on");
+        s.off_for.insert("news.com".into(), ());
+        assert!(!s.applies_to("https://news.com/story"));
+        assert!(s.applies_to("https://other.com/"));
+        s.enabled.store(false, Ordering::Relaxed);
+        assert!(!s.applies_to("https://other.com/"));
+    }
+
+    #[test]
+    fn picked_elements_stay_hidden_on_their_site() {
+        let dir = std::env::temp_dir().join(format!("flux-shields-hide-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("shields.json");
+        let s = ShieldsState::new(None).with_prefs(path.clone());
+        assert!(s.hide_on_site("news.com", "div.promo > aside:nth-of-type(2)"));
+        assert!(
+            s.hide_on_site("news.com", "div.promo > aside:nth-of-type(2)"),
+            "again is fine"
+        );
+        assert!(
+            !s.hide_on_site("news.com", "a{color:red}"),
+            "no rule-breaking braces"
+        );
+        assert!(!s.hide_on_site("news.com", "  "));
+        assert_eq!(s.status(None, Some("news.com")).site_hidden, 1);
+
+        let css = s.cosmetic_css("https://news.com/today");
+        assert!(css.contains("div.promo > aside:nth-of-type(2){display:none!important}"));
+        assert!(!s.cosmetic_css("https://other.com/").contains("promo"));
+
+        // Saved: a restart keeps it.
+        let back = ShieldsState::new(None).with_prefs(path.clone());
+        assert!(back
+            .cosmetic_css("https://news.com/")
+            .contains("aside:nth-of-type(2)"));
+        // Shields off for the site: nothing hidden there.
+        back.off_for.insert("news.com".into(), ());
+        assert!(back.cosmetic_css("https://news.com/").is_empty());
+        back.off_for.remove("news.com");
+        back.unhide_site("news.com");
+        assert!(!back.cosmetic_css("https://news.com/").contains("aside"));
+        assert_eq!(back.status(None, Some("news.com")).site_hidden, 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

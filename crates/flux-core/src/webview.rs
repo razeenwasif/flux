@@ -440,6 +440,10 @@ mod real {
                 if let Some(s) = app_for_load.try_state::<crate::hibernate::HibernateStore>() {
                     s.note_commit(tab_id, payload.url());
                 }
+                // A new document: Shields' tally for the tab starts over.
+                if let Some(s) = app_for_load.try_state::<crate::shields::ShieldsState>() {
+                    s.page_reset(tab_id);
+                }
             }
             let url = payload.url().to_string();
             // Cosmetic filtering (#57): inject element-hiding CSS for this page,

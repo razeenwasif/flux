@@ -1454,6 +1454,8 @@ pub fn run(intent: cli::LaunchIntent) {
             shields::shields_set_enabled,
             shields::shields_set_site,
             shields::shields_check,
+            shields::shields_pick_element,
+            shields::shields_unhide_site,
             shields::shields_refresh,
             shields::shields_hot_rules,
             prefetch::prefetch_record,

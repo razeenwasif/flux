@@ -67,6 +67,10 @@ jobs:
       - run: npm run shell:build
       - run: cargo test -p flux-core --lib --locked
       - run: cargo check -p flux-core --bin flux --features custom-protocol --locked
+      # Shields on macOS: WebKit must accept the content-blocker JSON, or every
+      # page goes unfiltered.
+      - if: runner.os == 'macOS'
+        run: cargo test -p flux-core --test webkit_rules --locked
 
   # Compile + run the criterion IPC benches so they can't bit-rot. Latency is
   # reported, not hard-gated (shared CI runners are too noisy for a p99 gate).

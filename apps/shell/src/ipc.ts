@@ -1008,6 +1008,14 @@ export const shieldsSetEnabled = (on: boolean) => invoke<void>("shields_set_enab
 export const shieldsSetSite = (host: string, on: boolean) => invoke<void>("shields_set_site", { host, on });
 /** Re-fetch + rebuild the upstream filter lists (background). */
 export const shieldsRefresh = () => invoke<void>("shields_refresh");
+/** Let the user click an element on the tab's page to hide it there for good.
+ *  Resolves true once one is picked, false for Esc. macOS. */
+export const shieldsPickElement = (tabId: number) => invoke<boolean>("shields_pick_element", { tabId });
+/** Show what the picker hid on `host` again (from the next load). */
+export const shieldsUnhideSite = (host: string) => invoke<void>("shields_unhide_site", { host });
+/** A page's blocked count went up: [tabId, blocked on its current page]. */
+export const onShieldsPage = (cb: (tabId: number, blocked: number) => void): Promise<UnlistenFn> =>
+  listen<[number, number]>("flux://shields-page", (e) => cb(e.payload[0], e.payload[1]));
 
 /** The session's hot rule set — filters that actually fired, busiest first (#99). */
 export const shieldsHotRules = (limit: number) => invoke<HotRule[]>("shields_hot_rules", { limit });
@@ -1137,11 +1145,8 @@ export const vaultImportProton = (path: string, passphrase?: string) =>
  *  with `passphrase` (portable, device-independent, imported on the other side
  *  by the same importer); `"csv"` writes **every password in the clear** and is
  *  only for moving into another manager. Returns the number of logins written. */
-export const vaultExport = (
-  path: string,
-  format: "encrypted" | "csv",
-  passphrase?: string,
-) => invoke<number>("vault_export", { path, format, passphrase: passphrase ?? null });
+export const vaultExport = (path: string, format: "encrypted" | "csv", passphrase?: string) =>
+  invoke<number>("vault_export", { path, format, passphrase: passphrase ?? null });
 /** Autofill credential `id` into the active tab's login form (same-origin enforced). */
 export const vaultFill = (tabId: number, id: string) => invoke<void>("vault_fill", { tabId, id });
 /** Why autofill didn't offer on this tab. Chrome-only (never page-callable):
@@ -1686,7 +1691,8 @@ export const bookmarksImportGecko = (profileDir: string, browser: string) =>
 export const bookmarksMoveFolder = (from: string, to: string) =>
   invoke<number>("bookmarks_move_folder", { from, to });
 /** Remove a folder and everything in it; returns how many went. */
-export const bookmarksRemoveFolder = (folder: string) => invoke<number>("bookmarks_remove_folder", { folder });
+export const bookmarksRemoveFolder = (folder: string) =>
+  invoke<number>("bookmarks_remove_folder", { folder });
 
 // ─── Settings page (BACKLOG #78) ─────────────────────────────────────────────
 export const SETTINGS_URL = "flux://settings";

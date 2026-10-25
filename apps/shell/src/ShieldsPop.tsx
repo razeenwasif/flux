@@ -3,7 +3,7 @@
  * loads on first open instead of riding in the boot bundle (ADR 0001). The
  * eager side keeps only the footer icon + blocked-count badge.
  */
-import { Show, createSignal, createEffect, on, onMount, type Component } from "solid-js";
+import { For, Show, createSignal, createEffect, on, onMount, type Component } from "solid-js";
 
 import { visibleInterval } from "./poll";
 import {
@@ -19,12 +19,15 @@ import {
   PERMISSIONS_URL,
   permissionsSetBlock,
   permissionsStatus,
+  shieldsPickElement,
   shieldsRefresh,
   shieldsSetEnabled,
   shieldsSetSite,
   shieldsStatus,
+  shieldsUnhideSite,
   trackingSetLevel,
   trackingStatus,
+  webviewReload,
   type CookieStatus,
   type HttpsStatus,
   type LeanStatus,
@@ -34,6 +37,7 @@ import { settingsWriter } from "./settingsWriter";
 import { protectionStatus, protectionMetrics, requestControlsHint } from "./protectionStatus";
 import { isWindows } from "./platform";
 import { activeId, activeTab } from "./store";
+import "./ShieldsPop.css";
 
 function hostOf(url: string): string | null {
   try {
@@ -98,6 +102,8 @@ const ShieldsPop: Component<{ onNavigate: (url: string) => void; onClose: () => 
     poll();
   };
   const requestControls = () => status()?.request_controls === true;
+  // The Shields switches themselves (macOS adds and removes WebKit's rule list).
+  const siteControls = () => status()?.site_controls === true;
   const togglePerms = () => {
     const value = !blockPerms();
     void save("site permissions", () => permissionsSetBlock(value));
@@ -112,15 +118,31 @@ const ShieldsPop: Component<{ onNavigate: (url: string) => void; onClose: () => 
     const s = status();
     return h && s ? !s.sites_off.includes(h) : true;
   };
+  // A switch changes what loads next: reload the page so it shows now.
+  const reloadPage = () => {
+    const t = activeTab();
+    if (t && t.kind === "browser" && host()) void webviewReload(t.id).catch(() => {});
+  };
   const toggleGlobal = () => {
     const s = status();
-    if (s) void save("Shields", () => shieldsSetEnabled(!s.enabled));
+    if (s) void save("Shields", () => shieldsSetEnabled(!s.enabled)).then(reloadPage);
   };
   const toggleSite = () => {
     const h = host();
     const value = !siteOn();
-    if (h) void save("site protection", () => shieldsSetSite(h, value));
+    if (h) void save("site protection", () => shieldsSetSite(h, value)).then(reloadPage);
   };
+  // The picker runs on the page itself, so the popover gets out of its way.
+  const pickElement = () => {
+    const tab = activeId();
+    props.onClose();
+    if (tab != null) void shieldsPickElement(tab).catch(() => {});
+  };
+  const unhide = () => {
+    const h = host();
+    if (h) void save("hidden elements", () => shieldsUnhideSite(h)).then(reloadPage);
+  };
+  const hiddenCount = () => status()?.site_hidden ?? 0;
   const httpsOn = () => !!https()?.enabled;
   const siteAllowsHttp = () => {
     const h = host();
@@ -164,6 +186,32 @@ const ShieldsPop: Component<{ onNavigate: (url: string) => void; onClose: () => 
         <div class="shields-stat" role="status">
           {protectionStatus(status(), host() != null, host())}
         </div>
+        <Show when={status()?.request_metrics && host() && siteOn() && status()?.enabled}>
+          <div class="shields-page">
+            <div class="shields-row">
+              <span class="shields-label">This page</span>
+              <span class="shields-count">
+                {status()!.page_blocked
+                  ? `${status()!.page_blocked.toLocaleString()} blocked`
+                  : "Nothing blocked"}
+              </span>
+            </div>
+            <Show when={status()!.page_domains.length}>
+              <ul class="shields-domains" aria-label="Blocked domains">
+                <For each={status()!.page_domains}>
+                  {(d) => (
+                    <li>
+                      <span class="shields-domain" title={d.domain}>
+                        {d.domain}
+                      </span>
+                      <span class="shields-domain-n">{d.count}</span>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Show>
+          </div>
+        </Show>
         <Show when={loadError()}>
           <div role="alert" class="settings-feedback">
             Could not load protection settings.<button onClick={poll}>Retry loading</button>
@@ -188,7 +236,7 @@ const ShieldsPop: Component<{ onNavigate: (url: string) => void; onClose: () => 
           <div class="shields-row">
             <span class="shields-label">Shields</span>
             <Show
-              when={requestControls()}
+              when={siteControls()}
               fallback={
                 <span class="shields-stat">
                   {status()?.backend === "webkit" ? "Native rules" : "Unavailable"}
@@ -206,7 +254,7 @@ const ShieldsPop: Component<{ onNavigate: (url: string) => void; onClose: () => 
               </button>
             </Show>
           </div>
-          <Show when={host() && requestControls()}>
+          <Show when={host() && siteControls()}>
             <div class="shields-row">
               <span class="shields-host" title={host()!}>
                 {host()}
@@ -221,6 +269,16 @@ const ShieldsPop: Component<{ onNavigate: (url: string) => void; onClose: () => 
                 {siteOn() ? "On" : "Off"}
               </button>
             </div>
+          </Show>
+          <Show when={status()?.element_picker && host()}>
+            <button class="shields-update" onClick={pickElement}>
+              Hide an element on this page…
+            </button>
+            <Show when={hiddenCount() > 0}>
+              <button class="shields-update" onClick={unhide}>
+                Show {hiddenCount()} hidden element{hiddenCount() === 1 ? "" : "s"} on this site again
+              </button>
+            </Show>
           </Show>
           <Show when={status() && !requestControls()}>
             <div class="shields-stat">{requestControlsHint(status())}</div>
