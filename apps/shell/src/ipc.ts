@@ -1669,6 +1669,11 @@ export const geckoImportPreview = () => invoke<GeckoProfile[]>("gecko_import_pre
  *  "Firefox/…"); returns the count added. Importing again adds only new ones. */
 export const bookmarksImportGecko = (profileDir: string, browser: string) =>
   invoke<number>("bookmarks_import_gecko", { profileDir, browser });
+/** Move a folder and its subfolders ("" is the top level); returns how many moved. */
+export const bookmarksMoveFolder = (from: string, to: string) =>
+  invoke<number>("bookmarks_move_folder", { from, to });
+/** Remove a folder and everything in it; returns how many went. */
+export const bookmarksRemoveFolder = (folder: string) => invoke<number>("bookmarks_remove_folder", { folder });
 
 // ─── Settings page (BACKLOG #78) ─────────────────────────────────────────────
 export const SETTINGS_URL = "flux://settings";

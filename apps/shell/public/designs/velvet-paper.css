@@ -4322,7 +4322,8 @@
 :root[data-design="velvet-paper"] .sidebar > .new-tab-control,
 :root[data-design="velvet-paper"] .sidebar > .tab-list-head,
 :root[data-design="velvet-paper"] .sidebar > .tab-list,
-:root[data-design="velvet-paper"] .sidebar > .folders {
+:root[data-design="velvet-paper"] .sidebar > .folders,
+:root[data-design="velvet-paper"] .sidebar > .bookmark-bar {
   transition: opacity 220ms ease-out 60ms;
 }
 :root[data-design="velvet-paper"] .sidebar[data-mode]:not([data-mode="tabs"]) > .addr-stack,
@@ -4332,7 +4333,8 @@
 :root[data-design="velvet-paper"] .sidebar[data-mode]:not([data-mode="tabs"]) > .new-tab-control,
 :root[data-design="velvet-paper"] .sidebar[data-mode]:not([data-mode="tabs"]) > .tab-list-head,
 :root[data-design="velvet-paper"] .sidebar[data-mode]:not([data-mode="tabs"]) > .tab-list,
-:root[data-design="velvet-paper"] .sidebar[data-mode]:not([data-mode="tabs"]) > .folders {
+:root[data-design="velvet-paper"] .sidebar[data-mode]:not([data-mode="tabs"]) > .folders,
+:root[data-design="velvet-paper"] .sidebar[data-mode]:not([data-mode="tabs"]) > .bookmark-bar {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -5153,6 +5155,44 @@
   font-size: 11.5px;
 }
 
+/* ── The bookmark bar's folders: paper chips, a paper menu ────────────── */
+:root[data-design="velvet-paper"] .bookmark-folder {
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .bookmark-folder.open {
+  background: var(--vp-wash), var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .bm-menu {
+  padding: 8px;
+  border: none;
+  border-radius: 20px;
+  background: var(--vp-paper);
+  box-shadow:
+    inset 0 1px 0 rgba(246, 237, 228, 0.07),
+    0 3px 6px -2px rgba(0, 0, 0, 0.45),
+    0 16px 26px -12px rgba(0, 0, 0, 0.65),
+    0 38px 64px -30px rgba(0, 0, 0, 0.88);
+}
+:root[data-design="velvet-paper"] .bm-menu-title {
+  font-family: var(--vp-display);
+  font-size: 15px;
+  font-weight: 400;
+}
+:root[data-design="velvet-paper"] .bm-menu-row {
+  border-radius: 12px;
+}
+:root[data-design="velvet-paper"] .bm-menu-row:hover {
+  background: var(--vp-raise);
+}
+:root[data-design="velvet-paper"] .bm-menu-letter {
+  background: var(--vp-chip);
+  border-radius: 7px;
+}
+:root[data-design="velvet-paper"] .bm-menu-group {
+  border: none;
+  background: var(--vp-raise);
+}
+
 /* Context mode: the column's cards fill the panel's height. System and the
    Trail keep their size; your notes take what's left and scroll inside, so
    the three fit without the panel scrolling. */
@@ -5177,4 +5217,57 @@
 :root[data-design="velvet-paper"] .tab-mode-panel .connect-rail .trailmini {
   height: 210px;
   max-height: none;
+}
+
+/* ── Bookmarks in the tabs pane ───────────────────────────────────────────
+   The bookmark bar as one row of chips under the pinned tiles (the page card
+   takes the full height). Folders open their menu downward from here. */
+:root[data-design="velvet-paper"] .bookmark-bar.in-pane {
+  flex: none;
+  height: 32px;
+  margin: 0;
+  padding: 0 0 2px;
+  gap: 5px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  scrollbar-width: none;
+}
+:root[data-design="velvet-paper"] .bookmark-bar.in-pane::-webkit-scrollbar {
+  display: none;
+}
+:root[data-design="velvet-paper"] .bookmark-bar.in-pane .bookmark-chip {
+  height: 30px;
+  max-width: 132px;
+  padding: 0 10px 0 5px;
+  gap: 6px;
+  border: none;
+  border-radius: 999px;
+  background: var(--vp-raise);
+  color: var(--flux-text-dim);
+  font-size: 12px;
+}
+:root[data-design="velvet-paper"] .bookmark-bar.in-pane .bookmark-chip:hover {
+  background: var(--velvet-500);
+  color: var(--flux-text);
+}
+:root[data-design="velvet-paper"] .bookmark-bar.in-pane .bookmark-folder.open {
+  background: var(--vp-wash), var(--vp-raise);
+  color: var(--flux-text);
+}
+:root[data-design="velvet-paper"] .bookmark-bar.in-pane .bookmark-chip-ico {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--vp-chip);
+}
+/* Removing is for the Bookmarks page; a stray click here shouldn't. */
+:root[data-design="velvet-paper"] .bookmark-bar.in-pane .bookmark-chip-x {
+  display: none;
+}
+:root[data-design="velvet-paper"] .bookmark-bar.in-pane .bookmark-bar-empty {
+  font-size: 11.5px;
+  white-space: nowrap;
+  color: var(--flux-text-mute);
 }

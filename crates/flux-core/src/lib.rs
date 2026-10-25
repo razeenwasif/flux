@@ -1393,6 +1393,8 @@ pub fn run(intent: cli::LaunchIntent) {
             bookmarks::bookmarks_import_chrome,
             bookmarks::gecko_import_preview,
             bookmarks::bookmarks_import_gecko,
+            bookmarks::bookmarks_move_folder,
+            bookmarks::bookmarks_remove_folder,
             sessions::sessions_list,
             sessions::session_save,
             sessions::session_delete,

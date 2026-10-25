@@ -465,8 +465,9 @@ const ContentArea: Component<{
         </Show>
       </div>
       {/* Bookmark bar (#22): docked under the card. A sibling (not an overlay), so
-        the card shrinks and the native webview relayout follows it. */}
-      <Show when={bookmarkBarOpen()}>
+        the card shrinks and the native webview relayout follows it. Velvet Paper
+        keeps it in the tabs pane instead, and gives the card the full height. */}
+      <Show when={bookmarkBarOpen() && design() !== "velvet-paper"}>
         <Suspense>
           <BookmarkBar onNavigate={props.onNavigate} />
         </Suspense>

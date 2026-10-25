@@ -761,13 +761,33 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
           ["crates.io", "https://crates.io"],
           ["Ollama", "https://ollama.com"],
           ["Syncthing", "https://syncthing.net"],
-        ].map(([title, url], i) => ({
-          id: i + 1,
-          title,
-          url,
-          folder: i % 2 ? "Imported/Work" : "Imported",
-          added_ms: T0,
-        })) as T,
+        ]
+          .map(([title, url], i) => ({
+            id: i + 1,
+            title,
+            url,
+            folder: i % 2 ? "Imported/Work" : "Imported",
+            added_ms: T0,
+          }))
+          // A Zen import: its toolbar at the top level, folders and all.
+          .concat(
+            [
+              ["OMSCS Open Courseware", "https://omscs.gatech.edu", "University ∕ Comp Sci"],
+              ["COMP2310 Wattle", "https://wattle.anu.edu.au", "University ∕ Comp Sci"],
+              ["Coursera", "https://coursera.org", "University ∕ Comp Sci/Coursera"],
+              ["Bank", "https://bank.example.com", "Personal"],
+              ["Groceries", "https://shop.example.com", "Personal/Shopping"],
+              ["Medium", "https://medium.com", ""],
+              ["LinkedIn Jobs", "https://linkedin.com/jobs", "Job Search"],
+              ["Rust analyzer", "https://rust-analyzer.github.io", "Zen/Other/software dev"],
+            ].map(([title, url, folder], i) => ({
+              id: 100 + i,
+              title,
+              url,
+              folder: folder ?? "",
+              added_ms: T0,
+            })),
+          ) as T,
       );
     case "bookmark_folders":
       return Promise.resolve(["Imported", "Imported/Work"] as T);
@@ -787,6 +807,9 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(undefined as T);
     case "bookmarks_import_chrome":
       return Promise.resolve(42 as T);
+    case "bookmarks_move_folder":
+    case "bookmarks_remove_folder":
+      return Promise.resolve(0 as T);
     case "sessions_list":
       return Promise.resolve([
         {

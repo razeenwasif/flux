@@ -255,6 +255,87 @@ impl BookmarkStore {
         added
     }
 
+    /// Move a folder and everything under it to `to` ("" is the top level).
+    /// A bookmark already at its new place is dropped rather than doubled; the
+    /// old place is tombstoned so a synced device moves it too. Returns how many
+    /// bookmarks moved.
+    pub fn move_folder(&self, from: &str, to: &str) -> usize {
+        let from = from.trim_matches('/');
+        let to = to.trim_matches('/');
+        if from.is_empty() || from == to {
+            return 0;
+        }
+        let new_folder = |folder: &str| -> Option<String> {
+            let rest = if folder == from {
+                ""
+            } else {
+                folder.strip_prefix(from)?.strip_prefix('/')?
+            };
+            Some(match (to.is_empty(), rest.is_empty()) {
+                (true, _) => rest.to_string(),
+                (false, true) => to.to_string(),
+                (false, false) => format!("{to}/{rest}"),
+            })
+        };
+        let mut items = self.items.write();
+        let mut tombs = self.tombstones.write();
+        let now = now_ms();
+        let mut taken: std::collections::HashSet<(String, String)> = items
+            .iter()
+            .filter(|b| new_folder(&b.folder).is_none())
+            .map(|b| (b.url.clone(), b.folder.clone()))
+            .collect();
+        let mut moved = 0;
+        items.retain_mut(|b| {
+            let Some(dest) = new_folder(&b.folder) else {
+                return true;
+            };
+            tombs.insert(bm_key(&b.url, &b.folder), now);
+            if !taken.insert((b.url.clone(), dest.clone())) {
+                return false; // already there
+            }
+            tombs.remove(&bm_key(&b.url, &dest));
+            b.folder = dest;
+            moved += 1;
+            true
+        });
+        drop(tombs);
+        drop(items);
+        if moved > 0 {
+            self.save();
+        }
+        moved
+    }
+
+    /// Remove a folder and everything under it. Returns how many went.
+    pub fn remove_folder(&self, folder: &str) -> usize {
+        let folder = folder.trim_matches('/');
+        if folder.is_empty() {
+            return 0;
+        }
+        let inside =
+            |f: &str| f == folder || f.strip_prefix(folder).is_some_and(|r| r.starts_with('/'));
+        let mut items = self.items.write();
+        let mut tombs = self.tombstones.write();
+        let now = now_ms();
+        let before = items.len();
+        items.retain(|b| {
+            if inside(&b.folder) {
+                tombs.insert(bm_key(&b.url, &b.folder), now);
+                false
+            } else {
+                true
+            }
+        });
+        let gone = before - items.len();
+        drop(tombs);
+        drop(items);
+        if gone > 0 {
+            self.save();
+        }
+        gone
+    }
+
     fn save(&self) {
         let Some(path) = &self.path else { return };
         if let Some(dir) = path.parent() {
@@ -341,9 +422,23 @@ pub async fn gecko_import_preview() -> Vec<flux_import::gecko::GeckoProfile> {
         .unwrap_or_default()
 }
 
-/// Import every bookmark from a Zen or Firefox profile into the store, under
-/// a folder named for the browser ("Zen/Toolbar/Uni"). Importing again adds
-/// only what's new. Returns how many were added.
+/// Where an imported Zen/Firefox bookmark goes: the browser's toolbar is
+/// Flux's bookmark bar, so its folders and bookmarks land at the top level as
+/// they sat there; the rest (menu, other, mobile) stays together under the
+/// browser's name ("Zen/Other/software dev").
+fn gecko_folder(browser: &str, folder: &str) -> String {
+    match folder.strip_prefix("Toolbar") {
+        Some("") => String::new(),
+        Some(rest) if rest.starts_with('/') => rest[1..].to_string(),
+        _ if folder.is_empty() => browser.to_string(),
+        _ => format!("{browser}/{folder}"),
+    }
+}
+
+/// Import every bookmark from a Zen or Firefox profile into the store (see
+/// `gecko_folder` for where each goes). Importing again adds only what's new,
+/// and first moves an earlier import's "Zen/Toolbar" to the top level, where
+/// this version puts it. Returns how many were added.
 #[tauri::command]
 pub async fn bookmarks_import_gecko(
     store: State<'_, BookmarkStore>,
@@ -356,17 +451,82 @@ pub async fn bookmarks_import_gecko(
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
-    let prefix = if browser == "Firefox" { "Firefox" } else { "Zen" };
+    let browser = if browser == "Firefox" {
+        "Firefox"
+    } else {
+        "Zen"
+    };
+    store.move_folder(&format!("{browser}/Toolbar"), "");
     let incoming = books
         .into_iter()
-        .map(|b| (b.name, b.url, b.folder))
+        .map(|b| {
+            let folder = gecko_folder(browser, &b.folder);
+            (b.name, b.url, folder)
+        })
         .collect();
-    Ok(store.import(incoming, prefix))
+    Ok(store.import(incoming, ""))
+}
+
+/// Move a folder (and its subfolders) somewhere else; "" is the top level.
+#[tauri::command]
+pub fn bookmarks_move_folder(store: State<'_, BookmarkStore>, from: String, to: String) -> usize {
+    store.move_folder(&from, &to)
+}
+
+/// Remove a folder and everything in it.
+#[tauri::command]
+pub fn bookmarks_remove_folder(store: State<'_, BookmarkStore>, folder: String) -> usize {
+    store.remove_folder(&folder)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_moves_and_removes_with_its_subfolders() {
+        let store = BookmarkStore::default();
+        store.add("A".into(), "https://a.dev".into(), "Zen/Toolbar".into());
+        store.add("B".into(), "https://b.dev".into(), "Zen/Toolbar/Uni".into());
+        store.add("C".into(), "https://c.dev".into(), "Zen/Other".into());
+        store.add("B".into(), "https://b.dev".into(), "Uni".into()); // already at the destination
+        store.add("D".into(), "https://d.dev".into(), "Zen/Toolbarish".into()); // not inside it
+        assert_eq!(store.move_folder("Zen/Toolbar", ""), 1);
+        let mut at: Vec<_> = store
+            .list()
+            .into_iter()
+            .map(|b| (b.url, b.folder))
+            .collect();
+        at.sort();
+        assert_eq!(
+            at,
+            vec![
+                ("https://a.dev".to_string(), "".to_string()),
+                ("https://b.dev".to_string(), "Uni".to_string()),
+                ("https://c.dev".to_string(), "Zen/Other".to_string()),
+                ("https://d.dev".to_string(), "Zen/Toolbarish".to_string()),
+            ]
+        );
+        assert!(store
+            .tombstones()
+            .contains_key(&bm_key("https://b.dev", "Zen/Toolbar/Uni")));
+        assert_eq!(store.remove_folder("Zen"), 2);
+        assert_eq!(store.list().len(), 2);
+    }
+
+    #[test]
+    fn zen_toolbar_lands_on_the_bar_and_the_rest_under_zen() {
+        assert_eq!(gecko_folder("Zen", "Toolbar"), "");
+        assert_eq!(
+            gecko_folder("Zen", "Toolbar/Personal/Shopping"),
+            "Personal/Shopping"
+        );
+        assert_eq!(
+            gecko_folder("Zen", "Other/software dev"),
+            "Zen/Other/software dev"
+        );
+        assert_eq!(gecko_folder("Firefox", "Toolbarn"), "Firefox/Toolbarn");
+    }
 
     #[test]
     fn find_matches_the_exact_url_in_any_folder() {

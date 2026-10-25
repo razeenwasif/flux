@@ -2,6 +2,7 @@ import { launcherOpen } from "./launcherOpen";
 import { indexerPanelOpen } from "./indexerOpen";
 import { dialogsOpen } from "./dialogs";
 import { linkMenuOpen } from "./linkMenu";
+import { bookmarkMenuOpen } from "./bookmarkMenuOpen";
 /**
  * Shared tab store. Module-level Solid signals: the tab strip, pinned rail,
  * and web area all read the same source of truth, so a pin/focus mutation is
@@ -1220,7 +1221,8 @@ export const pageOverlayActive = (): boolean =>
   playgroundOpen() ||
   openAppIds().length > 0 ||
   tuiPanes().length > 0 ||
-  linkMenuOpen();
+  linkMenuOpen() ||
+  bookmarkMenuOpen();
 export function setMapQuery(q: string): void {
   setMapQueryRaw(q);
   localStorage.setItem("flux.map.query", q);

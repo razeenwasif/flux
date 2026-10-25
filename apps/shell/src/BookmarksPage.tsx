@@ -15,6 +15,7 @@ import {
   bookmarksImportChrome,
   bookmarksImportGecko,
   bookmarksList,
+  bookmarksRemoveFolder,
   chromeImportPreview,
   geckoImportPreview,
   type Bookmark,
@@ -78,19 +79,59 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
       .catch(() => setGecko([]));
   };
 
-  // Filter by query (flat), then group the result by folder.
-  const groups = createMemo<[string, Bookmark[]][]>(() => {
+  // Filter by query (flat), then lay the result out as the folder tree: every
+  // folder (and the folders it sits in) gets a header, indented by depth, in
+  // tree order, with its own bookmarks under it.
+  type Group = { path: string; name: string; depth: number; rows: Bookmark[]; total: number };
+  const groups = createMemo<Group[]>(() => {
     const q = query().trim().toLowerCase();
     const list = q
       ? items().filter((b) => b.title.toLowerCase().includes(q) || b.url.toLowerCase().includes(q))
       : items();
-    const byFolder = new Map<string, Bookmark[]>();
+    const byPath = new Map<string, Group>();
+    const groupAt = (path: string): Group => {
+      const known = byPath.get(path);
+      if (known) return known;
+      const parts = path ? path.split("/") : [];
+      const g: Group = {
+        path,
+        name: parts.at(-1) || "Bookmarks",
+        depth: Math.max(0, parts.length - 1),
+        rows: [],
+        total: 0,
+      };
+      byPath.set(path, g);
+      if (parts.length > 1) groupAt(parts.slice(0, -1).join("/"));
+      return g;
+    };
     for (const b of list) {
-      const key = b.folder || "Bookmarks";
-      (byFolder.get(key) ?? byFolder.set(key, []).get(key)!).push(b);
+      const path = b.folder.split("/").filter(Boolean).join("/");
+      groupAt(path).rows.push(b);
+      for (const [p, g] of byPath) if (p === path || path.startsWith(`${p}/`)) g.total++;
     }
-    return [...byFolder.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const key = (p: string) => (p ? p.split("/") : []);
+    return [...byPath.values()].sort((a, z) => {
+      const x = key(a.path);
+      const y = key(z.path);
+      for (let i = 0; i < Math.min(x.length, y.length); i++) {
+        const c = x[i]!.localeCompare(y[i]!);
+        if (c) return c;
+      }
+      return x.length - y.length;
+    });
   });
+  const removeFolder = async (g: Group) => {
+    const ok = await askConfirm({
+      title: `Remove “${g.name}” and the ${g.total} bookmark${g.total === 1 ? "" : "s"} in it?`,
+      hint: "Its subfolders go too.",
+      confirm: "Remove folder",
+    });
+    if (!ok) return;
+    const n = await bookmarksRemoveFolder(g.path).catch(() => 0);
+    setNote(`Removed ${n} bookmark${n === 1 ? "" : "s"} with “${g.name}”.`);
+    load();
+    window.dispatchEvent(new Event("flux:bookmarks-changed"));
+  };
 
   const open = (b: Bookmark) => props.onNavigate(b.url);
   const remove = (b: Bookmark) => void bookmarkRemove(b.id).then(load);
@@ -237,22 +278,35 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
           }
         >
           <For each={groups()}>
-            {([folder, rows]) => (
-              <div class="hist-group">
+            {(g) => (
+              <div class="hist-group" style={{ "padding-left": `${g.depth * 18}px` }}>
                 <div class="bm-folder">
-                  <span class="bm-folder-name">📁 {folder}</span>
-                  <span class="hist-day" style={{ "margin-left": "auto" }}>
-                    {rows.length}
+                  <span class="bm-folder-name" title={g.path || "Bookmarks"}>
+                    📁 {g.name}
                   </span>
-                  <button
-                    class="bm-open-group"
-                    title="Open this folder's bookmarks as a tab group"
-                    onClick={() => void openFolderAsGroup(folder, rows)}
-                  >
-                    ⊞ Open as group
-                  </button>
+                  <span class="hist-day" style={{ "margin-left": "auto" }}>
+                    {g.total}
+                  </span>
+                  <Show when={g.rows.length > 1}>
+                    <button
+                      class="bm-open-group"
+                      title="Open this folder's bookmarks as a tab group"
+                      onClick={() => void openFolderAsGroup(g.path, g.rows)}
+                    >
+                      ⊞ Open as group
+                    </button>
+                  </Show>
+                  <Show when={g.path}>
+                    <button
+                      class="bm-open-group"
+                      title="Remove this folder and everything in it"
+                      onClick={() => void removeFolder(g)}
+                    >
+                      ✕
+                    </button>
+                  </Show>
                 </div>
-                <For each={rows}>
+                <For each={g.rows}>
                   {(b) => (
                     <div
                       class="hist-row"
