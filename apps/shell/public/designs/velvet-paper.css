@@ -5271,3 +5271,13 @@
   white-space: nowrap;
   color: var(--flux-text-mute);
 }
+
+/* ── The page card to the top ─────────────────────────────────────────────
+   No address tab above the card (the tabs pane's field says where you are),
+   so the card starts where the tabs pane's paper does and takes the height. */
+:root[data-design="velvet-paper"] .content-row {
+  padding-top: 0;
+}
+:root[data-design="velvet-paper"] .page-legend {
+  display: none;
+}

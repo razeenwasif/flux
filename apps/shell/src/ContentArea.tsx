@@ -332,7 +332,17 @@ const ContentArea: Component<{
             {pageLegend()}
           </span>
         </Show>
-        <div class="card" id="flux-web-area">
+        <div
+          class="card"
+          id="flux-web-area"
+          // A web page (a native view laid over the card) rather than one of
+          // Flux's own DOM pages: rail labels steer clear of it (RailTip).
+          data-native-page={
+            activeTab()?.kind === "browser" && !activeTab()!.url.startsWith("flux://") && !readerOpen()
+              ? ""
+              : undefined
+          }
+        >
           {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
           <Show when={readerOpen()}>
             <ReaderView />
