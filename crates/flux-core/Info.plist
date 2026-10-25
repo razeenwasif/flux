@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the bundle's Info.plist by `tauri build` (it looks for this file
+     next to tauri.conf.json). Without the usage string macOS blocks Flux's
+     connections to machines on the local network (Settings → Model server on
+     another computer fails with "No route to host") instead of asking. -->
+<plist version="1.0">
+<dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Flux connects to machines on your network that you add in Settings, such as a model server on another computer.</string>
+</dict>
+</plist>

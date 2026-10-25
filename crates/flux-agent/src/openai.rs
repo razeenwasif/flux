@@ -98,9 +98,9 @@ impl OpenAiBackend {
                     code, &text, &self.base,
                 ))))
             }
-            Err(ureq::Error::Transport(t)) => Err(CallError::Unreachable(format!(
-                "can't reach the model server at {}: {t}",
-                self.base
+            Err(ureq::Error::Transport(t)) => Err(CallError::Unreachable(unreachable_message(
+                &format!("the model server at {}", self.base),
+                &t.to_string(),
             ))),
         }
     }
@@ -235,6 +235,22 @@ fn status_message(code: u16, body: &str, base: &str) -> String {
     }
 }
 
+/// A connection that failed. macOS answers "No route to host" (os error 65) when
+/// its Local Network privacy setting blocks the app, even though the machine is
+/// up and answering everything else on the Mac: say where the switch is.
+fn unreachable_message(what: &str, err: &str) -> String {
+    let blocked = cfg!(target_os = "macos")
+        && (err.contains("os error 65") || err.contains("No route to host"));
+    if blocked {
+        format!(
+            "can't reach {what}: {err}. If that machine is on and other apps reach it, macOS is \
+             blocking Flux: System Settings → Privacy & Security → Local Network → turn on Flux, then try again."
+        )
+    } else {
+        format!("can't reach {what}: {err}")
+    }
+}
+
 /// The models the server offers (`GET /models`): what Settings lists, and how
 /// it tests the address and key.
 pub fn list_models(url: &str, key: Option<&str>) -> Result<Vec<String>, AgentError> {
@@ -259,7 +275,10 @@ pub fn list_models(url: &str, key: Option<&str>) -> Result<Vec<String>, AgentErr
             )))
         }
         Err(ureq::Error::Transport(t)) => {
-            return Err(AgentError::Inference(format!("can't reach {base}: {t}")))
+            return Err(AgentError::Inference(unreachable_message(
+                &base,
+                &t.to_string(),
+            )))
         }
     };
     Ok(v["data"]
@@ -388,6 +407,25 @@ mod tests {
         let alone = OpenAiBackend::new(&format!("http://127.0.0.1:{port}"), None, "m", None);
         let err = alone.chat("hi").unwrap_err().to_string();
         assert!(err.contains("can't reach the model server"), "{err}");
+    }
+
+    #[test]
+    fn a_blocked_mac_says_where_the_switch_is() {
+        let m = unreachable_message(
+            "http://x:8080/v1",
+            "Connect error: No route to host (os error 65)",
+        );
+        assert!(
+            m.starts_with("can't reach http://x:8080/v1: Connect error"),
+            "{m}"
+        );
+        assert_eq!(
+            m.contains("Local Network"),
+            cfg!(target_os = "macos"),
+            "{m}"
+        );
+        let m = unreachable_message("http://x:8080/v1", "Connection refused (os error 61)");
+        assert!(!m.contains("Local Network"), "{m}");
     }
 
     #[test]
