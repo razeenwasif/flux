@@ -37,6 +37,8 @@ export type ShortcutAction =
   | "mode-tabs"
   | "mode-calendar"
   | "mode-mail"
+  | "mode-notes"
+  | "mode-context"
   | `tab-${number}`;
 
 export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
@@ -96,6 +98,8 @@ export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
     if (!e.shiftKey && e.code === "Digit1") return "mode-tabs";
     if (!e.shiftKey && e.code === "Digit2") return "mode-calendar";
     if (!e.shiftKey && e.code === "Digit3") return "mode-mail";
+    if (!e.shiftKey && e.code === "Digit4") return "mode-notes";
+    if (!e.shiftKey && e.code === "Digit5") return "mode-context";
   }
   if (e.key === "F5") return "reload";
   if (e.key === "F12") return "devtools";

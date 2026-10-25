@@ -98,6 +98,7 @@ export const ICONS = {
   /** The tabs pane's Tabs mode: one raised row over the list. */
   tabs: { d: ["M4 4.5h16v5H4z", "M4 14h16", "M4 18.5h11"] },
   find: { d: ["m15.2 15.2 5.3 5.3"], c: [[10.5, 10.5, 6.5]] },
+  trash: { d: ["M4.5 7h15", "M9.5 7V4.5h5V7", "M6.5 7l1 13h9l1-13", "M10.5 11v5.5M13.5 11v5.5"] },
   /** A sleeping tab. */
   moon: { d: ["M19.5 14.5A8 8 0 1 1 9.5 4.5a6.3 6.3 0 0 0 10 10Z"] },
   shields: { d: ["M12 3 20 6v6c0 4.5-3.3 7.7-8 9-4.7-1.3-8-4.5-8-9V6l8-3Z"] },

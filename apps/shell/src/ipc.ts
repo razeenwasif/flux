@@ -1545,6 +1545,21 @@ export const navSet = (hints: boolean, gestures: boolean) => invoke<void>("nav_s
 export const noteGet = (url: string) => invoke<string>("note_get", { url });
 export const noteSet = (url: string, text: string) => invoke<void>("note_set", { url, text });
 
+// ─── Notes mode (the tabs pane): Markdown files in "Flux Notes" ──────────────
+/** One note: `name` is its file name without `.md`, what the others take. */
+export type MdNote = { name: string; modified_ms: number; preview: string };
+/** Where the notes are kept: the vault's "Flux Notes", or Flux's data folder. */
+export type MdNotesHome = { path: string; in_vault: boolean };
+export const mdNotesHome = () => invoke<MdNotesHome>("md_notes_home");
+export const mdNotesList = () => invoke<MdNote[]>("md_notes_list");
+export const mdNoteRead = (name: string) => invoke<string>("md_note_read", { name });
+export const mdNoteWrite = (name: string, content: string) =>
+  invoke<MdNote>("md_note_write", { name, content });
+export const mdNoteCreate = (title: string) => invoke<MdNote>("md_note_create", { title });
+export const mdNoteRename = (name: string, to: string) => invoke<MdNote>("md_note_rename", { name, to });
+/** To the Trash. */
+export const mdNoteDelete = (name: string) => invoke<void>("md_note_delete", { name });
+
 /** A host's favicon as a data: URL (fetched cookielessly + cached), or null. #21 */
 export const faviconFetch = (host: string) => invoke<string | null>("favicon", { host });
 

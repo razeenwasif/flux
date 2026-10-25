@@ -39,11 +39,13 @@ import {
   unpinnedTabs,
 } from "./store";
 import { Favicon } from "./tabvisual";
-import { commitTabMode, setTabMode, setTabModeChanger, tabMode, TAB_MODES, type TabMode } from "./tabMode";
+import { commitTabMode, setTabModeChanger, tabMode, TAB_MODES, type TabMode } from "./tabMode";
 import { visibleInterval } from "./poll";
 import { parseQuickEvent } from "./quickEvent";
 
 const MailPane = lazy(() => import("./MailPane"));
+const TabNotes = lazy(() => import("./TabNotes"));
+const ConnectionsRail = lazy(() => import("./ConnectionsRail"));
 
 // ── Motion ──────────────────────────────────────────────────────────────────
 const FAST = 120;
@@ -164,6 +166,34 @@ const weekNo = (d: Date) => {
   return Math.round((mondayOf(d).getTime() - mondayOf(new Date(`${w1}T00:00`)).getTime()) / (7 * DAY_MS)) + 1;
 };
 
+// ── Columns ─────────────────────────────────────────────────────────────────
+/** A mode's own column beside the page, on or off from here (the footer's
+ *  buttons for them went when they became modes). */
+const ColumnToggle: Component<{ on: boolean; what: string; onToggle: () => void }> = (p) => (
+  <button
+    classList={{ "mode-link": true, on: p.on }}
+    aria-pressed={p.on}
+    title={p.on ? `Close the ${p.what} column` : `Show ${p.what} in a column beside the page`}
+    onClick={p.onToggle}
+  >
+    {p.on ? "✕ Column" : "⇥ Column"}
+  </button>
+);
+/** The calendar + mail column. Opening it from here brings the calendar too. */
+const DockToggle: Component = () => (
+  <ColumnToggle
+    on={dockOpen()}
+    what="calendar + mail"
+    onToggle={() => {
+      if (!dockOpen()) {
+        setCalendarDock("dock");
+        setCalendarPopOpen(true);
+      }
+      toggleDock();
+    }}
+  />
+);
+
 // ── Calendar ────────────────────────────────────────────────────────────────
 const CalendarBody: Component = () => {
   const [events, setEvents] = createSignal<CalEvent[]>([]);
@@ -258,12 +288,6 @@ const CalendarBody: Component = () => {
   const popOut = () => {
     setCalendarDock("overlay");
     setCalendarPopOpen(true);
-  };
-  const dock = () => {
-    setCalendarDock("dock");
-    setCalendarPopOpen(true);
-    if (!dockOpen()) toggleDock();
-    setTabMode("tabs");
   };
 
   let row = 0; // stagger index for the entrance cascade
@@ -400,9 +424,7 @@ const CalendarBody: Component = () => {
         <button class="mode-link" title="Open the calendar over the page" onClick={popOut}>
           ⇱ Pop out
         </button>
-        <button class="mode-link" title="Calendar + mail in their own column" onClick={dock}>
-          ⇥ Dock
-        </button>
+        <DockToggle />
       </div>
       <form class="mode-add" onSubmit={add} style={i()}>
         <span aria-hidden="true">＋</span>
@@ -424,15 +446,29 @@ const CalendarBody: Component = () => {
 };
 
 // ── The panel ───────────────────────────────────────────────────────────────
-const TabModePanel: Component<{ onNavigate: (url: string) => void }> = () => {
+type Away = Exclude<TabMode, "tabs">;
+
+const TabModePanel: Component<{
+  onNavigate: (url: string) => void;
+  /** The connections column (your notes, System, Trail): Context mode holds
+   *  it while it's closed, and can open it again. */
+  connectOpen: boolean;
+  onToggleConnect: () => void;
+}> = (props) => {
   let el!: HTMLDivElement;
   let body!: HTMLDivElement;
   let rail!: HTMLDivElement;
-  const away = (m: TabMode) => (m === "mail" ? "mail" : "calendar");
-  const [shown, setShown] = createSignal<"calendar" | "mail">(away(tabMode()));
+  const away = (m: TabMode): Away => (m === "tabs" ? "calendar" : m);
+  const [shown, setShownSig] = createSignal<Away>(away(tabMode()));
   const [open, setOpen] = createSignal(false);
   const [entering, setEntering] = createSignal(false);
-  const [mailSeen, setMailSeen] = createSignal(shown() === "mail");
+  // A mode's page mounts the first time it's shown and stays, so going back to
+  // it keeps its place (the open note, the month, the filter).
+  const [seen, setSeen] = createSignal(new Set<Away>([shown()]));
+  const setShown = (m: Away) => {
+    setShownSig(m);
+    if (!seen().has(m)) setSeen(new Set([...seen(), m]));
+  };
 
   /** The pane between the switch and the footer, inside its padding. Written
    *  straight to the element: the morph measures the rail right after, and a
@@ -504,13 +540,12 @@ const TabModePanel: Component<{ onNavigate: (url: string) => void }> = () => {
     }
   };
 
-  /** Calendar ↔ Mail: the rail stays; the panel slides out toward the old
+  /** Between two modes: the rail stays; the panel slides out toward the old
    *  side and in from the new one. */
-  const cross = (to: "calendar" | "mail", dir: number) => {
+  const cross = (to: Away, dir: number) => {
     commitTabMode(to);
     if (reducedMotion()) {
       setShown(to);
-      if (to === "mail") setMailSeen(true);
       return;
     }
     const out = body.animate(
@@ -524,7 +559,6 @@ const TabModePanel: Component<{ onNavigate: (url: string) => void }> = () => {
       .catch(() => {})
       .then(() => {
         setShown(to);
-        if (to === "mail") setMailSeen(true);
         out.cancel();
         body.animate(
           [
@@ -541,7 +575,6 @@ const TabModePanel: Component<{ onNavigate: (url: string) => void }> = () => {
     if (to === "tabs") return leave();
     if (from === "tabs") {
       setShown(to);
-      if (to === "mail") setMailSeen(true);
       commitTabMode(to);
       return enter();
     }
@@ -568,7 +601,7 @@ const TabModePanel: Component<{ onNavigate: (url: string) => void }> = () => {
       ref={el}
       classList={{ "tab-mode-panel": true, open: open(), entering: entering() }}
       role="tabpanel"
-      aria-label={shown() === "mail" ? "Mail" : "Calendar"}
+      aria-label={{ calendar: "Calendar", mail: "Mail", notes: "Notes", context: "Context" }[shown()]}
       inert={!open()}
     >
       {/* The tabs, folded: one tile each, a click switches tab and stays here. */}
@@ -615,11 +648,49 @@ const TabModePanel: Component<{ onNavigate: (url: string) => void }> = () => {
         <div class="mode-page" hidden={shown() !== "calendar"}>
           <CalendarBody />
         </div>
-        <Show when={mailSeen()}>
+        <Show when={seen().has("mail")}>
           <div class="mode-page mode-mail" hidden={shown() !== "mail"}>
             <Suspense>
               <MailPane inPane />
             </Suspense>
+            <div class="mode-elsewhere">
+              <DockToggle />
+            </div>
+          </div>
+        </Show>
+        <Show when={seen().has("notes")}>
+          <div class="mode-page" hidden={shown() !== "notes"}>
+            <Suspense>
+              <TabNotes />
+            </Suspense>
+          </div>
+        </Show>
+        {/* Context: what the right-hand column holds, here instead. It lives in
+            one place at a time; while the column is open, this says so. */}
+        <Show when={seen().has("context")}>
+          <div class="mode-page mode-context" hidden={shown() !== "context"}>
+            <Show
+              when={!props.connectOpen}
+              fallback={
+                <div class="mode-moved">
+                  <p>Your notes, System and the Trail are in the column beside the page.</p>
+                  <button class="mode-link" onClick={props.onToggleConnect}>
+                    Bring them here
+                  </button>
+                </div>
+              }
+            >
+              <Suspense>
+                <ConnectionsRail />
+              </Suspense>
+              <div class="mode-elsewhere">
+                <ColumnToggle
+                  on={false}
+                  what="your notes, System and Trail"
+                  onToggle={props.onToggleConnect}
+                />
+              </div>
+            </Show>
           </div>
         </Show>
       </div>

@@ -52,6 +52,7 @@ pub mod msys;
 pub mod nav;
 pub mod netfilter;
 pub mod netspeed;
+pub mod mdnotes;
 pub mod notes;
 pub mod nvim;
 pub mod notewrite;
@@ -1299,6 +1300,13 @@ pub fn run(intent: cli::LaunchIntent) {
             notes::note_get,
             notes::note_set,
             notes::notes_list,
+            mdnotes::md_notes_home,
+            mdnotes::md_notes_list,
+            mdnotes::md_note_read,
+            mdnotes::md_note_write,
+            mdnotes::md_note_create,
+            mdnotes::md_note_rename,
+            mdnotes::md_note_delete,
             scribe::scribe_list,
             scribe::scribe_load,
             scribe::scribe_create,

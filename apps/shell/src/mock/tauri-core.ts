@@ -183,6 +183,37 @@ let mockVault: {
   },
 ];
 const mockNow = () => T0 + DAY; // "just now" relative to the fixed dates above
+/** Notes mode's notes (preview): name → text and when it last changed. */
+const mockMdNotes = new Map<string, { text: string; at: number }>([
+  [
+    "Week 13 · COMP2310",
+    {
+      text: "# Week 13 · COMP2310\n\nLab 6 is on **concurrency**: read the spec before Tuesday.\n\n- [ ] read the lab spec\n- [x] set up the repo\n- [ ] ask about `pthread_join` in the tutorial\n\n> Locks protect data, not code.\n",
+      at: Date.now() - 40 * 60_000,
+    },
+  ],
+  [
+    "Reading list",
+    {
+      text: "# Reading list\n\n1. Attention Is All You Need\n2. [The Rust Book](https://doc.rust-lang.org/book/) ch. 16\n",
+      at: Date.now() - 26 * 3_600_000,
+    },
+  ],
+]);
+const mdPreview = (text: string) =>
+  text
+    .split("\n")
+    .filter((l) => !l.startsWith("#"))
+    .map((l) =>
+      l
+        .replace(/^[#>*\-\s]+/, "")
+        .replace(/^\[[ x]\]\s*/, "")
+        .trim(),
+    )
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\*\*|__|`/g, "")
+    .slice(0, 140);
 const tabs: TabMeta[] = [
   {
     id: 1,
@@ -1566,6 +1597,37 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
           due: new Date().toLocaleDateString("sv-SE"), // YYYY-MM-DD, today
         },
       ] as T);
+    // Notes mode's Markdown notes, in memory (mdnotes.rs keeps them as files).
+    case "md_notes_home":
+      return Promise.resolve({ path: "~/OnyxVault/Flux Notes", in_vault: true } as T);
+    case "md_notes_list":
+      return Promise.resolve(
+        [...mockMdNotes.entries()]
+          .map(([name, n]) => ({ name, modified_ms: n.at, preview: mdPreview(n.text) }))
+          .sort((a, b) => b.modified_ms - a.modified_ms) as T,
+      );
+    case "md_note_read": {
+      const n = mockMdNotes.get(String(args?.name));
+      return n ? Promise.resolve(n.text as T) : Promise.reject(new Error("there's no note called that"));
+    }
+    case "md_note_write":
+    case "md_note_create": {
+      let name = String(args?.name ?? args?.title ?? "Untitled");
+      const text = args?.content != null ? String(args.content) : `# ${name}\n\n`;
+      if (args?.content == null) for (let k = 2; mockMdNotes.has(name); k++) name = `${args?.title} ${k}`;
+      mockMdNotes.set(name, { text, at: Date.now() });
+      return Promise.resolve({ name, modified_ms: Date.now(), preview: mdPreview(text) } as T);
+    }
+    case "md_note_rename": {
+      const n = mockMdNotes.get(String(args?.name));
+      if (!n) return Promise.reject(new Error("there's no note called that"));
+      mockMdNotes.delete(String(args?.name));
+      mockMdNotes.set(String(args?.to), n);
+      return Promise.resolve({ name: String(args?.to), modified_ms: n.at, preview: mdPreview(n.text) } as T);
+    }
+    case "md_note_delete":
+      mockMdNotes.delete(String(args?.name));
+      return Promise.resolve(undefined as T);
     case "mail_config":
       return Promise.resolve({ email: "razeen@example.com", host: "imap.gmail.com", port: 993 } as T);
     case "mail_fetch": {

@@ -1524,6 +1524,8 @@ const App: Component = () => {
       case "mode-tabs":
       case "mode-calendar":
       case "mode-mail":
+      case "mode-notes":
+      case "mode-context":
         setSidebarOpen(true);
         setTabMode(action.slice(5) as TabMode);
         return true;
@@ -1798,6 +1800,8 @@ const App: Component = () => {
         <Suspense>
           <Sidebar
             collapsed={!responsive().sidebar}
+            connectOpen={connectOpen()}
+            onToggleConnect={() => setConnectOpen((v) => !v)}
             terminalOpen={terminalOpen()}
             agentOpen={agentOpen()}
             onNavigate={go}

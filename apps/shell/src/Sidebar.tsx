@@ -161,6 +161,10 @@ interface SidebarProps {
   onToggleTerminal: () => void;
   onToggleAgent: () => void;
   onSaveToOmni: () => void;
+  /** The connections column (your notes, System, Trail), which Context mode
+   *  holds when it's closed and can open again. */
+  connectOpen: boolean;
+  onToggleConnect: () => void;
   onToast: (msg: string) => void;
   onAiSearch: (query: string) => void;
   onSwitchWorkspace: (id: number) => void;
@@ -334,16 +338,21 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // field into the find bar until the search is cleared or the address is asked for.
   const [findFocus, setFindFocus] = createSignal(false);
   const finding = () => vp() && (findOpen() || findFocus()) && !addrFocused();
-  const MODE_INFO: Record<TabMode, { label: string; icon: "tabs" | "calendar" | "mail" }> = {
-    tabs: { label: "Tabs", icon: "tabs" },
-    calendar: { label: "Calendar", icon: "calendar" },
-    mail: { label: "Mail", icon: "mail" },
-  };
+  const MODE_INFO: Record<TabMode, { label: string; icon: "tabs" | "calendar" | "mail" | "note" | "trail" }> =
+    {
+      tabs: { label: "Tabs", icon: "tabs" },
+      calendar: { label: "Calendar", icon: "calendar" },
+      mail: { label: "Mail", icon: "mail" },
+      notes: { label: "Notes", icon: "note" },
+      context: { label: "Context", icon: "trail" },
+    };
   // The legend in the pane's edge names the mode.
   const legend = () => {
     const m = tabMode();
     if (!vp() || m === "tabs") return `Tabs · ${activeWorkspaceName()}`;
     if (m === "mail") return mailUnread() ? `Mail · Inbox · ${mailUnread()} new` : "Mail · Inbox";
+    if (m === "notes") return "Notes & to-do";
+    if (m === "context") return "Context · this page";
     return `Calendar · ${new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}`;
   };
   // The switch's thumb travels to the picked segment, measured once it's laid out.
@@ -2526,7 +2535,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
           the switch and the footer, so the list underneath never re-renders. */}
       <Show when={vp() && !props.collapsed && modesLoaded()}>
         <Suspense>
-          <TabModePanel onNavigate={props.onNavigate} />
+          <TabModePanel
+            onNavigate={props.onNavigate}
+            connectOpen={props.connectOpen}
+            onToggleConnect={props.onToggleConnect}
+          />
         </Suspense>
       </Show>
     </nav>

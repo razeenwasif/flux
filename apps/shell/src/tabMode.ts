@@ -1,15 +1,16 @@
 /**
- * The tabs pane's modes (Velvet Paper): Tabs, Calendar and Mail.
+ * The tabs pane's modes (Velvet Paper): Tabs, Calendar, Mail, Notes and
+ * Context (your notes that relate to the page, the machine, the Trail).
  *
  * The pane keeps its width in every mode, so the page beside it never moves.
- * Calendar and Mail fold the tab list into a rail of favicons and put their
+ * The other modes fold the tab list into a rail of favicons and put their
  * panel beside it (`TabModePanel`, lazy: its chunk loads on the first switch).
  * Not persisted: a launch always opens on the tabs.
  */
 import { createSignal } from "solid-js";
 
-export type TabMode = "tabs" | "calendar" | "mail";
-export const TAB_MODES: TabMode[] = ["tabs", "calendar", "mail"];
+export type TabMode = "tabs" | "calendar" | "mail" | "notes" | "context";
+export const TAB_MODES: TabMode[] = ["tabs", "calendar", "mail", "notes", "context"];
 
 const [tabMode, setTabModeSig] = createSignal<TabMode>("tabs");
 export { tabMode };
