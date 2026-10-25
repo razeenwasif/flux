@@ -14,12 +14,14 @@ pub mod gemini;
 #[cfg(feature = "llama")]
 pub mod llama;
 pub mod ollama;
+pub mod openai;
 pub mod pac;
 pub mod playbooks;
 pub mod route;
 
 pub use gemini::GeminiBackend;
 pub use ollama::OllamaBackend;
+pub use openai::OpenAiBackend;
 pub use route::{RouteStatus, RoutingBackend};
 
 #[derive(Debug, Error)]

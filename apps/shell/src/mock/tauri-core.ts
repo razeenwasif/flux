@@ -1651,6 +1651,17 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "md_note_delete":
       mockMdNotes.delete(String(args?.name));
       return Promise.resolve(undefined as T);
+    case "model_server_get":
+      return Promise.resolve({
+        kind: "openai",
+        url: "http://192.168.68.200:8080/v1",
+        model: "gemma-4-26b-it",
+        has_key: true,
+      } as T);
+    case "model_server_models":
+      return Promise.resolve(["gemma-4-26b-it"] as T);
+    case "model_server_set":
+      return Promise.resolve(undefined as T);
     case "gecko_import_preview":
       return Promise.resolve([
         {

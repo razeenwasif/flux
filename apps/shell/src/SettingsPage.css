@@ -231,6 +231,59 @@
   justify-items: end;
   max-width: min(520px, 60vw);
 }
+/* A card that's narrow (Velvet Paper's two columns) stacks each row's label
+   over its controls, and lets a row of buttons wrap, rather than squeezing the
+   explanation into a sliver and pushing the controls out of the card. */
+.set-card {
+  container-type: inline-size;
+}
+@container (max-width: 640px) {
+  .set-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .set-row-control {
+    max-width: 100%;
+  }
+  .set-stack-control {
+    max-width: 100%;
+    justify-items: start;
+  }
+  .set-row-control div {
+    flex-wrap: wrap;
+  }
+  .set-status-line {
+    text-align: left;
+  }
+}
+/* A two-way choice (Model server: This Mac / Another machine). */
+.set-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--flux-surface);
+  border: 1px solid var(--glass-rim-soft);
+}
+.set-seg button {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--flux-text-dim);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.set-seg button.on {
+  background: var(--flux-surface-2);
+  color: var(--flux-text);
+  box-shadow: var(--glass-inset);
+}
+.set-stack-control > input {
+  width: min(340px, 100%);
+}
 .set-status-line {
   max-width: 100%;
   justify-self: stretch;

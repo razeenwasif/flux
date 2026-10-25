@@ -1,7 +1,9 @@
 //! Process-wide Flux Agent planner.
 //!
 //! The *local* backend is chosen at first use and reused for every request:
-//!   * default      → Ollama (local server, the user's Gemma models)
+//!   * default      → Settings → Model server: the local Ollama (the user's
+//!     Gemma models), or an OpenAI-compatible server elsewhere
+//!     (`crate::modelserver`), swapped in place when it changes
 //!   * FLUX_AGENT_BACKEND=mock → deterministic heuristic (dev/CI, no model)
 //!   * feature `llama` + FLUX_AGENT_BACKEND=llama → in-process llama.cpp
 //!
@@ -13,7 +15,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use flux_agent::{AgentPlanner, Inference, MockBackend, OllamaBackend, RoutingBackend};
+use flux_agent::{AgentPlanner, Inference, MockBackend, RoutingBackend};
 
 fn make_local() -> Box<dyn Inference> {
     match std::env::var("FLUX_AGENT_BACKEND").as_deref() {
@@ -28,16 +30,13 @@ fn make_local() -> Box<dyn Inference> {
                 Ok(b) => Box::new(b),
                 Err(e) => {
                     tracing::error!(target: "flux::agent", model, error = %e, "GGUF load failed; falling back to Ollama");
-                    Box::new(OllamaBackend::new())
+                    Box::new(flux_agent::OllamaBackend::new())
                 }
             }
         }
-        // Default: talk to the local Ollama server (FLUX_MODEL / FLUX_OLLAMA_URL).
-        _ => {
-            let backend = OllamaBackend::new();
-            tracing::info!(target: "flux::agent", model = backend.model(), "using Ollama backend");
-            Box::new(backend)
-        }
+        // Default: what Settings → Model server says — the local Ollama server
+        // (FLUX_MODEL / FLUX_OLLAMA_URL), or a model server on another machine.
+        _ => crate::modelserver::backend(),
     }
 }
 

@@ -5281,3 +5281,23 @@
 :root[data-design="velvet-paper"] .page-legend {
   display: none;
 }
+
+/* Settings' two-way choices as the tabs pane's switch: a recessed track, a
+   raised paper thumb. */
+:root[data-design="velvet-paper"] .set-seg {
+  padding: 3px;
+  border: none;
+  border-radius: 999px;
+  background: #0f0b13;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+:root[data-design="velvet-paper"] .set-seg button {
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+:root[data-design="velvet-paper"] .set-seg button.on {
+  background: var(--vp-wash), #2b2233;
+  box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.7);
+}

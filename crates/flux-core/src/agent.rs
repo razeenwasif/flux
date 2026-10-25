@@ -237,24 +237,39 @@ pub async fn agent_translate(
     .map_err(|e| e.to_string())
 }
 
-/// List the models the local Ollama server has pulled (#81).
+/// List the models the agent can use (#81): the local Ollama server's, or the
+/// model server's when one is set (Settings → Model server).
 #[tauri::command]
 pub async fn agent_models() -> Vec<String> {
-    tauri::async_runtime::spawn_blocking(flux_agent::ollama::list_models)
-        .await
-        .unwrap_or_default()
+    tauri::async_runtime::spawn_blocking(|| match crate::modelserver::remote() {
+        Some(cfg) => crate::modelserver::remote_models(&cfg),
+        None => flux_agent::ollama::list_models(),
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// The model the agent is currently using (#81).
 #[tauri::command]
 pub fn agent_model() -> String {
-    flux_agent::ollama::active_model()
+    match crate::modelserver::remote() {
+        Some(cfg) => cfg.model,
+        None => flux_agent::ollama::active_model(),
+    }
 }
 
 /// Switch the agent's model (#81); empty reverts to the env/default.
 #[tauri::command]
-pub fn agent_set_model(name: String) {
-    flux_agent::ollama::set_model(&name);
+pub async fn agent_set_model(name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || match crate::modelserver::remote() {
+        Some(_) => crate::modelserver::set_remote_model(&name),
+        None => {
+            flux_agent::ollama::set_model(&name);
+            Ok(())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Drop the agent's model from VRAM now (#169), rather than waiting out the

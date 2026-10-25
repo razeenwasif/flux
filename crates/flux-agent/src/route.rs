@@ -46,7 +46,10 @@ pub struct RouteStatus {
 }
 
 pub struct RoutingBackend {
-    local: Box<dyn Inference>,
+    /// The model that answers by default: the local Ollama, or the model server
+    /// the user picked in Settings (`set_local`), which can change while the
+    /// browser runs. An `Arc` for the same reason as `cloud`.
+    local: RwLock<Arc<dyn Inference>>,
     /// `None` until a key is supplied. Held behind a lock because the key can be
     /// set, changed, or cleared while the browser is running. An `Arc` so a
     /// request clones the backend out and releases the lock immediately.
@@ -56,8 +59,16 @@ pub struct RoutingBackend {
 impl RoutingBackend {
     pub fn new(local: Box<dyn Inference>) -> Self {
         Self {
-            local,
+            local: RwLock::new(Arc::from(local)),
             cloud: RwLock::new(None),
+        }
+    }
+
+    /// Swap the default model (Settings → Model server). A request already
+    /// running keeps the one it started with.
+    pub fn set_local(&self, backend: Box<dyn Inference>) {
+        if let Ok(mut g) = self.local.write() {
+            *g = Arc::from(backend);
         }
     }
 
@@ -99,7 +110,14 @@ impl RoutingBackend {
                 return f(b.as_ref());
             }
         }
-        f(self.local.as_ref())
+        // Cloned out like the cloud backend, so a swap never waits on a request.
+        // A poisoned lock can't happen (nothing panics holding it); if it did,
+        // its value is still the last good backend.
+        let local = match self.local.read() {
+            Ok(g) => Arc::clone(&g),
+            Err(p) => Arc::clone(&p.into_inner()),
+        };
+        f(local.as_ref())
     }
 }
 

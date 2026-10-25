@@ -53,6 +53,7 @@ pub mod nav;
 pub mod netfilter;
 pub mod netspeed;
 pub mod mdnotes;
+pub mod modelserver;
 pub mod notes;
 pub mod nvim;
 pub mod notewrite;
@@ -688,6 +689,11 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
     );
     // Navigation toggles (#51/#52) — vim link-hints + mouse gestures.
     app.manage(nav::NavState::new());
+    // Where the agent's model runs (Settings → Model server). Before anything
+    // builds the agent, which reads it on first use.
+    if let Ok(dir) = app.path().app_data_dir() {
+        modelserver::init(dir.join("model_server.json"));
+    }
     // Per-page notes (#53).
     let notes_path = app
         .path()
@@ -1516,6 +1522,9 @@ pub fn run(intent: cli::LaunchIntent) {
             tts::fishaudio_speak,
             // Opt-in cloud escalation for the agent (#175). Local stays default.
             gemini::gemini_set_key,
+            modelserver::model_server_get,
+            modelserver::model_server_set,
+            modelserver::model_server_models,
             gemini::gemini_has_key,
             gemini::gemini_verify_key,
             gemini::gemini_models,

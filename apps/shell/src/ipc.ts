@@ -501,6 +501,19 @@ export const fishaudioSpeak = (text: string, voiceId: string, modelId: string) =
 // and the switch resets to local on every launch — see crates/flux-core/gemini.rs.
 // Replies go through `asRoute`, which fails toward local; see cloudroute.ts.
 
+/** Where the agent's model runs (Settings → Model server): this machine's
+ *  Ollama ("local"), or an OpenAI-compatible server on another machine
+ *  ("openai", e.g. Nexus serving from a desktop GPU). The key stays in the OS
+ *  keyring; only whether one is stored comes back. */
+export type ModelServerView = { kind: "local" | "openai"; url: string; model: string; has_key: boolean };
+export const modelServerGet = () => invoke<ModelServerView>("model_server_get");
+/** Save and switch now. `key`: undefined keeps the stored one, "" removes it. */
+export const modelServerSet = (kind: "local" | "openai", url: string, model: string, key?: string) =>
+  invoke<void>("model_server_set", { kind, url, model, key: key ?? null });
+/** Test an address: the models it offers (with this key, or the stored one). */
+export const modelServerModels = (url: string, key?: string) =>
+  invoke<string[]>("model_server_models", { url, key: key || null });
+
 /** Store (or clear, with "") the Gemini API key in the OS keyring. */
 export const geminiSetKey = (key: string) => invoke<void>("gemini_set_key", { key });
 /** Whether a key is stored. The key itself never reaches the renderer. */
