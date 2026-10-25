@@ -353,6 +353,12 @@ const PAGE_SHORTCUTS: &[&str] = &[
     "back",
     "forward",
     "devtools",
+    // The tab bar's modes (Velvet Paper).
+    "mode-tabs",
+    "mode-calendar",
+    "mode-mail",
+    "mode-notes",
+    "mode-context",
 ];
 
 fn is_page_shortcut(action: &str) -> bool {
