@@ -608,6 +608,12 @@ pub async fn agent_execute(
     // 2. Plan on a blocking thread: inference is CPU/GPU-bound and must not
     //    starve the async runtime. `Arc<str>` clone = pointer copy, not text.
     //    The page URL rides along so a domain playbook can guide the model.
+    // Banking, password-manager, health and tax sites: not even a plan.
+    if let Some(kind) = flux_agent::steps::sensitive_site(&snap.url) {
+        return Ok(flux_agent::AgentAction::Refuse {
+            reason: format!("Flux's agent doesn't act on {kind} sites."),
+        });
+    }
     let page_text = Arc::clone(&snap.text);
     let url = snap.url.clone();
     let action = tauri::async_runtime::spawn_blocking(move || {
@@ -659,6 +665,12 @@ pub async fn agent_plan(
         prompt: prompt.clone(),
     };
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
+    // Banking, password-manager, health and tax sites: not even a plan.
+    if let Some(kind) = flux_agent::steps::sensitive_site(&snap.url) {
+        return Ok(flux_agent::AgentAction::Refuse {
+            reason: format!("Flux's agent doesn't act on {kind} sites."),
+        });
+    }
     let page_text = Arc::clone(&snap.text);
     let url = snap.url.clone();
     let action = tauri::async_runtime::spawn_blocking(move || {
@@ -700,6 +712,11 @@ pub async fn agent_task_step(
         prompt: goal.clone(),
     };
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
+    if let Some(kind) = flux_agent::steps::sensitive_site(&snap.url) {
+        return Ok(flux_agent::AgentAction::Refuse {
+            reason: format!("Flux's agent doesn't act on {kind} sites."),
+        });
+    }
     let page_text = Arc::clone(&snap.text);
     let url = snap.url.clone();
     let action = tauri::async_runtime::spawn_blocking(move || {
@@ -754,6 +771,15 @@ pub async fn agent_run_action(
         }
     }
 
+    // The same rule where it counts, whatever planned the action.
+    if let Some(kind) = webview
+        .url()
+        .ok()
+        .and_then(|u| flux_agent::steps::sensitive_site(u.as_str()))
+    {
+        return Err(format!("Flux's agent doesn't act on {kind} sites"));
+    }
+
     // #104: flag destructive intent for the activity feed. The compiled click
     // JS independently re-checks the element's *live* label and aborts there —
     // this annotation is the user-facing heads-up, not the enforcement point.
@@ -788,6 +814,96 @@ pub async fn agent_run_action(
     *state.agent.write() = AgentStatus::Idle;
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
     Ok(action)
+}
+
+// ─── Task steps that look before and after (Flux Next, steps.rs) ────────────
+
+/// The agent's look at a page, run in Flux's own JavaScript world.
+const PROBE_JS: &str = include_str!("../assets/agent-probe.js");
+
+/// What Flux sees on `tab`'s page, and of `selector` on it. Where it can't
+/// look (no isolated world off macOS), `checked` is false and only the URL is
+/// filled in.
+async fn page_facts(
+    app: &AppHandle,
+    tab: TabId,
+    selector: Option<&str>,
+) -> flux_agent::steps::PageFacts {
+    let args = serde_json::json!({ "selector": selector }).to_string();
+    let body = PROBE_JS.replace("__ARGS__", &args);
+    let seen = crate::pagejs::run_isolated(
+        app,
+        tab,
+        "flux-agent",
+        body,
+        std::time::Duration::from_millis(1500),
+    )
+    .await
+    .and_then(|s| serde_json::from_str::<flux_agent::steps::PageFacts>(&s).ok());
+    match seen {
+        Some(mut f) => {
+            f.checked = true;
+            f
+        }
+        None => flux_agent::steps::PageFacts {
+            url: app
+                .get_webview(&format!("tab-{tab}"))
+                .and_then(|w| w.url().ok())
+                .map(|u| u.to_string())
+                .unwrap_or_default(),
+            ..Default::default()
+        },
+    }
+}
+
+/// A planned step as code sees it, with the page as it was just before.
+#[derive(serde::Serialize, specta::Type)]
+pub struct StepCheck {
+    pub guard: flux_agent::steps::StepGuard,
+    pub before: flux_agent::steps::PageFacts,
+}
+
+/// Whether a sign-in or CAPTCHA is in the way on `tab` (the active tab when
+/// `None`): the agent hands those to you.
+#[tauri::command]
+pub async fn agent_page_facts(
+    app: AppHandle,
+    state: State<'_, FluxState>,
+    tab: Option<TabId>,
+) -> Result<flux_agent::steps::PageFacts, String> {
+    let tab = tab.or_else(|| state.active_tab()).ok_or("no active tab")?;
+    Ok(page_facts(&app, tab, None).await)
+}
+
+/// What kind of step `action` is (Read, Draft, Commit), whether it may run at
+/// all, and what it's for: decided here from the page, not by the model.
+#[tauri::command]
+pub async fn agent_step_guard(
+    app: AppHandle,
+    state: State<'_, FluxState>,
+    action: flux_agent::AgentAction,
+    tab: Option<TabId>,
+) -> Result<StepCheck, String> {
+    let tab = tab.or_else(|| state.active_tab()).ok_or("no active tab")?;
+    let before = page_facts(&app, tab, action.selector()).await;
+    let facts = before.target.as_ref().filter(|_| before.checked);
+    let guard = flux_agent::steps::classify(&action, &before.url, facts);
+    Ok(StepCheck { guard, before })
+}
+
+/// Whether a step that ran did what it was for: a fresh look at the page,
+/// compared with `before` (from [`agent_step_guard`]).
+#[tauri::command]
+pub async fn agent_verify_step(
+    app: AppHandle,
+    state: State<'_, FluxState>,
+    action: flux_agent::AgentAction,
+    tab: Option<TabId>,
+    before: flux_agent::steps::PageFacts,
+) -> Result<flux_agent::steps::StepVerdict, String> {
+    let tab = tab.or_else(|| state.active_tab()).ok_or("no active tab")?;
+    let after = page_facts(&app, tab, action.selector()).await;
+    Ok(flux_agent::steps::verify(&action, &before, &after))
 }
 
 #[cfg(test)]

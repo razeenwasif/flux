@@ -18,6 +18,7 @@ pub mod openai;
 pub mod pac;
 pub mod playbooks;
 pub mod route;
+pub mod steps;
 
 pub use gemini::GeminiBackend;
 pub use ollama::OllamaBackend;
@@ -433,7 +434,8 @@ pub fn wrap_untrusted(content: &str) -> String {
     // `replace(FENCE, "")` is not idempotent: "⟦UNTRUSTED_WEB_" + FENCE +
     // "CONTENT⟧" collapses into a brand-new FENCE once the inner copy is
     // removed. Without ⟦ / ⟧ no marker can be assembled at all. One O(n) pass.
-    let safe = content.replace(['\u{27E6}', '\u{27E7}'], "");
+    // Secret-shaped strings (keys, tokens, card numbers) never reach the model.
+    let safe = steps::redact_secrets(content).replace(['\u{27E6}', '\u{27E7}'], "");
     format!("{UNTRUSTED_FENCE}\n{safe}\n{UNTRUSTED_FENCE}")
 }
 
@@ -1266,7 +1268,9 @@ impl AgentPlanner {
              Do ONE concrete step that makes progress; you'll be called again with \
              the updated page. Use \"finish\" when the goal is already satisfied, and \
              \"refuse\" if it cannot be done here. Don't repeat a step already done. \
-             Prefer stable selectors (ids, aria-labels, data attributes).\n\n\
+             Prefer stable selectors (ids, aria-labels, data attributes). In STEPS DONE, \
+             a step marked ✕ did not happen and one marked UNVERIFIED may not have: \
+             check the page, and only finish with what the page shows.\n\n\
              {playbook}TASK GOAL: {goal}\n\nSTEPS DONE:\n{steps}\n\nPAGE:\n{page}"
         )
     }

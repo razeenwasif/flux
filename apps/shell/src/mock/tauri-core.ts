@@ -1420,14 +1420,47 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "agent_run_action":
       return Promise.resolve((args?.action ?? { action: "refuse", reason: "n/a" }) as T);
     case "agent_task_step": {
-      // First call (no history) does a step; the next one finishes — a 2-step demo.
+      // A 3-step demo (taskLoop.ts): a draft that runs on its own, a commit that
+      // asks, then finish.
       const hist = (args?.history as string[]) ?? [];
       return Promise.resolve(
         (hist.length === 0
-          ? { action: "reveal", selector: "main" }
-          : { action: "finish", summary: `(mock) completed: ${String(args?.goal ?? "task")}` }) as T,
+          ? { action: "type", selector: "#msg", text: "hello" }
+          : hist.length === 1
+            ? { action: "click", selector: "#send", reason: "send it" }
+            : { action: "finish", summary: `(mock) completed: ${String(args?.goal ?? "task")}` }) as T,
       );
     }
+    // What the agent sees of the page (steps.rs). `?previewHandoff` puts a
+    // sign-in in the way, for the hand-off card.
+    case "agent_page_facts":
+    case "agent_step_guard": {
+      const before = {
+        checked: true,
+        url: "https://example.com/compose",
+        sign_in: new URLSearchParams(location.search).has("previewHandoff"),
+        captcha: false,
+        text_len: 0,
+        text_hash: "0",
+        target: null,
+      };
+      if (cmd === "agent_page_facts") return Promise.resolve(before as T);
+      const sel = (args?.action as { selector?: string } | undefined)?.selector ?? "";
+      const commit = sel === "#send";
+      return Promise.resolve({
+        guard: {
+          kind: commit ? "commit" : "draft",
+          why: commit ? "labelled “send”" : "fills in a field",
+          effect: "",
+          blocked: null,
+          preview: commit ? "Click “Send message” on example.com (sends the form)" : "",
+          fingerprint: sel,
+        },
+        before,
+      } as T);
+    }
+    case "agent_verify_step":
+      return Promise.resolve({ verified: true, how: "the field holds it" } as T);
     case "tasks_list":
       return Promise.resolve([
         { pid: 4201, name: "flux", cpu: 6.4, mem_mb: 312, is_flux: true, current: true },

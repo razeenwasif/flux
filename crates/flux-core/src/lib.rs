@@ -59,6 +59,7 @@ pub mod nvim;
 pub mod notewrite;
 pub mod ocr;
 pub mod omni;
+pub mod pagejs;
 pub mod pdf;
 pub mod places;
 pub mod peek;
@@ -1577,6 +1578,9 @@ pub fn run(intent: cli::LaunchIntent) {
             tabsleep::tab_sleep_check,
             tabsleep::tab_snapshot,
             tabsleep::webview_snapshot,
+            agent::agent_page_facts,
+            agent::agent_step_guard,
+            agent::agent_verify_step,
             tabsleep::memory_pressure,
             leanmode::lean_status,
             leanmode::lean_set_enabled,

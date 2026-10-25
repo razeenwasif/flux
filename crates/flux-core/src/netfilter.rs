@@ -87,19 +87,17 @@ pub async fn pick_element(app: &AppHandle, tab: TabId) -> Result<Option<String>,
         let webview = app
             .get_webview(&format!("tab-{tab}"))
             .ok_or("that tab isn't open")?;
-        let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
-        webview
-            .with_webview(move |platform| unsafe {
-                mac::pick(platform.inner() as *mut objc::runtime::Object, tx)
-            })
-            .map_err(|e| e.to_string())?;
         // The page has the pointer; give it the keys too, for Esc.
         let _ = webview.set_focus();
-        tauri::async_runtime::spawn_blocking(move || {
-            rx.recv_timeout(Duration::from_secs(300)).ok().flatten()
-        })
+        Ok(crate::pagejs::run_isolated(
+            app,
+            tab,
+            "flux-picker",
+            PICKER_JS.to_string(),
+            Duration::from_secs(300),
+        )
         .await
-        .map_err(|e| e.to_string())
+        .filter(|s| !s.is_empty()))
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -107,6 +105,10 @@ pub async fn pick_element(app: &AppHandle, tab: TabId) -> Result<Option<String>,
         Err("Hide an element works on macOS only for now".into())
     }
 }
+
+/// The element picker (macOS), run in Flux's own JavaScript world.
+#[cfg(target_os = "macos")]
+const PICKER_JS: &str = include_str!("../assets/element-picker.js");
 
 /// Tabs whose page tally changed since the last `flux://shields-page` event,
 /// and whether a send is already scheduled.
@@ -316,9 +318,6 @@ mod mac {
     use tauri::Manager;
 
     const NSUTF8_STRING_ENCODING: usize = 4;
-
-    /// The element picker, run with `callAsyncJavaScript` in Flux's own world.
-    const PICKER_JS: &str = include_str!("../assets/element-picker.js");
 
     enum CbState {
         /// No compile started yet.
@@ -655,48 +654,6 @@ mod mac {
                 wry(this, cmd, webview, action, handler);
             }
         }
-    }
-
-    /// Run the picker on `webview`'s page; `tx` gets the picked selector, or
-    /// `None` for Esc, a page that went away, or an error.
-    pub unsafe fn pick(webview: *mut Object, tx: std::sync::mpsc::Sender<Option<String>>) {
-        // `callAsyncJavaScript` and content worlds are macOS 11+.
-        let can: BOOL = if webview.is_null() {
-            NO
-        } else {
-            msg_send![webview, respondsToSelector:
-                sel!(callAsyncJavaScript:arguments:inFrame:inContentWorld:completionHandler:)]
-        };
-        if can == NO {
-            let _ = tx.send(None);
-            return;
-        }
-        let tx = std::sync::Mutex::new(Some(tx));
-        let block = ConcreteBlock::new(move |result: *mut Object, err: *mut Object| {
-            let text = if err.is_null() && !result.is_null() {
-                let is_text: BOOL = msg_send![result, isKindOfClass: class!(NSString)];
-                (is_text != NO).then(|| rust_string(result))
-            } else {
-                None
-            };
-            if let Some(tx) = tx.lock().ok().and_then(|mut t| t.take()) {
-                let _ = tx.send(text.filter(|s| !s.is_empty()));
-            }
-        });
-        let block = block.copy();
-        let name = nsstring("flux-picker");
-        let world: *mut Object = msg_send![class!(WKContentWorld), worldWithName: name];
-        let body = nsstring(PICKER_JS);
-        let args: *mut Object = msg_send![class!(NSDictionary), dictionary];
-        let no_frame: *mut Object = std::ptr::null_mut();
-        let _: () = msg_send![webview,
-            callAsyncJavaScript: body
-            arguments: args
-            inFrame: no_frame
-            inContentWorld: world
-            completionHandler: &*block];
-        let _: () = msg_send![body, release];
-        let _: () = msg_send![name, release];
     }
 
     const ID_PREFIX: &str = "flux-shields";

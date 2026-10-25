@@ -105,6 +105,10 @@ import type {
   ReaderBlock as GenReaderBlock,
   ShieldsStatus as GenShieldsStatus,
   SleepCheck as GenSleepCheck,
+  PageFacts as GenPageFacts,
+  StepCheck as GenStepCheck,
+  StepVerdict as GenStepVerdict,
+  StepGuard as GenStepGuard,
   SitePerm as GenSitePerm,
   Step as GenStep,
   SyncReport as GenSyncReport,
@@ -400,6 +404,16 @@ export const agentRunAction = (action: AgentAction, tab?: number, expectedUrl?: 
 /** Plan the next step of a multi-step task given the goal + steps done so far (#A). */
 export const agentTaskStep = (goal: string, history: string[]) =>
   invoke<AgentAction>("agent_task_step", { goal, history });
+/** Task steps that look before and after (Flux Next, steps.rs): whether a
+ *  sign-in or CAPTCHA is in the way on the page. */
+export const agentPageFacts = (tab?: number) => invoke<PageFacts>("agent_page_facts", { tab });
+/** What kind of step an action is (read, draft, commit), whether it may run, and
+ *  what it's for, decided by code from the page; plus the page just before. */
+export const agentStepGuard = (action: AgentAction, tab?: number) =>
+  invoke<StepCheck>("agent_step_guard", { action, tab });
+/** Whether a step that ran did what it was for, from a fresh look. */
+export const agentVerifyStep = (action: AgentAction, before: PageFacts, tab?: number) =>
+  invoke<StepVerdict>("agent_verify_step", { action, tab, before });
 /** Free-form chat with the local model (no page required). Returns the reply. */
 export const agentChat = (prompt: string) => invoke<string>("agent_chat", { prompt });
 /** Push-to-talk STT (#voice): transcribe base64 LE-i16 mono PCM at `sampleRate`. */
@@ -1492,6 +1506,10 @@ export const webviewCaptureState = (tabId: number) => invoke<void>("webview_capt
 
 // ─── Tab sleep (tabsleep.rs, sleepPolicy.ts) ─────────────────────────────────
 export type SleepCheck = GenSleepCheck;
+export type PageFacts = GenPageFacts;
+export type StepCheck = GenStepCheck;
+export type StepVerdict = GenStepVerdict;
+export type StepGuard = GenStepGuard;
 /** What sleeping each open tab would cost: page memory, sound or capture,
  *  unsaved edits. Tabs without a webview are left out. */
 export const tabSleepCheck = (tabIds: number[]) => invoke<SleepCheck[]>("tab_sleep_check", { tabIds });

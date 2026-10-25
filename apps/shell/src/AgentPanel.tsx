@@ -9,6 +9,7 @@ import {
   Show,
   createEffect,
   createSignal,
+  lazy,
   onCleanup,
   onMount,
   untrack,
@@ -76,7 +77,6 @@ import {
   agentPlanSteps,
   agentNextStep,
   agentRunAction,
-  agentTaskStep,
   agentLens,
   agentVision,
   attachmentRead,
@@ -101,7 +101,10 @@ import {
   type AgentAction,
   type NextStep,
   type AgentStatus,
+  type StepGuard,
 } from "./ipc";
+import type { Blocker, HandoffChoice } from "./taskLoop";
+const TaskBar = lazy(() => import("./TaskBar"));
 import { looksLikeNoteWrite } from "./noteintent";
 import { isCaptureRequest, isOnyxSave, savesLastAnswer } from "./onyxintent";
 import { DAY_MONTH, MONTH_DAY, looksLikeCalendarQuery } from "./calendarintent";
@@ -326,13 +329,23 @@ const AgentPanel: Component = () => {
         .map((m): FeedItem => ({ role: m.role === "user" ? "user" : "assistant", text: m.text })),
     ]);
   };
-  // Multi-step tasks (#A): the iterative agent loop. `taskRunning` gates input;
-  // `taskAuto` = "run all" (auto-approve non-stop steps); `taskStep` holds the
-  // step currently awaiting Approve/Skip/Stop in step-through mode.
+  // Multi-step tasks (#A, Flux Next): the iterative agent loop. `taskRunning`
+  // gates input; `taskStep` holds a commit waiting for Do it / Skip / Stop (only
+  // commits ask: steps.rs decides which those are); `handoff` a sign-in or
+  // CAPTCHA the agent has handed to you.
   const [taskRunning, setTaskRunning] = createSignal(false);
-  const [taskAuto, setTaskAuto] = createSignal(false);
-  const [taskStep, setTaskStep] = createSignal<{ action: AgentAction; n: number } | null>(null);
+  const [taskStep, setTaskStep] = createSignal<{ action: AgentAction; n: number; guard: StepGuard } | null>(
+    null,
+  );
   let stepResolver: ((d: "approve" | "skip" | "stop") => void) | null = null;
+  const [handoff, setHandoff] = createSignal<{ what: Blocker; waiting: boolean } | null>(null);
+  const [taskStopped, setTaskStopped] = createSignal(false);
+  let handoffResolver: ((c: HandoffChoice) => void) | null = null;
+  const handoffChoose = (c: HandoffChoice) => {
+    const r = handoffResolver;
+    handoffResolver = null;
+    r?.(c);
+  };
   // Multi-step chain (#115): when a chain step needs an approval card (edit / shell),
   // this resolver is set so the chain waits for the user's Apply/Run (true) or
   // Cancel (false) before moving to the next step. The existing approve/cancel
@@ -485,7 +498,14 @@ const AgentPanel: Component = () => {
   // can call the bridge: accept one report, only from the tab an action just
   // ran on, and only known kinds (never page-supplied text) reach the planner.
   const OK_OUTCOMES = new Set(["clicked", "typed", "extract"]);
-  const FAIL_OUTCOMES = new Set(["not_found", "bad_selector", "blocked_destructive", "refused"]);
+  const FAIL_OUTCOMES = new Set([
+    "not_found",
+    "bad_selector",
+    "blocked_destructive",
+    "blocked_sensitive",
+    "not_typable",
+    "refused",
+  ]);
   const awaitingReport = new Map<number, number>(); // tab → accept until (ms)
   const agentOutcome = new Map<number, string>();
   const expectReport = (tabId: number | undefined, action: AgentAction) => {
@@ -1070,7 +1090,7 @@ const AgentPanel: Component = () => {
     '- System awareness: "system status" / "how\'s my CPU" / "what\'s using memory" → CPU%, RAM, top processes.\n' +
     '- Web search: "search <x>" / "open a new tab and search <x>".\n' +
     '- Music (AudioPulse/Spotify): "play <song>", "play my liked songs", "shuffle on", "skip", "pause", "launch spotify".\n' +
-    '- Page actions: "/act <do something on this page>" (one step) or "/task <multi-step goal>" (you plan steps the user approves). You can also chat grounded in the current page or all open tabs.\n' +
+    '- Page actions: "/act <do something on this page>" (one step) or "/task <multi-step goal>" (reads and drafts run on their own; the user approves what sends, buys, posts or deletes). You can also chat grounded in the current page or all open tabs.\n' +
     '- Chain several of the above in one request: join steps with "then" / "+" — e.g. "read src/foo.rs then fix the bug then run the tests" or "play my liked songs + shuffle on". Each step runs in order; edits/commands still ask for approval.\n' +
     '- Adaptive goal loop: "/fix <goal>" (e.g. "/fix make the tests in src/foo.rs pass") — you run one step, read the result, and re-plan: run → read the failure → edit a fix → re-run, until it\'s done or stuck. Each edit/command still asks for approval.\n' +
     '- Power Platform (Power Apps / Power Automate ALM): "/pac <request>" maps to ONE Power Platform CLI command — e.g. "/pac export my solution Contoso", "/pac unpack the solution zip", "/pac list my canvas apps". It runs the command via the approval card; environment-mutating ones (import/delete/publish) are flagged first.\n' +
@@ -2759,13 +2779,12 @@ const AgentPanel: Component = () => {
       f.map((it, i) => (i === idx ? { ...it, pending: false, text: `Skipped: ${it.text}` } : it)),
     );
 
-  // ── Multi-step task loop (#A) ──────────────────────────────────────────────
-  const MAX_TASK_STEPS = 8;
-  // Step-through gate: resolve when the user clicks Approve / Skip / Stop.
-  const awaitDecision = (action: AgentAction, n: number) =>
+  // ── Multi-step task loop (#A; taskLoop.ts) ─────────────────────────────────
+  // Step-through gate: resolve when the user clicks Do it / Skip / Stop.
+  const awaitDecision = (action: AgentAction, n: number, guard: StepGuard) =>
     new Promise<"approve" | "skip" | "stop">((resolve) => {
       stepResolver = resolve;
-      setTaskStep({ action, n });
+      setTaskStep({ action, n, guard });
     });
   const decideStep = (d: "approve" | "skip" | "stop") => {
     const r = stepResolver;
@@ -3128,74 +3147,37 @@ const AgentPanel: Component = () => {
   const runTask = async (goal: string) => {
     if (taskRunning()) return;
     setTaskRunning(true);
+    setTaskStopped(false);
     setFeed((f) => [
       ...f,
       { role: "user", text: `/task ${goal}` },
       { role: "task", text: `▶ Task: ${goal}` },
     ]);
-    const history: string[] = [];
     try {
-      for (let i = 0; i < MAX_TASK_STEPS; i++) {
-        // Plan the next step from the LIVE page + what's been done.
-        setBusy(true);
-        let action: AgentAction;
-        try {
-          action = await agentTaskStep(goal, history);
-        } finally {
-          setBusy(false);
-        }
-        if (action.action === "finish") {
-          setFeed((f) => [...f, { role: "task", text: `✓ ${action.summary}` }]);
-          return;
-        }
-        if (action.action === "refuse") {
-          setFeed((f) => [...f, { role: "assistant", text: `✕ ${action.reason}` }]);
-          return;
-        }
-
-        // Decide: step-through awaits a click; "run all" auto-approves.
-        let decision: "approve" | "skip" | "stop" = "approve";
-        if (taskAuto()) {
-          setFeed((f) => [...f, { role: "plan", text: `→ ${describeAction(action)}` }]);
-        } else {
-          decision = await awaitDecision(action, i + 1);
-        }
-        if (decision === "stop") {
-          setFeed((f) => [...f, { role: "task", text: "⏹ Task stopped." }]);
-          return;
-        }
-        if (decision === "skip") {
-          history.push(`(skipped) ${describeAction(action)}`);
-          continue;
-        }
-
-        // Run the approved step, record it, let the page settle before re-planning.
-        const stepTabId = activeId() ?? undefined;
-        const stepUrl = tabs().find((t) => t.id === stepTabId)?.url;
-        expectReport(stepTabId, action);
-        setBusy(true);
-        try {
-          await agentRunAction(action, stepTabId, stepUrl);
-          setFeed((f) => [...f, { role: "action", text: describeAction(action) }]);
-          history.push(describeAction(action));
-        } finally {
-          setBusy(false);
-        }
-        await new Promise((r) => setTimeout(r, 1200));
-        // The page's own report (blocked, not found) lands after the click's
-        // 180 ms highlight: don't let the planner build on a step that never ran.
-        const outcome = stepTabId != null ? agentOutcome.get(stepTabId) : undefined;
-        if (outcome && FAIL_OUTCOMES.has(outcome)) {
-          const what = describeAction(action).replace(/^✓ /, "");
-          history[history.length - 1] = `✕ FAILED (${outcome.replace(/_/g, " ")}): ${what}`;
-        }
-      }
-      setFeed((f) => [...f, { role: "task", text: `Reached the ${MAX_TASK_STEPS}-step limit — stopping.` }]);
+      const { runTaskLoop } = await import("./taskLoop");
+      await runTaskLoop(goal, {
+        say: (role, text) => setFeed((f) => [...f, { role, text }]),
+        busy: setBusy,
+        activeTab: () => activeId() ?? undefined,
+        tabUrl: (tab) => tabs().find((t) => t.id === tab)?.url,
+        expectReport,
+        failure: (tab) => {
+          const o = tab != null ? agentOutcome.get(tab) : undefined;
+          return o && FAIL_OUTCOMES.has(o) ? o : undefined;
+        },
+        decide: awaitDecision,
+        showHandoff: setHandoff,
+        nextChoice: () => new Promise((r) => (handoffResolver = r)),
+        wait: (ms) => new Promise((r) => setTimeout(r, ms)),
+        stopped: taskStopped,
+      });
     } catch (err) {
       setFeed((f) => [...f, { role: "error", text: String(err) }]);
     } finally {
       stepResolver = null;
+      handoffResolver = null;
       setTaskStep(null);
+      setHandoff(null);
       setTaskRunning(false);
     }
   };
@@ -3424,8 +3406,8 @@ const AgentPanel: Component = () => {
               <div class="agent-empty">
                 Chat with your local Gemma — ask anything. Use <kbd>/act</kbd> for a single page action, or{" "}
                 <kbd>/task</kbd> for a multi-step goal (e.g.{" "}
-                <em>/task find the cheapest listing and open it</em>) — the agent plans one step at a time and
-                you approve each (or tick “Run all”).
+                <em>/task find the cheapest listing and open it</em>); it asks before anything that sends,
+                buys, posts or deletes.
                 <div class="agent-empty-tips">
                   Try: <em>“what can you do”</em> · <em>“remember that …”</em> ·
                   <em>“remind me to … at 3pm”</em> · <em>“system status”</em> ·<em>“search …”</em> ·{" "}
@@ -3566,46 +3548,17 @@ const AgentPanel: Component = () => {
           </Show>
         </div>
 
-        {/* Multi-step task controls (#A): the step awaiting approval + run-all/stop. */}
+        {/* Multi-step task controls (#A; TaskBar.tsx, loaded with the first /task). */}
         <Show when={taskRunning()}>
-          <div class="agent-task-bar">
-            <Show
-              when={taskStep()}
-              fallback={
-                <span class="agent-task-status">{working() ? "planning next step…" : "working…"}</span>
-              }
-            >
-              {(s) => (
-                <div class="agent-task-step">
-                  <div class="agent-task-step-label">
-                    Step {s().n}: {describeAction(s().action)}
-                  </div>
-                  <div class="agent-approve">
-                    <button class="agent-approve-yes" onClick={() => decideStep("approve")}>
-                      ✓ Run
-                    </button>
-                    <button class="agent-approve-no" onClick={() => decideStep("skip")}>
-                      Skip
-                    </button>
-                    <button class="agent-approve-no" onClick={() => decideStep("stop")}>
-                      ⏹ Stop
-                    </button>
-                  </div>
-                </div>
-              )}
-            </Show>
-            <label
-              class="agent-task-auto"
-              title="Auto-approve each step (destructive clicks are still blocked at click time)"
-            >
-              <input
-                type="checkbox"
-                checked={taskAuto()}
-                onChange={(e) => setTaskAuto(e.currentTarget.checked)}
-              />{" "}
-              Run all
-            </label>
-          </div>
+          <TaskBar
+            working={working()}
+            stopped={taskStopped()}
+            step={taskStep()}
+            handoff={handoff()}
+            onStop={() => setTaskStopped(true)}
+            onDecide={decideStep}
+            onHandoff={handoffChoose}
+          />
         </Show>
 
         {/* Chat-with-page/tabs (#34): scope toggle + one-tap prompts grounded in

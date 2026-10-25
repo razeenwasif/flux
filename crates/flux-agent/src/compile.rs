@@ -54,6 +54,24 @@ fn destructive_guard() -> String {
     )
 }
 
+/// JS that refuses to type into a password, card or one-time-code field, read
+/// from the live element when the step runs. The same rule as
+/// `steps::sensitive_field`, which stops the step before it's offered; this one
+/// holds wherever Flux couldn't look first, and against a page that swaps the
+/// field after the check.
+fn sensitive_field_guard() -> String {
+    r#"{
+    const __a = (__el.getAttribute('autocomplete') || '').toLowerCase();
+    const __w = [__el.getAttribute('name'), __el.id, __el.getAttribute('aria-label'), __el.getAttribute('placeholder'), __a].join(' ').toLowerCase();
+    const __what = (__el.type === 'password' || __a.includes('password')) ? 'password'
+      : (__a.includes('one-time-code') || /\b(otp|2fa|totp|one-time|verification code)\b/.test(__w)) ? 'one-time code'
+      : (/(^|\s)cc-/.test(__a) || /card.?number|ccnum|\bcvv\b|\bcvc\b|\bcsc\b|security code|expiry/.test(__w)) ? 'card'
+      : '';
+    if (__what) { __el.style.cssText = __old; window.__FLUX__?.report('blocked_sensitive', __what); return; }
+  }"#
+    .to_string()
+}
+
 /// JSON-encode a string slice as a JS array literal (injection-safe).
 fn js_str_arr(items: &[&str]) -> String {
     serde_json::to_string(items).expect("array serialization is infallible")
@@ -106,6 +124,7 @@ pub fn to_js(action: &AgentAction) -> String {
         AgentAction::Type { selector, text } => format!(
             r#"(() => {{
   {prelude}
+  {sensitive}
   __el.focus();
   const __text = {text};
   if (__el.isContentEditable) {{
@@ -134,6 +153,7 @@ pub fn to_js(action: &AgentAction) -> String {
   window.__FLUX__?.report('typed', {sel});
 }})();"#,
             prelude = highlight_prelude(selector),
+            sensitive = sensitive_field_guard(),
             text = js_str(text),
             sel = js_str(selector),
         ),
@@ -186,6 +206,20 @@ mod tests {
             .to_js();
             assert!(js.contains("querySelectorAll('tr')"));
         }
+    }
+
+    #[test]
+    fn typing_refuses_sensitive_fields_at_run_time() {
+        let js = AgentAction::Type {
+            selector: "#f".into(),
+            text: "x".into(),
+        }
+        .to_js();
+        let guard = js.find("blocked_sensitive").expect("the guard is in");
+        assert!(
+            guard < js.find("__el.focus()").unwrap(),
+            "it runs before typing"
+        );
     }
 
     #[test]

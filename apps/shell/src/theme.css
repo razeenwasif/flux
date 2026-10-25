@@ -5197,13 +5197,13 @@ body.resizing .panel-edge-resize::after {
   color: var(--flux-text);
   margin-bottom: 6px;
 }
-.agent-task-auto {
-  display: inline-flex;
+/* Up to four choices (a hand-off): whole labels, wrapping as a row. */
+.agent-task-bar .agent-approve {
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  color: var(--flux-text-mute);
-  cursor: pointer;
+}
+.agent-task-bar .agent-approve button {
+  white-space: nowrap;
 }
 .agent-task {
   color: var(--flux-violet, var(--flux-violet));

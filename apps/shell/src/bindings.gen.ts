@@ -246,6 +246,27 @@ export type BlockedDomain = { domain: string; count: number }
  * What sleeping a tab would cost, for the shell's policy.
  */
 export type SleepCheck = { tab_id: number; memory_mb: number | null; keep_awake: string | null; keep_loaded: string | null; suspended: boolean }
+/**
+ * What Flux read about a step's target, from its own script in the page.
+ */
+export type TargetFacts = { found: boolean; tag: string; role: string; input_type: string; autocomplete: string; name: string; label: string; href: string; submits: boolean; value: string; disabled: boolean; state: string }
+/**
+ * The page as Flux's script saw it.
+ */
+export type PageFacts = { checked: boolean; url: string; sign_in: boolean; captcha: boolean; text_len: number; text_hash: string; target: TargetFacts | null }
+export type StepKind = "read" | "draft" | "commit"
+/**
+ * What code makes of a planned step.
+ */
+export type StepGuard = { kind: StepKind; why: string; effect: string; blocked: string | null; preview: string; fingerprint: string }
+/**
+ * Whether the step did what it was for.
+ */
+export type StepVerdict = { verified: boolean; how: string }
+/**
+ * A planned step as code sees it, with the page as it was just before.
+ */
+export type StepCheck = { guard: StepGuard; before: PageFacts }
 export type ShieldsStatus = { backend: string; request_metrics: boolean; request_controls: boolean; site_controls: boolean; element_picker: boolean; attachment: string; enabled: boolean; blocked: number; sites_off: string[]; cache_hit_pct: number; cache_len: number; rules_fired: number; page_blocked: number; page_domains: BlockedDomain[]; site_hidden: number }
 export type HotRule = { rule: string; hits: number }
 export type LeanStatus = { enabled: boolean; sites_on: string[] }
