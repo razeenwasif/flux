@@ -108,7 +108,6 @@ import { DAY_MONTH, MONTH_DAY, looksLikeCalendarQuery } from "./calendarintent";
 import { looksAgentic } from "./agentintent";
 import { joinPath, resolveAgentPath } from "./agentpaths";
 import { parseSummarise, summariseRequest } from "./agentsteps";
-import { readPdfText } from "./pdftext";
 import {
   activeId,
   activeWorkspace,
@@ -1329,6 +1328,8 @@ const AgentPanel: Component = () => {
           setFeed((f) => f.map((it, i) => (i === ocrIdx ? { ...it, text: line } : it)));
         }
       };
+      // Loaded on the first PDF: the panel is on the boot path, and few tasks read one.
+      const { readPdfText } = await import("./pdftext");
       const { text, pages, pagesWithText, truncated, ocr } = await readPdfText(
         path,
         onOcr,
