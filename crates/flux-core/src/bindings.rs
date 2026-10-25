@@ -157,6 +157,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<OmniHit>(&c),
         specta::ts::export::<ReaderBlock>(&c),
         specta::ts::export::<BlockedDomain>(&c),
+        specta::ts::export::<crate::tabsleep::SleepCheck>(&c),
         specta::ts::export::<ShieldsStatus>(&c),
         specta::ts::export::<HotRule>(&c),
         specta::ts::export::<LeanStatus>(&c),

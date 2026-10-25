@@ -242,6 +242,10 @@ export type OmniHit = { kind: string; tab_id: number | null; title: string; url:
  */
 export type ReaderBlock = { kind: string; text?: string; level?: number; src?: string }
 export type BlockedDomain = { domain: string; count: number }
+/**
+ * What sleeping a tab would cost, for the shell's policy.
+ */
+export type SleepCheck = { tab_id: number; memory_mb: number | null; keep_awake: string | null; keep_loaded: string | null; suspended: boolean }
 export type ShieldsStatus = { backend: string; request_metrics: boolean; request_controls: boolean; site_controls: boolean; element_picker: boolean; attachment: string; enabled: boolean; blocked: number; sites_off: string[]; cache_hit_pct: number; cache_len: number; rules_fired: number; page_blocked: number; page_domains: BlockedDomain[]; site_hidden: number }
 export type HotRule = { rule: string; hits: number }
 export type LeanStatus = { enabled: boolean; sites_on: string[] }

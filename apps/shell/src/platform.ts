@@ -33,11 +33,13 @@ if (isMobile && typeof document !== "undefined") {
   document.documentElement.classList.add("mobile");
 }
 
+/** macOS, from the same UA signal: the WebKit-only paths (tab sleep's memory
+ *  pressure, for one) key on it. */
+export const isMac: boolean =
+  typeof navigator !== "undefined" && /Macintosh|Mac OS X/i.test(navigator.userAgent);
+
 /** Format the same cross-platform shortcut accepted by the shell. */
-export function shortcutLabel(
-  chord: string,
-  mac = typeof navigator !== "undefined" && /Macintosh|Mac OS X/i.test(navigator.userAgent),
-): string {
+export function shortcutLabel(chord: string, mac = isMac): string {
   return mac
     ? chord
         .replace(/Ctrl\+/g, "⌘")

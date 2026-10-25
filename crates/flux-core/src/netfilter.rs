@@ -23,7 +23,8 @@
 //! `_webView:contentRuleListWithIdentifier:performedAction:forURL:`, which Flux
 //! adds to wry's delegate class: that feeds the page counts and the tracker
 //! graph. The Shields switches add or remove the list per webview, decided as
-//! each main-frame navigation starts.
+//! each main-frame navigation starts. This is the one place Flux extends wry's
+//! delegate, so tab sleep's paint report (`tabsleep.rs`) is added here too.
 //!
 //! The COM usage was compile-verified against `x86_64-pc-windows-msvc`; only its
 //! runtime behavior needs a Windows smoke test. The `flux::netfilter` tracing
@@ -353,6 +354,8 @@ mod mac {
     type ReportFn = extern "C" fn(&Object, Sel, *mut Object, *mut Object, *mut Object, *mut Object);
     /// `webView:decidePolicyForNavigationAction:decisionHandler:`
     type DecideFn = extern "C" fn(&Object, Sel, *mut Object, *mut Object, *mut Object);
+    /// `_webView:renderingProgressDidChange:`
+    type ProgressFn = extern "C" fn(&Object, Sel, *mut Object, usize);
 
     pub fn hooked() -> bool {
         HOOKED.load(Ordering::Relaxed)
@@ -550,6 +553,14 @@ mod mac {
             if added == NO {
                 return;
             }
+            // Tab sleep's wake: the page drew (tabsleep.rs asks for these events
+            // on the webviews it restores; others report none).
+            runtime::class_addMethod(
+                cls,
+                sel!(_webView:renderingProgressDidChange:),
+                std::mem::transmute::<ProgressFn, Imp>(rendering_progress),
+                c"v@:@Q".as_ptr(),
+            );
             let _ = WRY_DECIDE.set(runtime::method_getImplementation(decide) as usize);
             runtime::method_setImplementation(
                 decide,
@@ -588,6 +599,25 @@ mod mac {
             });
             let Some(label) = label else { return };
             super::blocked_natively(&label, &page_url(webview), &url_string(url));
+        }
+    }
+
+    /// `_webView:renderingProgressDidChange:`: a restored page drew.
+    extern "C" fn rendering_progress(
+        _this: &Object,
+        _cmd: Sel,
+        webview: *mut Object,
+        _events: usize,
+    ) {
+        let label = VIEWS.with(|v| {
+            v.borrow()
+                .get(&(webview as usize))
+                .map(|view| view.label.clone())
+        });
+        if let (Some(label), Some(app)) = (label, super::APP.get()) {
+            if let Some(tab) = super::tab_of(&label) {
+                crate::tabsleep::painted(app, tab);
+            }
         }
     }
 

@@ -1291,12 +1291,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
         <Section title="Memory">
           <Row
             label="Sleep inactive tabs"
-            hint="Unload a background tab's memory; it reloads when you return."
+            hint="A background tab pauses after 5 minutes idle. Beyond the 4 most recent, or past 256 MB, it unloads, and comes back from a snapshot of where you left it. Tabs playing sound, using the camera or holding unsaved edits stay loaded."
           >
             <Toggle on={hibernateEnabled()} onClick={() => setHibernateEnabled(!hibernateEnabled())} />
           </Row>
           <Show when={hibernateEnabled()}>
-            <Row label="Sleep after" hint="Idle time before a background tab is unloaded.">
+            <Row label="Unload after" hint="Also unload any background tab idle this long.">
               <select
                 class="shields-select"
                 value={String(hibernateMins())}
@@ -1311,7 +1311,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Show>
           <Row
             label="Sleep under memory pressure"
-            hint="When free RAM runs low, sleep the least-recently-used tabs early."
+            hint="When the system runs low on memory, unload more background tabs early (all of them when it's critical)."
           >
             <Toggle on={memEvict()} onClick={() => setMemEvict(!memEvict())} />
           </Row>

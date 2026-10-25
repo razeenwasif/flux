@@ -65,6 +65,34 @@
     } catch (e) {}
   };
 
+  // Tab sleep (tabsleep.rs) asks what a discard would lose before closing a
+  // page: text the user typed and hasn't sent, or a leave-page prompt. Only
+  // trusted input counts (not a page filling its own fields), and a submit
+  // clears it. Handlers added with addEventListener("beforeunload") aren't
+  // seen: patching it would show in the page, and the edits are what matter.
+  var edited = false;
+  addEventListener(
+    "input",
+    function (e) {
+      var t = e.target;
+      if (!e.isTrusted || !t) return;
+      if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) edited = true;
+    },
+    true,
+  );
+  addEventListener(
+    "submit",
+    function () {
+      edited = false;
+    },
+    true,
+  );
+  window.__fluxSleepVeto = function () {
+    if (edited) return "unsaved edits";
+    if (typeof window.onbeforeunload === "function") return "a leave-page prompt";
+    return "";
+  };
+
   window.__fluxRestore = function (s) {
     try {
       if (!s) return;

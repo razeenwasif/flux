@@ -310,8 +310,11 @@ mod real {
             .get_window(CHROME_WINDOW)
             .ok_or("chrome window missing")?;
         let target = parse_url(url)?;
+        // A tab waking from a discard opens hidden: the shell paints its
+        // snapshot until the page draws, then shows it (tabsleep.rs).
+        let waking = matches!(opener, Opener::Shell) && crate::tabsleep::opens_hidden(tab_id);
         let (visible, early) = match opener {
-            Opener::Shell => (true, false),
+            Opener::Shell => (!waking, false),
             Opener::Boot { visible } => (visible, true),
         };
 
@@ -524,6 +527,10 @@ mod real {
             // after the page is laid out. `json` is the captured state as a valid
             // JS object literal; armed only when the tab was actually hibernated.
             if matches!(payload.event(), PageLoadEvent::Finished) {
+                // A waking tab that loaded without WebKit reporting a paint.
+                crate::tabsleep::painted(&app_for_load, tab_id);
+            }
+            if matches!(payload.event(), PageLoadEvent::Finished) {
                 if let Some(json) = app_for_load
                     .try_state::<crate::hibernate::HibernateStore>()
                     .and_then(|s| s.take_for_restore(tab_id))
@@ -579,6 +586,12 @@ mod real {
         // Drawn while the window is covered, so it shows in Mission Control.
         #[cfg(target_os = "macos")]
         let _ = child.with_webview(stay_awake_when_covered);
+        #[cfg(target_os = "macos")]
+        if waking {
+            let _ = child.with_webview(move |p| unsafe {
+                crate::tabsleep::restore_into(p.inner() as _, tab_id)
+            });
+        }
         round_webview(&child, width, height, scale); // rounded corners (#center-pane)
                                                      // Install the content-blocker request interceptor (#57/#91, ADR 0007) +
                                                      // native tracking prevention (#58).
@@ -701,6 +714,7 @@ mod real {
 
     #[tauri::command]
     pub async fn webview_show(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+        crate::tabsleep::resume(&app, tab_id);
         if let Some(wv) = app.get_webview(&label(tab_id)) {
             // Undo any background trim *before* the page is on screen, so it
             // re-decodes into a normal budget rather than a starved one. Cheap and
@@ -1058,6 +1072,8 @@ mod real {
     /// intact so the shell re-creates the webview (reloading the page) on focus.
     #[tauri::command]
     pub async fn webview_hibernate(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+        // WebKit's record of the page and a snapshot, to wake from (tabsleep.rs).
+        crate::tabsleep::before_discard(&app, tab_id).await;
         crate::netfilter::forget(tab_id);
         // Arm restore (#45) so the captured scroll/form state re-applies on wake.
         if let Some(store) = app.try_state::<crate::hibernate::HibernateStore>() {
@@ -1169,6 +1185,7 @@ mod real {
     #[tauri::command]
     pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> {
         crate::netfilter::forget(tab_id);
+        crate::tabsleep::forget(&app, tab_id);
         let label = label(tab_id);
         // Clear-on-close (#58): if this tab's host is flagged, its cookies go from
         // the jar its webview was built on (a sleeping tab's: the one it would
@@ -1212,6 +1229,8 @@ mod real {
     }
 
     pub(crate) fn eval(app: &AppHandle, tab_id: TabId, js: &str) -> Result<(), String> {
+        // A suspended page runs no script.
+        crate::tabsleep::resume(app, tab_id);
         let wv = app
             .get_webview(&label(tab_id))
             .ok_or("no such tab webview")?;

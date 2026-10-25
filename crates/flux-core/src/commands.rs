@@ -217,6 +217,7 @@ pub fn tab_focus(app: AppHandle, state: State<'_, FluxState>, id: TabId) {
 #[tauri::command]
 pub fn tab_close(app: AppHandle, state: State<'_, FluxState>, id: TabId) {
     crate::netfilter::forget(id);
+    crate::tabsleep::forget(&app, id);
     state.tabs.remove(&id);
     state.dom_cache.remove(&id);
     state.order_remove(id);

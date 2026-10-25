@@ -25,6 +25,9 @@ const probe=async()=>{
 document.querySelector('#probe').onclick=probe;
 // ?auto runs the probe on load, for a check without clicking.
 if(location.search.includes('auto'))probe();
+// ?beat sends a heartbeat every half second: it stops while Flux has the page
+// suspended (tab sleep) and starts again from the page's restored state.
+if(location.search.includes('beat')){document.body.style.minHeight='4000px';setInterval(()=>fetch('/beat?y='+Math.round(scrollY)),500);}
 // Whether the promo box shows, once Flux has injected its cosmetic CSS: logged
 // by the server, for the Hide-an-element check.
 setTimeout(()=>fetch('/report?promo='+getComputedStyle(document.querySelector('#promo')).display),800);
@@ -32,7 +35,10 @@ setTimeout(()=>fetch('/report?promo='+getComputedStyle(document.querySelector('#
 const server = createServer((req, res) => {
   const path = new URL(req.url, "http://127.0.0.1").pathname;
   res.setHeader("Cache-Control", "no-store");
-  if (path === "/report") {
+  if (path === "/beat") {
+    requests.push({ path, y: new URL(req.url, "http://127.0.0.1").searchParams.get("y"), at: new Date().toISOString() });
+    res.end("ok");
+  } else if (path === "/report") {
     const promo = new URL(req.url, "http://127.0.0.1").searchParams.get("promo");
     requests.push({ path, promo, at: new Date().toISOString() });
     console.log(`Page reported promo display: ${promo}`);

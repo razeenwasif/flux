@@ -38,6 +38,7 @@ import {
 import { domPublishInternal } from "./ipc";
 import { tabs, updateTabTitle, updateTabUrl } from "./store";
 import { basename } from "./tabvisual";
+import { wakeShot } from "./wakeShot";
 import type { TabMeta } from "./ipc";
 
 const AppsPage = lazy(() => import("./AppsPage"));
@@ -172,14 +173,34 @@ const InternalPage: Component<InternalPageProps> = (props) => {
     <div ref={host} style={{ display: "contents" }}>
       <Switch
         fallback={
-          <span
-            aria-hidden={tab()?.kind === "browser" && /^https?:/i.test(tab()?.url ?? "")}
-            style={{ "text-align": "center", "line-height": 1.8 }}
+          <Show
+            when={wakeShot(tab()?.id)}
+            fallback={
+              <span
+                aria-hidden={tab()?.kind === "browser" && /^https?:/i.test(tab()?.url ?? "")}
+                style={{ "text-align": "center", "line-height": 1.8 }}
+              >
+                <strong style={{ color: "var(--flux-text)" }}>{tab()?.title || "Flux"}</strong>
+                <br />
+                loading…
+              </span>
+            }
           >
-            <strong style={{ color: "var(--flux-text)" }}>{tab()?.title || "Flux"}</strong>
-            <br />
-            loading…
-          </span>
+            {/* A tab waking from an unload: the page as it was, until it draws. */}
+            <img
+              src={wakeShot(tab()?.id)}
+              alt=""
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                inset: "0",
+                width: "100%",
+                height: "100%",
+                "object-fit": "cover",
+                "object-position": "top left",
+              }}
+            />
+          </Show>
         }
       >
         <Match when={tab()?.kind === "files"}>

@@ -1028,6 +1028,15 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         site_hidden: mockHidden,
       } as T);
     }
+    // Tab sleep (tabsleep.rs): the preview has no engine to suspend or unload.
+    case "memory_pressure":
+      return Promise.resolve("normal" as T);
+    case "tab_sleep_check":
+      return Promise.resolve([] as T);
+    case "tab_snapshot":
+      return Promise.resolve(null as T);
+    case "webview_suspend":
+      return Promise.resolve(false as T);
     case "shields_pick_element":
       mockHidden += 1;
       return Promise.resolve(true as T);

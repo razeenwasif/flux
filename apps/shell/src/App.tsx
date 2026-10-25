@@ -70,13 +70,13 @@ import {
   tabSetUrl,
   webviewBack,
   webviewForward,
-  memStatus,
-  hibernateRank,
+  memoryPressure,
+  onMemoryPressure,
+  tabSleepCheck,
   prefetchRecord,
   prefetchHints,
   sentinelOnNavigate,
   sentinelAfterLoad,
-  prefetchSetPressure,
   webviewPreconnect,
   webviewCaptureState,
   webviewHibernate,
@@ -101,6 +101,7 @@ import {
 } from "./ipc";
 import { setTerminalOpener } from "./terminals";
 import { isMobile } from "./platform";
+import type { Pressure } from "./sleepPolicy";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import ContentArea from "./ContentArea";
 import { installDwellCapture } from "./trail";
@@ -676,11 +677,11 @@ const App: Component = () => {
       toast("Screenshot saved", "ok");
     });
     onCleanup(unShot);
-    // Tab hibernation (#45): every 30s, keep the active tab fresh and destroy
-    // the webviews of browser tabs that are idle past the timeout — or, under
-    // genuine memory pressure, the least-recently-used ones. Freed tabs stay in
-    // the strip and reload when re-activated (the effect above re-opens any tab
-    // not in `openedWebviews`).
+    // Tab sleep (#45, Flux Next): every minute, and when memory pressure rises,
+    // keep the active tab fresh, then suspend idle background tabs and unload
+    // the ones past the warm set (sleepPolicy.ts). Unloaded tabs stay in the
+    // strip and wake when re-activated (the tiler re-opens any tab not in
+    // `openedWebviews`, behind its snapshot).
     // Tabs we've asked the engine to trim, so the 60 s timer issues the call once
     // per background stint rather than every tick.
     const trimmed = new Set<number>();
@@ -723,7 +724,29 @@ const App: Component = () => {
           (openedWebviews.has(t.id) || openingWebviews.has(t.id)),
       );
     };
-    const hibTimer = window.setInterval(async () => {
+    // Memory pressure: macOS reports it (tabsleep.rs); elsewhere low free
+    // memory stands in for it, read on each tick below.
+    const [pressure, setPressure] = createSignal<Pressure>("normal");
+    void memoryPressure()
+      .then(setPressure)
+      .catch(() => {});
+    holdListener(
+      onMemoryPressure((level) => {
+        setPressure(level);
+        if (level !== "normal") void sleepTick();
+      }),
+    );
+    let ticking = false;
+    const sleepTick = async () => {
+      if (ticking) return;
+      ticking = true;
+      try {
+        await sleepPass();
+      } finally {
+        ticking = false;
+      }
+    };
+    const sleepPass = async () => {
       const now = Date.now();
       const act = activeId();
       if (act != null) lastActive.set(act, now);
@@ -756,42 +779,25 @@ const App: Component = () => {
       // Nothing live in the background → no idle-sleep candidates and no reason
       // to scan system memory. Bail before the sysinfo IPC (the periodic cost).
       if (bg.length === 0) return;
-      // Idle-timeout sleep.
-      if (hibernateEnabled()) {
-        const cutoff = hibernateMins() * 60_000;
-        for (const t of bg) {
-          if (now - (lastActive.get(t.id) ?? now) > cutoff) hibernateTab(t.id);
-        }
-      }
-      // Memory-pressure eviction — only when free system memory is genuinely
-      // low; sleep the LRU few (more when it's critical). memStatus (a sysinfo
-      // scan) runs only here, i.e. only when there are background tabs to evict.
-      if (memEvict()) {
-        const m = await memStatus().catch(() => null);
-        // Gate predictive prefetch (#103) on real memory pressure.
-        if (m) void prefetchSetPressure(m.available_pct < 12).catch(() => {});
-        if (m && m.available_pct < 12) {
-          const bgNow = liveBackground(act);
-          const limit = m.available_pct < 6 ? 4 : 2;
-          // #106: ask the backend to order candidates worst-first (least likely
-          // to be needed next, per the #103 Markov model), skipping any it wants
-          // to keep. Fall back to plain LRU if the call fails / returns nothing.
-          const candidates = bgNow.map((t) => ({
-            tab_id: t.id,
-            url: t.url,
-            idle_secs: Math.round((now - (lastActive.get(t.id) ?? now)) / 1000),
-          }));
-          const ranked = await hibernateRank(activeTab()?.url ?? "", candidates).catch(() => null);
-          const order =
-            ranked && ranked.length
-              ? ranked.filter((r) => !r.protected).map((r) => r.tab_id)
-              : bgNow
-                  .sort((a, b) => (lastActive.get(a.id) ?? 0) - (lastActive.get(b.id) ?? 0))
-                  .map((t) => t.id);
-          for (const id of order.slice(0, limit)) hibernateTab(id);
-        }
-      }
-    }, 60_000);
+      // Tab sleep in three steps (sleepPolicy.ts): hidden tabs are already
+      // throttled by the engine; suspend after five idle minutes; unload beyond
+      // the warm set, past 256 MB or past Settings' idle time, waking later
+      // from a snapshot.
+      const { sleepPass: run } = await import("./sleepPass");
+      await run({
+        tabs: bg.map((t) => ({ id: t.id, url: t.url, idleMs: now - (lastActive.get(t.id) ?? now) })),
+        activeUrl: activeTab()?.url ?? "",
+        pressure: pressure(),
+        settings: {
+          enabled: hibernateEnabled(),
+          discardAfterMs: hibernateMins() * 60_000,
+          pressureEvicts: memEvict(),
+        },
+        stillBackground: () => new Set(liveBackground(activeId()).map((t) => t.id)),
+        unload: hibernateTab,
+      });
+    };
+    const hibTimer = window.setInterval(() => void sleepTick(), 60_000);
     onCleanup(() => clearInterval(hibTimer));
     // Find-in-page match count from the active page (#33).
     holdListener(
@@ -1038,26 +1044,36 @@ const App: Component = () => {
     void webviewZoom(t.id, f).catch(() => {});
   };
 
-  // Resource governor (#70): hibernate every live background tab now, freeing
-  // their webviews (RAM). Mirrors the idle-sweep but on demand.
-  const sleepBackgroundTabs = () => {
+  // Resource governor (#70): unload every live background tab now, freeing
+  // their webviews (RAM). Mirrors the sleep pass but on demand, and like it
+  // leaves a tab playing sound, capturing, or holding unsaved edits alone.
+  const sleepBackgroundTabs = async () => {
     const visible = new Set(paneLayout().map((p) => p.tab.id));
-    let n = 0;
-    for (const t of tabs()) {
-      if (
+    const bg = tabs().filter(
+      (t) =>
         t.kind === "browser" &&
         !visible.has(t.id) &&
         !isStartUrl(t.url) &&
-        (openedWebviews.has(t.id) || openingWebviews.has(t.id))
-      ) {
-        forgetWebview(t.id);
-        setHibernated(t.id, true);
-        wv(webviewHibernate(t.id));
-        n++;
-      }
+        (openedWebviews.has(t.id) || openingWebviews.has(t.id)),
+    );
+    const checks = await tabSleepCheck(bg.map((t) => t.id)).catch(() => []);
+    const kept = new Map(
+      checks
+        .filter((c) => c.keep_awake || c.keep_loaded)
+        .map((c) => [c.tab_id, c.keep_awake ?? c.keep_loaded]),
+    );
+    let n = 0;
+    for (const t of bg) {
+      if (kept.has(t.id) || !(openedWebviews.has(t.id) || openingWebviews.has(t.id))) continue;
+      forgetWebview(t.id);
+      setHibernated(t.id, true);
+      wv(webviewHibernate(t.id));
+      n++;
     }
+    const why = [...new Set(kept.values())].join(", ");
     toast(
-      n ? `Slept ${n} background tab${n === 1 ? "" : "s"}` : "No background tabs to sleep",
+      (n ? `Slept ${n} background tab${n === 1 ? "" : "s"}` : "No background tabs to sleep") +
+        (kept.size ? ` · kept ${kept.size} (${why})` : ""),
       n ? "ok" : "info",
     );
   };

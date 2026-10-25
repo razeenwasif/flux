@@ -26,9 +26,16 @@ const ipc = vi.hoisted(() => {
     webviewOpen: ok(),
     webviewSetBounds: ok(),
     webviewShow: ok(),
+    tabSnapshot: vi.fn((_id: number) => Promise.resolve<string | null>(null)),
+    painted: (_id: number) => {},
+    onTabPainted: vi.fn((cb: (id: number) => void) => {
+      ipc.painted = cb;
+      return Promise.resolve(() => {});
+    }),
   };
 });
 vi.mock("./ipc", () => ipc);
+const asleep = vi.hoisted(() => new Set<number>());
 
 // The store's tab signal, settable from the tests.
 const live = vi.hoisted(() => ({ setActiveTab: (_t: TabMeta | null) => {} }));
@@ -47,7 +54,8 @@ vi.mock("./store", async () => {
     panelSplitRatio: () => 0.5,
     panelWidth: () => 380,
     readerOpen: () => false,
-    setHibernated: () => {},
+    isHibernated: (id: number) => asleep.has(id),
+    setHibernated: (id: number, on: boolean) => void (on ? asleep.add(id) : asleep.delete(id)),
     tileGroup: none,
     tilePanes: none,
   };
@@ -114,7 +122,33 @@ beforeEach(() => {
 afterEach(() => {
   dispose?.();
   live.setActiveTab(null);
+  asleep.clear();
   vi.unstubAllGlobals();
+});
+
+describe("waking an unloaded tab", () => {
+  it("keeps the page hidden behind its snapshot until it has drawn", async () => {
+    asleep.add(9);
+    ipc.tabSnapshot.mockResolvedValueOnce("data:image/jpeg;base64,AAAA");
+    boot(() => false);
+    live.setActiveTab(tab(9, "https://example.com/"));
+    await settle();
+    expect(ipc.tabSnapshot).toHaveBeenCalledWith(9);
+    expect(ipc.webviewOpen).toHaveBeenCalledWith(9, "https://example.com/", CARD);
+    expect(ipc.webviewShow).not.toHaveBeenCalled();
+    ipc.painted(9);
+    await settle();
+    expect(ipc.webviewShow).toHaveBeenCalledWith(9);
+    expect(asleep.has(9)).toBe(false);
+  });
+
+  it("opens and shows at once when there's no snapshot", async () => {
+    asleep.add(9);
+    boot(() => false);
+    live.setActiveTab(tab(9, "https://example.com/"));
+    await settle();
+    expect(ipc.webviewShow).toHaveBeenCalledWith(9);
+  });
 });
 
 describe("the restored tab's open", () => {

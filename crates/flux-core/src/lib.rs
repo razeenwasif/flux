@@ -86,6 +86,7 @@ pub mod state;
 pub mod storage;
 pub mod stt;
 pub mod sync;
+pub mod tabsleep;
 pub mod taskmgr;
 pub mod terminal;
 pub mod todos;
@@ -333,6 +334,8 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
             None => proxy::ProxyState::default(),
         },
     );
+    // Tab sleep: the system's memory-pressure signal (macOS dispatch source).
+    tabsleep::watch_memory_pressure(app.handle());
     // Content-blocker shields: the filter engine + per-site policy (#57).
     let filters_dir = app.path().app_data_dir().ok().map(|d| d.join("filters"));
     let shields_prefs = app
@@ -1570,6 +1573,10 @@ pub fn run(intent: cli::LaunchIntent) {
             pwa::pwa_launch,
             pwa::pwa_remove,
             hibernate::hibernate_rank,
+            tabsleep::webview_suspend,
+            tabsleep::tab_sleep_check,
+            tabsleep::tab_snapshot,
+            tabsleep::memory_pressure,
             leanmode::lean_status,
             leanmode::lean_set_enabled,
             leanmode::lean_set_site,

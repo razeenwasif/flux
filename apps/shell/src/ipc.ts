@@ -104,6 +104,7 @@ import type {
   QuickLocation as GenQuickLocation,
   ReaderBlock as GenReaderBlock,
   ShieldsStatus as GenShieldsStatus,
+  SleepCheck as GenSleepCheck,
   SitePerm as GenSitePerm,
   Step as GenStep,
   SyncReport as GenSyncReport,
@@ -1488,6 +1489,24 @@ export const webviewHibernate = (tabId: number) => invoke<void>("webview_hiberna
 export const webviewMemoryLow = (tabId: number) => invoke<void>("webview_memory_low", { tabId });
 /** Snapshot a tab's scroll/form state before it sleeps, to restore on wake. #45 */
 export const webviewCaptureState = (tabId: number) => invoke<void>("webview_capture_state", { tabId });
+
+// ─── Tab sleep (tabsleep.rs, sleepPolicy.ts) ─────────────────────────────────
+export type SleepCheck = GenSleepCheck;
+/** What sleeping each open tab would cost: page memory, sound or capture,
+ *  unsaved edits. Tabs without a webview are left out. */
+export const tabSleepCheck = (tabIds: number[]) => invoke<SleepCheck[]>("tab_sleep_check", { tabIds });
+/** Suspend a background tab (macOS): its scripts and timers stop; it stays in
+ *  memory. It resumes when shown. False when this platform can't. */
+export const webviewSuspend = (tabId: number) => invoke<boolean>("webview_suspend", { tabId });
+/** The snapshot an unloaded tab left, as a data URL, handed over once. */
+export const tabSnapshot = (tabId: number) => invoke<string | null>("tab_snapshot", { tabId });
+/** The system's memory pressure: "normal", "warn" or "critical" (macOS). */
+export const memoryPressure = () => invoke<"normal" | "warn" | "critical">("memory_pressure");
+export const onMemoryPressure = (cb: (level: "normal" | "warn" | "critical") => void): Promise<UnlistenFn> =>
+  listen<"normal" | "warn" | "critical">("flux://memory-pressure", (e) => cb(e.payload));
+/** A tab waking from an unload drew its page. */
+export const onTabPainted = (cb: (tabId: number) => void): Promise<UnlistenFn> =>
+  listen<number>("flux://tab-painted", (e) => cb(e.payload));
 /** Mobile: a tab's cached cover snapshot (base64 data URL), "" if none. Pulled over
  *  normal IPC because images are too large for the plugin event channel (ADR 0012). */
 export const webviewThumbnail = (tabId: number) => invoke<string>("webview_thumbnail", { tabId });
