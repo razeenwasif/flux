@@ -1117,14 +1117,49 @@ mod real {
             .collect()
     }
 
-    /// Open the devtools inspector for a tab's webview (F12). Requires Tauri's
-    /// `devtools` feature (enabled in Cargo.toml) so it works in release too.
+    /// Open the devtools inspector for a tab's webview (⌥⌘I, F12), or close it
+    /// if it's open. Requires Tauri's `devtools` feature (enabled in Cargo.toml)
+    /// so it works in release too.
+    ///
+    /// On macOS WebKit docks the inspector into the page's own window. A tab is
+    /// a child view under Flux's chrome, so docked it was open and out of sight
+    /// (the key seemed to do nothing): it opens in a window of its own instead.
     #[tauri::command]
     pub async fn webview_devtools(app: AppHandle, tab_id: TabId) -> Result<(), String> {
-        if let Some(wv) = app.get_webview(&label(tab_id)) {
-            wv.open_devtools();
+        let Some(wv) = app.get_webview(&label(tab_id)) else {
+            return Ok(());
+        };
+        #[cfg(target_os = "macos")]
+        {
+            use objc::runtime::Object;
+            use objc::{msg_send, sel, sel_impl};
+            wv.with_webview(|pw| unsafe {
+                // WKWebView's `_inspector` (_WKInspector): what wry's
+                // open_devtools calls `show` on.
+                let wk = pw.inner() as *mut Object;
+                let insp: *mut Object = msg_send![wk, _inspector];
+                if insp.is_null() {
+                    return;
+                }
+                let can =
+                    |sel: objc::runtime::Sel| -> bool { msg_send![insp, respondsToSelector: sel] };
+                let open: bool = can(sel!(isVisible)) && msg_send![insp, isVisible];
+                if open && can(sel!(close)) {
+                    let _: () = msg_send![insp, close];
+                    return;
+                }
+                let _: () = msg_send![insp, show];
+                if can(sel!(detach)) {
+                    let _: () = msg_send![insp, detach];
+                }
+            })
+            .map_err(|e| e.to_string())
         }
-        Ok(())
+        #[cfg(not(target_os = "macos"))]
+        {
+            wv.open_devtools();
+            Ok(())
+        }
     }
 
     /// The hints a page on `page_host` may be shown: its own host and subdomains
