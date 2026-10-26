@@ -25,13 +25,23 @@
   }
   function watch() {
     report();
-    var titleEl = document.querySelector("title");
-    if (titleEl && window.MutationObserver) {
-      new MutationObserver(report).observe(titleEl, { childList: true, characterData: true, subtree: true });
+    if (!window.MutationObserver) return;
+    // The title's text, and <head> itself: SPAs sometimes swap the whole
+    // <title> node, which the head sees go by. No timer, so a quiet panel
+    // costs nothing.
+    var titleObs = new MutationObserver(report);
+    var titleEl = null;
+    function follow() {
+      var el = document.querySelector("title");
+      if (el === titleEl) return;
+      titleEl = el;
+      titleObs.disconnect();
+      if (el) titleObs.observe(el, { childList: true, characterData: true, subtree: true });
+      report();
     }
-    // Belt-and-braces: SPAs sometimes swap the whole <title> node — a light poll
-    // catches those without a per-keystroke cost.
-    setInterval(report, 5000);
+    follow();
+    var head = document.head || document.documentElement;
+    if (head) new MutationObserver(follow).observe(head, { childList: true });
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", watch);

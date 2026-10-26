@@ -83,14 +83,29 @@ const place = () => {
   badge.style.top = `${r.top + scrollY + (r.height - 18) / 2}px`;
 };
 place();
-// A resize moves it at once; a move with no resize (a sidebar going away) by the next tick.
-const obs = new ResizeObserver(place);
+// A resize moves it, and so does a change with no resize (a sidebar going
+// away, a class or style flip): watched, not polled, so a still page costs
+// nothing while the badge is up. One placement per frame at most.
+let queued = false;
+const soon = () => {
+  if (queued) return;
+  queued = true;
+  requestAnimationFrame(() => {
+    queued = false;
+    place();
+  });
+};
+const obs = new ResizeObserver(soon);
 obs.observe(doc.body);
-const tick = setInterval(place, 500);
+const moved = new MutationObserver((records) => {
+  // The badge's own moves are style changes too; they don't count.
+  if (records.some((r) => r.target !== badge)) soon();
+});
+moved.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden"] });
 window.__fluxCiteFollow = {
   disconnect() {
     obs.disconnect();
-    clearInterval(tick);
+    moved.disconnect();
   },
 };
 const root = badge.attachShadow({ mode: "closed" });

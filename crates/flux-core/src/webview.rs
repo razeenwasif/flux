@@ -112,6 +112,92 @@ mod real {
         )
     }
 
+    /// The scripts every tab's pages get.
+    const ALWAYS: [(&str, &str); 7] = [
+        ("capture", CAPTURE_JS),
+        ("shortcuts", SHORTCUTS_JS),
+        ("hibernate", HIBERNATE_JS),
+        ("darkmode", DARKMODE_JS),
+        ("newtab", NEWTAB_JS),
+        ("pip", PIP_JS),
+        ("passwords", PASSWORDS_JS),
+    ];
+
+    /// The features whose scripts a page gets only while they're on: link
+    /// hints and gestures, the macro recorder (in the tab being recorded),
+    /// draft capture and form help. Off, they cost a page nothing: no parse,
+    /// no listeners, no IPC.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct Optional {
+        nav: bool,
+        recording: bool,
+        drafts: bool,
+        formhelp: bool,
+    }
+
+    fn optional_now(app: &AppHandle, tab_id: TabId) -> Optional {
+        Optional {
+            nav: app
+                .try_state::<crate::nav::NavState>()
+                .is_some_and(|s| s.hints() || s.gestures()),
+            recording: app
+                .try_state::<crate::macros::MacroState>()
+                .is_some_and(|s| s.is_recording_tab(tab_id)),
+            // As `trace_drafts_enabled` answered: on once the drafts have loaded.
+            drafts: app
+                .try_state::<crate::trace::TraceDrafts>()
+                .is_some_and(|d| d.is_loaded() && d.enabled()),
+            formhelp: app
+                .try_state::<crate::formhelp::FormHelpState>()
+                .is_some_and(|f| f.enabled()),
+        }
+    }
+
+    fn optional_scripts(o: Optional) -> Vec<(&'static str, &'static str)> {
+        [
+            (o.nav, ("nav", NAV_JS)),
+            (o.recording, ("macro-record", MACRO_REC_JS)),
+            (o.drafts, ("drafts", DRAFTS_JS)),
+            (o.formhelp, ("formhelp", FORMHELP_JS)),
+        ]
+        .into_iter()
+        .filter_map(|(on, s)| on.then_some(s))
+        .collect()
+    }
+
+    /// Add an optional script to the page in `tab` (every tab's, for `None`)
+    /// when a feature is turned on there, so it reaches pages already open.
+    /// Each script runs once per page, so adding it twice does nothing.
+    pub fn add_page_script(app: &AppHandle, tab: Option<TabId>, name: &str) {
+        let Some(src) = optional_scripts(Optional {
+            nav: true,
+            recording: true,
+            drafts: true,
+            formhelp: true,
+        })
+        .into_iter()
+        .find(|(n, _)| *n == name) else {
+            return;
+        };
+        let js = join_page_scripts(&[src]);
+        for (l, wv) in app.webviews() {
+            if l.starts_with("tab-") && tab.is_none_or(|t| l == label(t)) {
+                let _ = wv.eval(&js);
+            }
+        }
+    }
+
+    /// Only the top document: an iframe gets none of Flux's page scripts. WebKit
+    /// is told main frame only; WebView2 ignores that and runs init scripts in
+    /// every frame, so on Windows the script says it itself.
+    fn top_frame_only(init: String) -> String {
+        if cfg!(windows) {
+            format!("if(window.top===window){{\n{init}}}\n")
+        } else {
+            init
+        }
+    }
+
     /// The chord map shortcuts.js starts from (keys.rs).
     fn keys_flag(app: &AppHandle) -> String {
         let map = app
@@ -372,22 +458,12 @@ mod real {
             ""
         };
         let keys_flag = keys_flag(app);
-        let init = format!(
+        let mut scripts = ALWAYS.to_vec();
+        scripts.extend(optional_scripts(optional_now(app, tab_id)));
+        let init = top_frame_only(format!(
             "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{macro_flag}{keys_flag}{}",
-            page_scripts(&[
-                ("capture", CAPTURE_JS),
-                ("shortcuts", SHORTCUTS_JS),
-                ("hibernate", HIBERNATE_JS),
-                ("darkmode", DARKMODE_JS),
-                ("nav", NAV_JS),
-                ("newtab", NEWTAB_JS),
-                ("pip", PIP_JS),
-                ("macro-record", MACRO_REC_JS),
-                ("passwords", PASSWORDS_JS),
-                ("drafts", DRAFTS_JS),
-                ("formhelp", FORMHELP_JS),
-            ])
-        );
+            page_scripts(&scripts)
+        ));
 
         // Private tabs (#59) use an in-memory session; container tabs (#59) get an
         // isolated cookie/storage jar: a per-container data dir, or on macOS a
@@ -468,6 +544,8 @@ mod real {
                 claimed: false,
             });
         }
+        let cosmetic_cache =
+            std::sync::Arc::new(parking_lot::Mutex::new((String::new(), String::new())));
         let builder = builder
         .on_page_load(move |webview, payload| {
             let phase = match payload.event() {
@@ -489,15 +567,23 @@ mod real {
             // Cosmetic filtering (#57): inject element-hiding CSS for this page,
             // so blocked ad slots / leftover placeholders don't leave gaps. Works
             // on every backend (it's just CSS injection, unlike the network hook).
-            let css = app_for_load
-                .try_state::<crate::shields::ShieldsState>()
-                .map(|s| s.cosmetic_css(&url))
-                .unwrap_or_default();
+            // Built once per address: both load events ask for the same page.
+            let css = {
+                let mut cache = cosmetic_cache.lock();
+                if cache.0 != url {
+                    let css = app_for_load
+                        .try_state::<crate::shields::ShieldsState>()
+                        .map(|s| s.cosmetic_css(&url))
+                        .unwrap_or_default();
+                    *cache = (url.clone(), css);
+                }
+                cache.1.clone()
+            };
             if !css.is_empty() {
                 if let Ok(lit) = serde_json::to_string(&css) {
                     let _ = webview.eval(format!(
                         "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-cosmetic');\
-                         if(!s){{s=d.createElement('style');s.id='flux-cosmetic';}}s.textContent=c;\
+                         if(!s){{s=d.createElement('style');s.id='flux-cosmetic';}}if(s.textContent!==c)s.textContent=c;\
                          var t=d.head||d.documentElement;if(t&&!s.parentNode)t.appendChild(s);}})()"
                     ));
                 }
@@ -511,7 +597,7 @@ mod real {
                     if let Ok(lit) = serde_json::to_string(&bcss) {
                         let _ = webview.eval(format!(
                             "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-boost');\
-                             if(!s){{s=d.createElement('style');s.id='flux-boost';}}s.textContent=c;\
+                             if(!s){{s=d.createElement('style');s.id='flux-boost';}}if(s.textContent!==c)s.textContent=c;\
                              var t=d.head||d.documentElement;if(t&&!s.parentNode)t.appendChild(s);}})()"
                         ));
                     }
@@ -538,6 +624,13 @@ mod real {
             let keys = app_for_load
                 .try_state::<crate::keys::KeyStore>()
                 .map_or_else(|| "{}".to_string(), |k| k.map_json());
+            // The optional scripts a feature turned on since this webview was
+            // built (its init script has only what was on then), before the
+            // flags they read. Each runs once per page.
+            let optional = optional_scripts(optional_now(&app_for_load, tab_id));
+            if !optional.is_empty() {
+                let _ = webview.eval(join_page_scripts(&optional));
+            }
             let _ = webview.eval(live_flags_js(dark, hints, gestures, recording, &keys));
             // Extension content scripts (#93/#94): inject the CSS + JS of every
             // enabled extension whose @match patterns hit this URL, at the right
@@ -555,7 +648,7 @@ mod real {
                 if let Ok(lit) = serde_json::to_string(&inj.css) {
                     let _ = webview.eval(format!(
                         "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-ext-css');\
-                         if(!s){{s=d.createElement('style');s.id='flux-ext-css';}}s.textContent=c;\
+                         if(!s){{s=d.createElement('style');s.id='flux-ext-css';}}if(s.textContent!==c)s.textContent=c;\
                          var t=d.head||d.documentElement;if(t&&!s.parentNode)t.appendChild(s);}})()"
                     ));
                 }
@@ -1163,6 +1256,9 @@ mod real {
     /// WebKit both implement it) to highlight + scroll to the next/previous match,
     /// counts case-insensitive occurrences in the visible text, and reports
     /// `{count, found}` back to the chrome via the `find_result` fluxtab command.
+    /// The count is kept per query while the page has as many elements as when
+    /// it was taken: next and previous don't re-read a large page's text
+    /// (53–97 ms a step, measured).
     /// An empty `query` clears the current selection/highlight.
     #[tauri::command]
     pub async fn webview_find(
@@ -1177,11 +1273,14 @@ mod real {
         "(function(q,fwd){{try{{\
            var inv=window.__TAURI_INTERNALS__&&window.__TAURI_INTERNALS__.invoke;\
            var sel=window.getSelection&&window.getSelection();\
-           if(!q){{if(sel)sel.removeAllRanges();\
+           if(!q){{window.__fluxFindCount=null;if(sel)sel.removeAllRanges();\
              if(inv)inv('plugin:fluxtab|find_result',{{tabId:window.__FLUX_TAB_ID__,count:0,found:false}});return;}}\
-           var hay=(document.body&&document.body.innerText)||'';\
-           var esc=q.replace(/[.*+?^${{}}()|[\\]\\\\]/g,'\\\\$&');\
-           var count=(hay.match(new RegExp(esc,'gi'))||[]).length;\
+           var n=document.getElementsByTagName('*').length,k=q.toLowerCase(),c=window.__fluxFindCount,count;\
+           if(c&&c.k===k&&c.n===n){{count=c.count;}}else{{\
+             var hay=(document.body&&document.body.innerText)||'';\
+             var esc=q.replace(/[.*+?^${{}}()|[\\]\\\\]/g,'\\\\$&');\
+             count=(hay.match(new RegExp(esc,'gi'))||[]).length;\
+             window.__fluxFindCount={{k:k,n:n,count:count}};}}\
            var found=window.find?window.find(q,false,!fwd,true,false,true,false):false;\
            if(inv)inv('plugin:fluxtab|find_result',{{tabId:window.__FLUX_TAB_ID__,count:count,found:!!found}});\
          }}catch(e){{}}}})({q},{forward});"
@@ -1314,14 +1413,14 @@ mod real {
             ""
         };
         let keys_flag = keys_flag(&app);
-        let init = format!(
+        let init = top_frame_only(format!(
             "{dark_flag}{keys_flag}{}",
             page_scripts(&[
                 ("shortcuts", SHORTCUTS_JS),
                 ("darkmode", DARKMODE_JS),
                 ("panel-badge", PANEL_BADGE_JS),
             ])
-        );
+        ));
         let mut builder = WebviewBuilder::new(panel_label(panel_id), WebviewUrl::External(target))
             .initialization_script(&init)
             .on_navigation(|u| !super::is_app_origin(u));
@@ -1885,6 +1984,101 @@ mod real {
             NEWTAB_JS, PANEL_BADGE_JS, PASSWORDS_JS, PIP_JS, SHORTCUTS_JS,
         };
 
+        use super::{optional_scripts, top_frame_only, Optional, ALWAYS};
+
+        /// An idle page shows no periodic script work: no page script runs on
+        /// a timer. (A page's own changes may wake an observer; a quiet page
+        /// costs nothing after it loads.)
+        #[test]
+        fn no_page_script_repeats_on_a_timer() {
+            let all = ALWAYS
+                .iter()
+                .chain(
+                    optional_scripts(Optional {
+                        nav: true,
+                        recording: true,
+                        drafts: true,
+                        formhelp: true,
+                    })
+                    .iter(),
+                )
+                .chain([("panel-badge", PANEL_BADGE_JS)].iter())
+                .copied()
+                .collect::<Vec<_>>();
+            for (name, src) in all {
+                assert!(
+                    !src.contains("setInterval("),
+                    "{name}.js repeats on a timer"
+                );
+            }
+        }
+
+        /// The optional scripts go in only while their feature is on, and the
+        /// ones every page gets are not among them.
+        #[test]
+        fn optional_scripts_follow_their_features() {
+            assert!(optional_scripts(Optional::default()).is_empty());
+            let names = |o: Optional| {
+                optional_scripts(o)
+                    .into_iter()
+                    .map(|(n, _)| n)
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                names(Optional {
+                    nav: true,
+                    ..Default::default()
+                }),
+                ["nav"]
+            );
+            assert_eq!(
+                names(Optional {
+                    recording: true,
+                    formhelp: true,
+                    ..Default::default()
+                }),
+                ["macro-record", "formhelp"]
+            );
+            for (name, _) in ALWAYS {
+                assert!(
+                    !["nav", "macro-record", "drafts", "formhelp"].contains(&name),
+                    "{name} is optional"
+                );
+            }
+        }
+
+        /// An optional script can arrive twice in one page (in the init script
+        /// and again at load, or when its feature is turned on): each runs once.
+        #[test]
+        fn optional_scripts_run_once_per_page() {
+            for (name, src) in [
+                ("nav", NAV_JS),
+                ("macro-record", MACRO_REC_JS),
+                ("drafts", DRAFTS_JS),
+                ("formhelp", FORMHELP_JS),
+            ] {
+                let head: String = src.lines().take(30).collect::<Vec<_>>().join("\n");
+                assert!(
+                    head.contains("window.__flux") && head.contains("return"),
+                    "{name}.js has no run-once guard near its top"
+                );
+            }
+            // Drafts no longer asks whether it's on: it's only there when it is.
+            assert!(!DRAFTS_JS.contains("trace_drafts_enabled"));
+            // Nor does the password script announce itself on every load.
+            assert!(!PASSWORDS_JS.contains("reason: \"alive\""));
+        }
+
+        #[test]
+        fn iframes_get_no_page_scripts_on_windows() {
+            let init = top_frame_only("window.__FLUX_TAB_ID__ = 1;".into());
+            if cfg!(windows) {
+                assert!(init.starts_with("if(window.top===window){"), "{init}");
+            } else {
+                assert_eq!(init, "window.__FLUX_TAB_ID__ = 1;");
+            }
+        }
+
         #[test]
         fn one_failing_script_cannot_kill_the_rest() {
             let blob = join_page_scripts(&[("first", "throw new Error('x')"), ("second", "ran=1")]);
@@ -2070,6 +2264,9 @@ mod stub {
     pub(crate) fn eval(_app: &AppHandle, _tab_id: TabId, _js: &str) -> Result<(), String> {
         Ok(())
     }
+
+    /// Optional page scripts need a tab webview to go into; none here.
+    pub fn add_page_script(_app: &AppHandle, _tab: Option<TabId>, _name: &str) {}
 
     /// Window corner rounding is a desktop cosmetic; nothing to do on mobile.
     pub fn round_window_corners(_window: &tauri::WebviewWindow) {}

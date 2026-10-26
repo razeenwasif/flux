@@ -2,8 +2,8 @@
 // textareas and, after you pause typing, sends the field's text to Flux so a
 // half-written reply survives a closed tab (it attaches to the page's Visit in
 // the Trail). Privacy is structural, enforced BEFORE anything is read:
-//   • asks the backend once whether capture is enabled — if not, no listeners
-//     are attached at all;
+//   • Flux adds this script to a page only while capture is on (webview.rs),
+//     so with it off nothing is attached at all;
 //   • never reads password/hidden/file inputs, cc/OTP autocomplete fields,
 //     [data-sensitive] fields, or ANY field inside a form containing a password
 //     input (login/sign-up forms wholesale);
@@ -14,7 +14,9 @@
   "use strict";
   const TAB_ID = window.__FLUX_TAB_ID__;
   const invoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
-  if (!invoke || TAB_ID == null) return;
+  // Added at load, or when capture is turned on: once per page.
+  if (!invoke || TAB_ID == null || window.__fluxDrafts) return;
+  window.__fluxDrafts = true;
 
   const SENSITIVE_NAME =
     /pass|pwd|card|cvv|cvc|otp|2fa|totp|secret|token|ssn|social|iban|routing|pin\b/i;
@@ -78,16 +80,8 @@
     }
   };
 
-  // One enablement check, deferred until the document exists. Calling the IPC
-  // bridge from an init script at document-created — before the parser has made
-  // <html> — crashes the WebView2 renderer (null-pointer read in msedge.dll,
-  // reproduced on signed-in github.com). This script did nothing else at load and
-  // still took the page down, which is what isolated the bridge call itself.
-  whenReady(() => {
-    invoke("plugin:fluxtab|trace_drafts_enabled", {})
-      .then((on) => {
-        if (on === true) attach();
-      })
-      .catch(() => {});
-  });
+  // Once the document exists. (The IPC bridge must not be called before then:
+  // at document-created it crashes the WebView2 renderer, a null-pointer read in
+  // msedge.dll reproduced on signed-in github.com.)
+  whenReady(attach);
 })();

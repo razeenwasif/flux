@@ -142,6 +142,12 @@ pub struct FormHelpState {
 }
 
 impl FormHelpState {
+    /// Whether form help is on: its page script goes only into pages loaded
+    /// while it is (webview.rs).
+    pub fn enabled(&self) -> bool {
+        self.prefs.read().enabled
+    }
+
     /// Restore the settings from `path` (missing or unreadable → defaults, off)
     /// and save every change back there.
     pub fn load(path: Option<PathBuf>) -> Self {

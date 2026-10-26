@@ -4,6 +4,9 @@
 // script, and `window.__fluxNavSet(hints, gestures)` flips it live. Guards: never
 // acts while typing in an input/textarea/contenteditable.
 (function () {
+  // Added at load while hints or gestures are on, or when one is turned on:
+  // once per page.
+  if (window.__fluxNavSet) return;
   var nav = window.__FLUX_NAV__ || { hints: false, gestures: false };
   window.__fluxNavSet = function (hints, gestures) { nav.hints = !!hints; nav.gestures = !!gestures; };
 

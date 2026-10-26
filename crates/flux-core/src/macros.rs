@@ -219,6 +219,10 @@ fn set_page_flag(app: &AppHandle, tab: Option<TabId>, on: bool) {
     let Some(tab) = tab else {
         return;
     };
+    // The recorder script is only in pages loaded while recording.
+    if on {
+        crate::webview::add_page_script(app, Some(tab), "macro-record");
+    }
     if let Some(wv) = app.get_webview(&format!("tab-{tab}")) {
         let _ = wv.eval(format!("window.__FLUX_MACRO_REC__ = {on};"));
     }

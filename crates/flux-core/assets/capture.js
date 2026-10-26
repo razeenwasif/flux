@@ -65,23 +65,55 @@
     clearTimeout(timer);
     clearTimeout(deadline);
     timer = deadline = 0;
+    deadlineAt = 0;
     send(false);
   };
   let timer = 0;
   let deadline = 0;
+  let deadlineAt = 0;
+  // How long a change may wait: 10 s for news (a new view, a new address or
+  // title, new elements), a minute once the page has settled and all that
+  // changed is text ticking or a class flipping (a clock, a progress bar, a
+  // carousel). Those are the page being alive, not a new page; a reader asks
+  // for a fresh capture anyway, so they needn't cost a read every 10 s.
+  const NEWS_MS = 10000;
+  const TICK_MS = 60000;
+  const SETTLE_MS = 30000;
+  const startedAt = Date.now();
   // A background tab captures its first look at a page (history and the Trail
   // record visits from it) but not every change after: those wait until the tab
   // is shown, and then go out once.
   let hiddenChange = false;
-  const publish = () => {
+  const publish = (wait = NEWS_MS) => {
     if (!invoke) return;
     if (document.hidden && last && last.url === location.href) {
       hiddenChange = true;
       return;
     }
-    clearTimeout(timer);
-    timer = setTimeout(flush, 1000);
-    if (!deadline) deadline = setTimeout(flush, 10000);
+    // News goes out after a second of quiet; a tick waits for its minute (a
+    // page that ticks every second would otherwise find that second of quiet
+    // now and then).
+    if (wait === NEWS_MS) {
+      clearTimeout(timer);
+      timer = setTimeout(flush, 1000);
+    }
+    const at = Date.now() + wait;
+    if (!deadline || at < deadlineAt) {
+      clearTimeout(deadline);
+      deadline = setTimeout(flush, wait);
+      deadlineAt = at;
+    }
+  };
+  const isElement = (n) => n.nodeType === 1;
+  const onMutations = (records) => {
+    if (!last || Date.now() - startedAt < SETTLE_MS) return publish();
+    if (location.href !== last.url || document.title !== last.title) return publish();
+    for (const r of records) {
+      if (r.type === "childList" && (Array.prototype.some.call(r.addedNodes, isElement) || Array.prototype.some.call(r.removedNodes, isElement))) {
+        return publish();
+      }
+    }
+    publish(TICK_MS);
   };
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && hiddenChange) {
@@ -92,11 +124,11 @@
 
   // Capture on load + history navigation. The MutationObserver needs a DOM
   // root, which doesn't exist yet at injection time (document_start).
-  addEventListener("load", publish);
-  addEventListener("popstate", publish);
+  addEventListener("load", () => publish());
+  addEventListener("popstate", () => publish());
   const startObserver = () => {
     if (document.documentElement) {
-      new MutationObserver(publish).observe(document.documentElement, {
+      new MutationObserver(onMutations).observe(document.documentElement, {
         childList: true,
         subtree: true,
         characterData: true,

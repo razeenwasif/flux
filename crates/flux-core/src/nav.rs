@@ -1,7 +1,8 @@
 //! Navigation toggles (BACKLOG #51/#52): Vim-style link hints + mouse gestures.
-//! The behaviour lives in `assets/nav.js` (injected into every tab, inert until
-//! enabled); this just holds the two flags, stamps them into new tabs' init
-//! script (`__FLUX_NAV__`), and flips them live across open tabs on toggle.
+//! The behaviour lives in `assets/nav.js` (added to pages only while one of
+//! the two is on, webview.rs); this holds the two flags, stamps them into new
+//! tabs' init script (`__FLUX_NAV__`), and flips them live across open tabs
+//! on toggle, adding the script to pages that don't have it.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -26,6 +27,10 @@ impl NavState {
 }
 
 fn apply(app: &AppHandle, hints: bool, gestures: bool) {
+    // nav.js goes only into pages loaded while one is on; open pages get it now.
+    if hints || gestures {
+        crate::webview::add_page_script(app, None, "nav");
+    }
     let js = format!("window.__fluxNavSet&&window.__fluxNavSet({hints},{gestures})");
     for (label, wv) in app.webviews() {
         if label.starts_with("tab-") {

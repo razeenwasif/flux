@@ -6,7 +6,10 @@
 // Selectors are best-effort (record/replay can't be perfect on changing pages).
 (function () {
   var inv = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
-  if (!inv) return;
+  // Added to the recorded tab's pages only, at load or when Record is
+  // pressed: once per page.
+  if (!inv || window.__fluxMacroRec) return;
+  window.__fluxMacroRec = true;
 
   function recording() {
     return !!window.__FLUX_MACRO_REC__;

@@ -3,7 +3,8 @@
 // webview at document start.
 //
 // Flow: scan for visible password fields (load + debounced MutationObserver,
-// so SPAs count). Classify the form:
+// so SPAs count; only changes that involve an input count, so an idle page
+// costs nothing). Classify the form:
 //   * REGISTRATION — autocomplete="new-password" or two password fields in one
 //     form; signup wording near the form counts only when the vault has no
 //     login for this host (login forms carry "Sign up" links too)
@@ -40,19 +41,11 @@
     }
   }
 
-  // Heartbeat: prove the script is running with a working bridge. Without it,
-  // "never reported back" covers three very different things — not injected,
-  // returned at the iframe gate, or no Tauri internals on this page — and the
-  // diagnostic can't tell you which.
-  // Deferred, NOT called here. An init script runs at document-created, before the
-  // parser has produced <html> — and invoking the IPC bridge in that window
-  // crashes the WebView2 renderer outright (null-pointer read inside msedge.dll,
-  // confirmed by two matching crash dumps on signed-in github.com). The two
-  // scripts that did this were the only two of ten that crashed; the other eight
-  // make no IPC call until the document exists.
-  whenReady(function () {
-    call("vault_probe_report", { reason: "alive" }).catch(function () {});
-  });
+  // No heartbeat: the first scan runs once the document exists and always
+  // reports a reason (below), which proves the script and its bridge work. A
+  // separate "alive" call cost every page load an IPC round trip for that.
+  // (No IPC before the document exists: at document-created it crashes the
+  // WebView2 renderer, a null-pointer read inside msedge.dll.)
 
   // Sensitive-input trigger (ADR 0013, Pillar 1): tell Rust the moment a
   // password field takes focus, so a wrong-origin warning can be raised BEFORE
@@ -325,7 +318,7 @@
   }
 
   function scan() {
-    if (dismissed) { reason("dismissed"); return; }
+    if (dismissed) { reason("dismissed"); stop(); return; }
     var fields = pwFields();
     if (!fields.length) {
       removeChip();
@@ -357,15 +350,25 @@
   // faster than the delay — a React SSO form churns class/style constantly, so
   // every mutation cancelled the pending scan and it never ran at all (the
   // autofill chip simply never appeared, with nothing to show why). Wait for
-  // quiet, but never defer longer than MAX_DEFER.
+  // quiet, but never defer longer than MAX_DEFER: once a scan is set for the
+  // ceiling, later mutations leave it alone, so even a page that mutates on
+  // every frame gets its scan on time (no safety-net timer needed).
   var t = 0;
   var deferredSince = 0;
+  var atCeiling = false;
   var MAX_DEFER = 1800;
   function queueScan() {
+    if (atCeiling || stopped) return;
     var now = Date.now();
     if (!deferredSince) deferredSince = now;
     clearTimeout(t);
-    t = setTimeout(runScan, now - deferredSince > MAX_DEFER ? 0 : 600);
+    var left = deferredSince + MAX_DEFER - now;
+    if (left <= 600) {
+      atCeiling = true;
+      t = setTimeout(runScan, Math.max(0, left));
+    } else {
+      t = setTimeout(runScan, 600);
+    }
   }
   // A throw inside scan() would look exactly like a starved scan from outside,
   // so name it rather than leaving one more way to fail silently.
@@ -379,22 +382,43 @@
 
   function runScan() {
     deferredSince = 0;
+    atCeiling = false;
+    t = 0;
     safeScan();
   }
 
-  // Safety net: a timer the page's churn CANNOT cancel.
-  //
-  // The debounce above is what makes the common case feel instant, but it is
-  // still cancelled by every mutation — including the 0 ms "rescue" delay. On a
-  // page that mutates each animation frame (a React SSO form), that rescue is
-  // cleared before it ever gets a timer slot, so the scan is starved anyway.
-  // This interval is never cleared by queueScan, so a scan is guaranteed.
-  // Bounded, so a page with no login form doesn't get a permanent heartbeat.
-  var netRuns = 0;
-  var net = setInterval(function () {
-    if (++netRuns > 30) { clearInterval(net); return; } // ~45s of cover, then stop
-    safeScan();
-  }, 1500);
+  // What can change the answer: an input added, removed or changed, or a
+  // change to something that holds one (a class revealing a sign-in box). A
+  // page with no inputs at all, or one whose churn never touches them, costs
+  // nothing past the observer's own call.
+  var inputs = document.getElementsByTagName("input"); // live
+  function holdsInput(n) {
+    return !!n && n.nodeType === 1 &&
+      (n.tagName === "INPUT" || (n.getElementsByTagName && n.getElementsByTagName("input").length > 0));
+  }
+  function matters(records) {
+    for (var i = 0; i < records.length; i++) {
+      var r = records[i];
+      if (r.type === "attributes") {
+        if (inputs.length && holdsInput(r.target)) return true;
+        continue;
+      }
+      var j;
+      for (j = 0; j < r.addedNodes.length; j++) if (holdsInput(r.addedNodes[j])) return true;
+      // A field going away takes its chip with it.
+      for (j = 0; j < r.removedNodes.length; j++) if (holdsInput(r.removedNodes[j])) return true;
+    }
+    return false;
+  }
+
+  // Dismissed (✕): nothing more to offer on this page, so stop watching it.
+  var observer = null;
+  var stopped = false;
+  function stop() {
+    stopped = true;
+    clearTimeout(t);
+    if (observer) observer.disconnect();
+  }
 
   // The observer needs a DOM root, and there isn't one at injection time: this
   // script runs at document-created, before the parser has produced <html>, so
@@ -405,8 +429,11 @@
   // is why the interval fix worked where the observer never did.)
   // Same guard capture.js already uses.
   function watchDom() {
-    if (!document.documentElement) return;
-    new MutationObserver(queueScan).observe(document.documentElement, {
+    if (!document.documentElement || observer) return;
+    observer = new MutationObserver(function (records) {
+      if (matters(records)) queueScan();
+    });
+    observer.observe(document.documentElement, {
       childList: true,
       subtree: true,
       attributes: true,
