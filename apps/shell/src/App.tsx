@@ -511,7 +511,7 @@ const App: Component = () => {
       for (const url of intent.urls) await openTab("browser", url);
       if (intent.terminal) {
         await openTab("terminal");
-        setTerminalOpen(true);
+        setAgentOpen(true);
       }
     }
     // Always land on something: a fresh session opens the start page.
@@ -1497,7 +1497,8 @@ const App: Component = () => {
         void openTab("browser");
         return true;
       case "new-terminal":
-        void openTab("terminal").then(() => setTerminalOpen(true));
+        // A terminal tab brings the agent up beside it, not the terminal column.
+        void openTab("terminal").then(() => setAgentOpen(true));
         return true;
       case "reopen-tab":
         void reopenClosedTab();
@@ -1864,7 +1865,7 @@ const App: Component = () => {
         pageMinimum={pageMinimum()}
         clocksReady={clocksReady()}
         onNavigate={go}
-        onNewTerminal={() => void openTab("terminal")}
+        onNewTerminal={() => void openTab("terminal").then(() => setAgentOpen(true))}
         onToggleAgent={() => setAgentOpen(true)}
         onOpenMap={openMapPanel}
         onSleepBackground={sleepBackgroundTabs}

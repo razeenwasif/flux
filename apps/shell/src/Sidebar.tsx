@@ -916,7 +916,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const create = async (kind: "browser" | "terminal" | "files") => {
     setPicker(false);
     await openTab(kind);
-    if (kind === "terminal" && !props.terminalOpen) props.onToggleTerminal();
+    // A terminal tab brings the agent up beside it, not the terminal column.
+    if (kind === "terminal" && !props.agentOpen) props.onToggleAgent();
   };
 
   // Files, Playground and Notebook: in the nav row in Classic, with the footer's

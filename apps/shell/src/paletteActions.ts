@@ -167,7 +167,7 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
       id: "new-terminal",
       label: "New terminal tab",
       icon: "⌨",
-      run: () => void openTab("terminal").then(() => setTerminalOpen(true)),
+      run: () => void openTab("terminal").then(() => setAgentOpen(true)),
     },
     { id: "new-files", label: "New files tab", icon: "📁", run: () => void openTab("files") },
     { id: "home", label: "Go to the start page", icon: "⌂", run: () => go(START_URL) },
