@@ -8,12 +8,19 @@
 //!     extension's manifest so Flux can show "you had these N extensions"
 //!     and suggest built-in equivalents (BACKLOG #24).
 //!   * Zen and Firefox bookmarks — full import from `places.sqlite` (gecko.rs).
+//!   * The welcome flow's import (browsers.rs): Chrome, Arc, Safari, Firefox,
+//!     Brave, Zen, Edge and Chromium — bookmarks, the last 180 days of
+//!     history, and Arc's pinned sites — read from copies (sqlite.rs) so a
+//!     running browser is undisturbed; Safari's plist via plist.rs.
 //!   * Saved tab groups — DISCOVERY only for now. Chrome keeps them in a
 //!     per-profile SQLite database with a sync-internals schema; full import
 //!     is BACKLOG #23.
 
+pub mod browsers;
 pub mod chrome;
 pub mod gecko;
+mod plist;
+mod sqlite;
 
 use thiserror::Error;
 

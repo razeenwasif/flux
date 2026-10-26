@@ -14,7 +14,6 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
@@ -26,7 +25,7 @@ const BROWSERS: &[&str] = &["Zen", "Firefox"];
 
 // Built with pushes because each root is cfg-gated per OS (as in chrome.rs).
 #[allow(clippy::vec_init_then_push)]
-fn roots(browser: &str) -> Vec<PathBuf> {
+pub(crate) fn roots(browser: &str) -> Vec<PathBuf> {
     #[cfg(not(target_os = "windows"))]
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -166,69 +165,6 @@ pub(crate) struct Row {
 const QUERY: &str = "SELECT b.id, b.type, b.parent, b.title, b.guid, p.url \
      FROM moz_bookmarks b LEFT JOIN moz_places p ON p.id = b.fk \
      ORDER BY b.parent, b.position;";
-
-/// The `sqlite3` tool: the system's on a Mac (an app launched from the Dock
-/// doesn't see a shell's PATH), else whichever is on PATH.
-fn sqlite3() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    if Path::new("/usr/bin/sqlite3").exists() {
-        return Some(PathBuf::from("/usr/bin/sqlite3"));
-    }
-    let exe = if cfg!(windows) {
-        "sqlite3.exe"
-    } else {
-        "sqlite3"
-    };
-    std::env::var_os("PATH")
-        .into_iter()
-        .flat_map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
-        .map(|d| d.join(exe))
-        .find(|p| p.is_file())
-}
-
-/// The profile's database, copied (with its write-ahead log) somewhere the
-/// browser isn't holding.
-fn snapshot(profile: &Path) -> Result<PathBuf, ImportError> {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-gecko-import-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    fs::create_dir_all(&dir)?;
-    fs::copy(profile.join("places.sqlite"), dir.join("places.sqlite"))?;
-    let wal = profile.join("places.sqlite-wal");
-    if wal.exists() {
-        fs::copy(&wal, dir.join("places.sqlite-wal"))?;
-    }
-    Ok(dir)
-}
-
-fn rows_from_sqlite(profile: &Path, tool: &Path) -> Result<Vec<Row>, ImportError> {
-    let dir = snapshot(profile)?;
-    let out = Command::new(tool)
-        .arg("-json")
-        .arg(dir.join("places.sqlite"))
-        .arg(QUERY)
-        .output();
-    let _ = fs::remove_dir_all(&dir);
-    let out = out?;
-    if !out.status.success() {
-        return Err(ImportError::Other(format!(
-            "sqlite3 couldn't read the bookmarks: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        )));
-    }
-    if out.stdout.iter().all(u8::is_ascii_whitespace) {
-        return Ok(Vec::new()); // `-json` prints nothing at all for no rows
-    }
-    serde_json::from_slice(&out.stdout).map_err(|source| ImportError::Parse {
-        file: "places.sqlite",
-        source,
-    })
-}
 
 /// Where the browser's own top-level folders go in Flux.
 fn root_name(guid: &str) -> Option<&'static str> {
@@ -421,8 +357,12 @@ fn from_newest_backup(profile: &Path) -> Result<Vec<Bookmark>, ImportError> {
 
 /// Every bookmark in a Zen or Firefox profile.
 pub fn read_bookmarks(profile_dir: &Path) -> Result<Vec<Bookmark>, ImportError> {
-    let out = match sqlite3() {
-        Some(tool) => bookmarks_from_rows(&rows_from_sqlite(profile_dir, &tool)?),
+    let out = match crate::sqlite::tool() {
+        Some(_) => bookmarks_from_rows(&crate::sqlite::query::<Row>(
+            &profile_dir.join("places.sqlite"),
+            QUERY,
+            "places.sqlite",
+        )?),
         None => from_newest_backup(profile_dir)?,
     };
     tracing::info!(target: "flux::import", count = out.len(), "parsed Gecko bookmarks");

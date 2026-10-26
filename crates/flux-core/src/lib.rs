@@ -38,6 +38,7 @@ pub mod fsroots;
 pub mod gemini;
 pub mod hibernate;
 pub mod history;
+pub mod import;
 pub mod https;
 pub mod indexer;
 pub mod kb;
@@ -1433,6 +1434,11 @@ pub fn run(intent: cli::LaunchIntent) {
             keys::keys_list,
             keys::keys_set,
             keys::keys_reset,
+            import::import_scan,
+            import::import_fresh,
+            import::import_run,
+            import::import_top_sites,
+            import::import_open_disk_access,
             trace::trace_chat,
             trace::trace_chat_send,
             bookmarks::bookmarks_list,

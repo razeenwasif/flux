@@ -422,18 +422,9 @@ pub async fn gecko_import_preview() -> Vec<flux_import::gecko::GeckoProfile> {
         .unwrap_or_default()
 }
 
-/// Where an imported Zen/Firefox bookmark goes: the browser's toolbar is
-/// Flux's bookmark bar, so its folders and bookmarks land at the top level as
-/// they sat there; the rest (menu, other, mobile) stays together under the
-/// browser's name ("Zen/Other/software dev").
-fn gecko_folder(browser: &str, folder: &str) -> String {
-    match folder.strip_prefix("Toolbar") {
-        Some("") => String::new(),
-        Some(rest) if rest.starts_with('/') => rest[1..].to_string(),
-        _ if folder.is_empty() => browser.to_string(),
-        _ => format!("{browser}/{folder}"),
-    }
-}
+/// Where an imported Zen/Firefox bookmark goes (flux-import's browsers.rs,
+/// which the welcome's import shares): the toolbar is Flux's bar.
+use flux_import::browsers::gecko_folder;
 
 /// Import every bookmark from a Zen or Firefox profile into the store (see
 /// `gecko_folder` for where each goes). Importing again adds only what's new,

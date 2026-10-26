@@ -961,6 +961,24 @@
       "keys": [],
       "defaults": [],
       "fixed": null
+    },
+    {
+      "id": "import-browsers",
+      "title": "Import from another browser",
+      "detail": "Bookmarks, history and pinned sites",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
+      "id": "welcome",
+      "title": "Welcome to Flux",
+      "detail": "The six steps of setup, again",
+      "group": "Flux pages",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
     }
   ],
   "reserved": [

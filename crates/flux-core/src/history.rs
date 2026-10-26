@@ -271,6 +271,66 @@ impl HistoryStore {
         added
     }
 
+    /// Bring in another browser's history (the welcome's import): each page's
+    /// last visit and how often, merged like a sync (`merge_remote`). Loads
+    /// the saved history first, so the import can't be written over it.
+    /// Returns how many pages were new.
+    pub fn import(&self, pages: Vec<(String, String, u64, u32)>) -> usize {
+        if !self.hydrated.load(Ordering::Acquire) {
+            self.hydrate();
+        }
+        let entries = pages
+            .into_iter()
+            .map(|(url, title, last_visit_ms, visits)| HistoryEntry {
+                key: search_key(&url, &title),
+                url,
+                title,
+                last_visit_ms,
+                visits,
+            })
+            .collect();
+        self.merge_remote(entries)
+    }
+
+    /// Nothing visited yet, saved or this session (the saved history loaded
+    /// first, so a profile that has one never reads as new).
+    pub fn is_empty(&self) -> bool {
+        if !self.hydrated.load(Ordering::Acquire) {
+            self.hydrate();
+        }
+        self.entries.read().is_empty()
+    }
+
+    /// The sites visited most: each host's visits added up, its most visited
+    /// page's title, for the welcome's pinned sites.
+    pub fn top_sites(&self, limit: usize) -> Vec<(String, String, u32)> {
+        let mut by_host: HashMap<String, (String, u32, u32)> = HashMap::new();
+        for e in self.entries.read().values() {
+            let Some(rest) = e.url.split_once("://").map(|(_, r)| r) else {
+                continue;
+            };
+            let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+            if host.is_empty() {
+                continue;
+            }
+            let slot = by_host
+                .entry(host.to_string())
+                .or_insert_with(|| (String::new(), 0, 0));
+            slot.1 += e.visits;
+            if e.visits > slot.2 && !e.title.trim().is_empty() {
+                slot.0 = e.title.clone();
+                slot.2 = e.visits;
+            }
+        }
+        let mut v: Vec<(String, String, u32)> = by_host
+            .into_iter()
+            .map(|(host, (title, visits, _))| (host, title, visits))
+            .collect();
+        v.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
+        v.truncate(limit);
+        v
+    }
+
     /// Persist to disk if anything changed since the last save (called on a timer).
     pub fn persist_if_dirty(&self) {
         if !self.dirty.swap(false, Ordering::Relaxed) {
@@ -467,5 +527,31 @@ mod tests {
         assert!(entries.iter().any(|e| e.url == "https://b.dev"));
         // The merged entry must be searchable (key recomputed on insert).
         assert_eq!(h.search("b.dev", 10).len(), 1);
+    }
+
+    #[test]
+    fn imported_history_is_searchable_and_ranks_sites() {
+        let h = HistoryStore::default();
+        h.record("https://docs.rs/serde", "serde - Docs.rs");
+        let added = h.import(vec![
+            (
+                "https://docs.rs/tokio".into(),
+                "tokio - Docs.rs".into(),
+                1_000,
+                7,
+            ),
+            ("https://github.com/".into(), "GitHub".into(), 2_000, 3),
+            ("https://github.com/rust-lang".into(), "".into(), 3_000, 4),
+            ("ftp://old.test/".into(), "Old".into(), 3_000, 9),
+        ]);
+        assert_eq!(added, 3, "the ftp page stays out");
+        assert_eq!(h.search("tokio", 10).len(), 1);
+        let top = h.top_sites(5);
+        assert_eq!(
+            top[0],
+            ("docs.rs".to_string(), "tokio - Docs.rs".to_string(), 8)
+        );
+        // A host's title comes from a page that has one.
+        assert_eq!(top[1], ("github.com".to_string(), "GitHub".to_string(), 7));
     }
 }

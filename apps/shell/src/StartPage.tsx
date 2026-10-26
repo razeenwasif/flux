@@ -351,6 +351,10 @@ const StartPage: Component<{
 
   onMount(async () => {
     visibleInterval(() => setNow(new Date()), 1000);
+    // The welcome's pinned sites write the tiles; pick them up.
+    const onShortcuts = () => setShortcuts(loadShortcuts());
+    window.addEventListener("flux:shortcuts-changed", onShortcuts);
+    onCleanup(() => window.removeEventListener("flux:shortcuts-changed", onShortcuts));
     // Scratchpad, persisted via the notes store. Before any await: it's a local
     // read and the pad is read-only until it lands, so it mustn't queue behind
     // the network fetches below (ipapi.co / open-meteo have no timeout).

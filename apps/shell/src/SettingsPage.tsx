@@ -17,6 +17,7 @@ import type { FormHelpPrefs, ShieldsStatus } from "./ipc";
 import { Row, Toggle } from "./SettingsControls";
 import SettingsNavigator, { Section } from "./SettingsNavigator";
 import KeyboardSettings from "./KeyboardSettings";
+import { openWelcome } from "./welcomeOpen";
 import { visibleInterval } from "./poll";
 import { DESIGNS, design, setDesign } from "./design";
 import { THEMES, setTheme, theme } from "./themes";
@@ -1370,6 +1371,14 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
         </Section>
 
         <Section title="Data">
+          <Row
+            label="Import from another browser"
+            hint="Bookmarks, the last 180 days of history and Arc's pinned sites, from Chrome, Arc, Safari, Firefox, Brave, Zen, Edge or Chromium. The other browser can stay open; importing again adds only what's new."
+          >
+            <button class="set-link-btn" onClick={() => openWelcome(1)}>
+              Import…
+            </button>
+          </Row>
           <div class="set-link-row">
             <button class="set-link-btn" onClick={() => props.onNavigate(SYNC_URL)}>
               🔄 Sync

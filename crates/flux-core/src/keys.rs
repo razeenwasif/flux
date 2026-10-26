@@ -153,6 +153,8 @@ pub const COMMANDS: &[Command] = &[
     c("apps", "Installed apps", "Sites you installed as apps", PAGES, &[]),
     c("discord", "Discord panel", "Discord beside the page", PAGES, &[]),
     c("teams", "Teams panel", "Teams beside the page", PAGES, &[]),
+    menu(c("import-browsers", "Import from another browser", "Bookmarks, history and pinned sites", PAGES, &[]), "Import from Another Browser…"),
+    menu(c("welcome", "Welcome to Flux", "The six steps of setup, again", PAGES, &[]), "Welcome to Flux…"),
 ];
 
 /// Chords the system or the Edit menu owns, for telling a clash apart from a
@@ -610,6 +612,8 @@ mod menubar {
                 C("new-terminal"),
                 C("new-files"),
                 C("ws-new"),
+                Sep,
+                C("import-browsers"),
                 Sep,
                 C("focus-address"),
                 C("reopen-tab"),

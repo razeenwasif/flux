@@ -1737,6 +1737,66 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         goal_minutes: mockFocus.goal,
         due: 2,
       } as T);
+    case "import_fresh":
+      return Promise.resolve(false as T);
+    case "import_scan": {
+      // The welcome board's Mac: five browsers, Safari locked, Brave missing.
+      const p = (dir: string, name: string, bookmarks: number, history: number, pinned = 0) => ({
+        dir,
+        name,
+        in_use: true,
+        bookmarks,
+        history,
+        pinned,
+      });
+      return Promise.resolve([
+        {
+          id: "chrome",
+          name: "Chrome",
+          state: "ready",
+          detail: "Default profile",
+          profiles: [p("/c", "Default", 268, 2140)],
+        },
+        {
+          id: "arc",
+          name: "Arc",
+          state: "ready",
+          detail: "4 spaces",
+          profiles: [p("/a", "Person 1", 14, 1460, 38)],
+        },
+        { id: "safari", name: "Safari", state: "locked", detail: "Needs Full Disk Access", profiles: [] },
+        { id: "firefox", name: "Firefox", state: "empty", detail: "Nothing to bring", profiles: [] },
+        { id: "brave", name: "Brave", state: "missing", detail: "Not on this Mac", profiles: [] },
+        {
+          id: "zen",
+          name: "Zen",
+          state: "ready",
+          detail: "2 profiles",
+          profiles: [p("/z1", "Default (release)", 130, 620), { ...p("/z2", "Work", 12, 40), in_use: false }],
+        },
+      ] as T);
+    }
+    case "import_run":
+      return new Promise((r) =>
+        setTimeout(() => r({ bookmarks: 401, history: 3_912, pinned: 38, failed: [] } as T), 700),
+      );
+    case "import_top_sites":
+      return Promise.resolve(
+        [
+          ["github.com", "GitHub"],
+          ["gitlab.anu.edu.au", "GitLab"],
+          ["wattle.anu.edu.au", "Wattle"],
+          ["docs.rs", "Docs.rs"],
+          ["news.ycombinator.com", "Hacker News"],
+          ["youtube.com", "YouTube"],
+          ["doc.rust-lang.org", "Rust documentation"],
+          ["calendar.google.com", "Google Calendar"],
+          ["mail.google.com", "Gmail"],
+          ["canvas.anu.edu.au", "Canvas"],
+        ].map(([host, title]) => ({ url: `https://${host}/`, host, title })) as T,
+      );
+    case "import_open_disk_access":
+      return Promise.resolve(undefined as T);
     case "keys_list":
       return Promise.resolve(structuredClone(mockKeys) as T);
     case "keys_set": {

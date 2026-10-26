@@ -114,6 +114,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import ContentArea from "./ContentArea";
 import { installDwellCapture } from "./trail";
 import { actionFor, keyRecording, keysInfo, loadKeys } from "./keys";
+import { closeWelcome, welcomeIfFirstLaunch, welcomeStep } from "./welcomeOpen";
 import { planTrim } from "./memtrim";
 // Cold chrome (ADR 0001 budget): overlays/panes that render only behind a
 // store-gated <Show>, so their code loads on first open — not at boot.
@@ -130,6 +131,7 @@ if (!isMobile) preloadDesktopChrome();
 const ShellHistory = lazy(() => import("./ShellHistory"));
 const SemanticFind = lazy(() => import("./SemanticFind"));
 const WatchPanel = lazy(() => import("./WatchPanel"));
+const Welcome = lazy(() => import("./Welcome"));
 const TrackerGraph = lazy(() => import("./TrackerGraph"));
 const AppPane = lazy(() => import("./AppPane"));
 const TuiPane = lazy(() => import("./TuiPane"));
@@ -516,6 +518,8 @@ const App: Component = () => {
     }
     // Always land on something: a fresh session opens the start page.
     if (tabs().length === 0) await openTab("browser");
+    // A first launch gets the welcome (Welcome.tsx); nothing else ever does.
+    if (!isMobile) welcomeIfFirstLaunch();
     applyDarkMode(); // re-apply the persisted dark-mode preference (#40)
     applyNav(); // re-apply vim-hints / mouse-gestures toggles (#51/#52)
     applyAgentModel(); // re-apply the chosen agent model (#81)
@@ -1988,6 +1992,11 @@ const App: Component = () => {
 
       {/* The launcher (⌘K) — search, tabs, history, notes and commands, over a
           still of the page. */}
+      <Show when={welcomeStep() != null}>
+        <Suspense>
+          <Welcome start={welcomeStep()!} onClose={closeWelcome} />
+        </Suspense>
+      </Show>
       <Show when={launcherOpen()}>
         <Suspense>
           <Launcher

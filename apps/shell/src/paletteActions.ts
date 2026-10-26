@@ -11,6 +11,7 @@ import { askConfirm } from "./ask";
 import { design } from "./design";
 import { setIndexerPanelOpen } from "./indexerOpen";
 import { keyOf } from "./keyLabel";
+import { openWelcome } from "./welcomeOpen";
 import {
   APPS_URL,
   ARCHIVE_URL,
@@ -372,6 +373,13 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
       ? [{ id: "layout-restore", label: "Restore previous layout", icon: "↶", run: restoreLayout }]
       : []),
     { id: "settings", label: "Open Settings", icon: "⚙", run: () => go(SETTINGS_URL) },
+    {
+      id: "import-browsers",
+      label: "Import from another browser (bookmarks, history)",
+      icon: "⇣",
+      run: () => openWelcome(1),
+    },
+    { id: "welcome", label: "Welcome to Flux (set up again)", icon: "👋", run: () => openWelcome(0) },
     { id: "sleep-bg", label: "Sleep background tabs", icon: "💤", run: () => sleepBackgroundTabs() },
     { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
     { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },

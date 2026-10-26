@@ -318,6 +318,20 @@ export type FocusStatus = { running: boolean; paused: boolean; name: string; min
 export type KeyCommand = { id: string; title: string; detail: string; group: string; keys: string[]; defaults: string[]; fixed: string | null }
 export type ReservedKey = { chord: string; owner: string }
 export type KeysInfo = { commands: KeyCommand[]; reserved: ReservedKey[] }
+/**
+ * One profile of a browser, as the import list shows it.
+ */
+export type FoundProfile = { dir: string; name: string; in_use: boolean; bookmarks: number; history: number | null; pinned: number }
+export type FoundBrowser = { id: string; name: string; state: string; detail: string; profiles: FoundProfile[] }
+/**
+ * One profile to bring over.
+ */
+export type ImportPick = { browser: string; dir: string }
+export type ImportResult = { bookmarks: number; history: number; pinned: number; failed: string[] }
+/**
+ * A site for the new tab's shortcuts.
+ */
+export type SiteSuggestion = { url: string; host: string; title: string }
 export type HotRule = { rule: string; hits: number }
 export type LeanStatus = { enabled: boolean; sites_on: string[] }
 export type HttpsStatus = { enabled: boolean; sites_allow_http: string[] }
