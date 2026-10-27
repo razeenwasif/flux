@@ -25,6 +25,7 @@ class Target {
 
 class Input extends Target {
   readonly tagName = "INPUT";
+  readonly nodeType = 1;
   value = "";
   disabled = false;
   readOnly = false;
@@ -96,10 +97,8 @@ interface Page {
   /** The visible chip's label, or null. */
   chip(): string | null;
   clickChip(): Promise<void>;
-  /** A DOM change the script's MutationObserver sees. */
+  /** A DOM change the script's MutationObserver sees: a field re-rendered. */
   mutate(): void;
-  /** One tick of the script's safety-net scan interval. */
-  tick(): void;
   focus(el: Input): void;
   submit(form: Form): void;
 }
@@ -111,8 +110,7 @@ function load(forms: Form[], answers: Record<string, unknown>, title = "Sign in"
   let clock = 0;
   let nextTimer = 1;
   const timers = new Map<number, { due: number; fn: () => void }>();
-  let interval: (() => void) | null = null;
-  let observer: (() => void) | null = null;
+  let observer: ((records: unknown[]) => void) | null = null;
   const win = new Target();
   const docTarget = new Target();
   const root = new El();
@@ -128,6 +126,7 @@ function load(forms: Form[], answers: Record<string, unknown>, title = "Sign in"
           ? inputs
           : [],
     querySelector: () => null,
+    getElementsByTagName: (tag: string) => (tag === "input" ? inputs : []),
     addEventListener: (type: string, fn: Listener) => docTarget.addEventListener(type, fn),
     contains: (el: El | Input) => !(el instanceof El && el.removed),
     createElement: () => new El(),
@@ -163,8 +162,8 @@ function load(forms: Form[], answers: Record<string, unknown>, title = "Sign in"
     800,
     1280,
     { pathname: "/login" },
-    (fn: () => void) => ((interval = fn), 1),
-    () => (interval = null),
+    () => 0,
+    () => {},
     (fn: () => void, ms = 0) => {
       const id = nextTimer++;
       timers.set(id, { due: clock + ms, fn });
@@ -172,7 +171,7 @@ function load(forms: Form[], answers: Record<string, unknown>, title = "Sign in"
     },
     (id: number) => timers.delete(id),
     class {
-      constructor(cb: () => void) {
+      constructor(cb: (records: unknown[]) => void) {
         observer = cb;
       }
       observe() {}
@@ -202,8 +201,8 @@ function load(forms: Form[], answers: Record<string, unknown>, title = "Sign in"
       chipEl()?.children[0]?.fire("click");
       await page.settle(0);
     },
-    mutate: () => observer?.(),
-    tick: () => interval?.(),
+    mutate: () =>
+      observer?.([{ type: "childList", target: root, addedNodes: inputs.slice(0, 1), removedNodes: [] }]),
     focus(el) {
       win.fire("focusin", el);
       docTarget.fire("focusin", el);
@@ -225,14 +224,22 @@ describe("passwords.js: sign-up wording", () => {
     );
 
   it("a login form that mentions signing up still offers the saved login", async () => {
-    const page = load([loginForm()], { vault_page_info: { unlocked: true, count: 1 } }, "Example – log in or sign up");
+    const page = load(
+      [loginForm()],
+      { vault_page_info: { unlocked: true, count: 1 } },
+      "Example – log in or sign up",
+    );
     await page.settle();
     expect(page.chip()).toContain("Fill saved login");
     expect(page.calls("vault_page_info")).toHaveLength(1);
   });
 
   it("with nothing saved for the host, the same form is treated as a sign-up", async () => {
-    const page = load([loginForm()], { vault_page_info: { unlocked: true, count: 0 } }, "Example – log in or sign up");
+    const page = load(
+      [loginForm()],
+      { vault_page_info: { unlocked: true, count: 0 } },
+      "Example – log in or sign up",
+    );
     await page.settle();
     expect(page.chip()).toContain("Use a strong password");
   });
@@ -316,7 +323,6 @@ describe("passwords.js: vault probes", () => {
     // A clock, a carousel, a live feed: the DOM never stops changing.
     for (let i = 0; i < 5; i++) {
       page.mutate();
-      page.tick();
       await page.settle();
     }
     expect(page.calls("vault_page_info")).toHaveLength(1);
