@@ -6,6 +6,7 @@
  */
 import {
   For,
+  Index,
   Show,
   createEffect,
   createSignal,
@@ -194,6 +195,8 @@ const AgentPanel: Component = () => {
   const [status, setStatus] = createSignal<AgentStatus>({ state: "idle" });
   const [prompt, setPrompt] = createSignal("");
   const [feed, setFeed] = createSignal<FeedItem[]>([]);
+  // Bumped when the feed is swapped for another chat (new, opened, deleted).
+  const [feedEpoch, setFeedEpoch] = createSignal(1);
   const [busy, setBusy] = createSignal(false);
   // Saved chat sessions (#sessions). Each conversation persists to localStorage so
   // you can start a New chat and reopen earlier ones. `currentId` is the session the
@@ -259,6 +262,7 @@ const AgentPanel: Component = () => {
     if (working() || taskRunning()) return;
     currentId = ""; // the current conversation is already saved under its id
     setFeed([]);
+    setFeedEpoch((n) => n + 1);
     setChatsMenu(false);
   };
   // Streams, OCR progress and task steps write into the feed BY INDEX; swapping
@@ -269,6 +273,7 @@ const AgentPanel: Component = () => {
     if (feedLocked()) return;
     currentId = s.id;
     setFeed(s.feed.map((it) => ({ ...it })));
+    setFeedEpoch((n) => n + 1);
     setChatsMenu(false);
   };
   const deleteSession = (id: string, e: MouseEvent) => {
@@ -278,6 +283,7 @@ const AgentPanel: Component = () => {
     if (currentId === id) {
       currentId = "";
       setFeed([]);
+      setFeedEpoch((n) => n + 1);
     }
   };
   // Interrupt ("stop the rant"): bump the generation so in-flight stream tokens are
@@ -550,11 +556,18 @@ const AgentPanel: Component = () => {
     onCleanup(() => unlisten?.());
   });
 
-  // Auto-scroll the feed to the latest message.
+  // Auto-scroll the feed to the latest message: once a frame, since a streamed
+  // reply changes the feed per token and reading scrollHeight forces a layout.
+  let scrollFrame = 0;
   createEffect(() => {
     feed();
-    if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
+    if (scrollFrame) return;
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = 0;
+      if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
+    });
   });
+  onCleanup(() => cancelAnimationFrame(scrollFrame));
 
   const working = () => busy() || status().state === "thinking" || listening() || speaking();
 
@@ -3406,136 +3419,148 @@ const AgentPanel: Component = () => {
               </div>
             }
           >
-            <For each={feed()}>
-              {(item, i) => (
-                <div classList={{ "agent-msg": true, [`agent-${item.role}`]: true }}>
-                  <Show when={item.image}>
-                    <img class="agent-thumb" src={item.image} alt="attachment" />
-                  </Show>
-                  <Show when={item.voice}>
-                    <div class="agent-voice" title="A fine-tuned domain specialist answered">
-                      ⚛ {item.voice} specialist
-                    </div>
-                  </Show>
-                  <Show
-                    when={item.cited || (item.role === "assistant" && /\[P\d/i.test(item.text))}
-                    fallback={<div>{item.text}</div>}
-                  >
-                    <CitedAnswer text={item.text} cited={item.cited} />
-                  </Show>
-                  <Show when={item.restyle}>{(d) => <RestyleCard draft={d()} />}</Show>
-                  <Show when={item.citations?.length}>
-                    <div class="agent-cites">
-                      <For each={item.citations}>
-                        {(h, n) => (
-                          <button
-                            class="agent-cite"
-                            title={`[${n() + 1}] ${h.title} — open ${h.path}`}
-                            onClick={() => openCitation(h)}
-                          >
-                            <span class="agent-cite-n">{n() + 1}</span>
-                            <span class="agent-cite-title">{h.title}</span>
-                          </button>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                  <Show when={item.role === "plan" && item.pending && item.action}>
-                    <div class="agent-approve">
-                      <button
-                        class="agent-approve-yes"
-                        onClick={() => void approve(i(), item.action!, item.tabId, item.expectedUrl)}
-                      >
-                        ✓ Approve
-                      </button>
-                      <button class="agent-approve-no" onClick={() => cancelPlan(i())}>
-                        Skip
-                      </button>
-                    </div>
-                  </Show>
-                  <Show when={item.role === "shell" && item.pending && item.shellCmd}>
-                    <div class="agent-approve">
-                      <button
-                        class="agent-approve-yes"
-                        onClick={() => void approveShell(i(), item.shellCmd!)}
-                      >
-                        ▶ Run in terminal
-                      </button>
-                      <button class="agent-approve-no" onClick={() => cancelShell(i())}>
-                        Cancel
-                      </button>
-                    </div>
-                  </Show>
-                  {/* A proposed write into your notes. The card shows the exact
-                      text — you approve content, not a description of it. */}
-                  <Show when={item.role === "note" && item.note}>
-                    <div class="agent-note">
-                      <div class="agent-note-head">
-                        <span class="agent-note-ico">✎</span>
-                        <span class="agent-note-target">{item.note!.summary}</span>
-                      </div>
-                      <Show when={item.note!.body}>
-                        <pre class="agent-note-body">{item.note!.body}</pre>
+            {/* Rows are keyed by position: a streamed token updates its message in place
+               rather than rebuilding it. Another chat remounts them, so no row's own
+               state (a restyle card's, say) carries over to a different message. */}
+            <Show when={feedEpoch()} keyed>
+              {(_chat) => (
+                <Index each={feed()}>
+                  {(item, i) => (
+                    <div classList={{ "agent-msg": true, [`agent-${item().role}`]: true }}>
+                      <Show when={item().image}>
+                        <img class="agent-thumb" src={item().image} alt="attachment" />
+                      </Show>
+                      <Show when={item().voice}>
+                        <div class="agent-voice" title="A fine-tuned domain specialist answered">
+                          ⚛ {item().voice} specialist
+                        </div>
                       </Show>
                       <Show
-                        when={!item.noteDone}
-                        fallback={
-                          <div class="agent-note-done">
-                            ✓ Added ·{" "}
-                            <span class="agent-note-path" title={item.noteDone}>
-                              {item.noteDone}
-                            </span>
-                          </div>
-                        }
+                        when={item().cited || (item().role === "assistant" && /\[P\d/i.test(item().text))}
+                        fallback={<div>{item().text}</div>}
                       >
-                        {/* `pending`, not just `!noteDone`: a reopened chat stores
-                            pending=false, and its stale proposal must not write. */}
-                        <Show when={item.pending}>
+                        <CitedAnswer text={item().text} cited={item().cited} />
+                      </Show>
+                      <Show when={item().restyle}>{(d) => <RestyleCard draft={d()} />}</Show>
+                      <Show when={item().citations?.length}>
+                        <div class="agent-cites">
+                          <For each={item().citations}>
+                            {(h, n) => (
+                              <button
+                                class="agent-cite"
+                                title={`[${n() + 1}] ${h.title} — open ${h.path}`}
+                                onClick={() => openCitation(h)}
+                              >
+                                <span class="agent-cite-n">{n() + 1}</span>
+                                <span class="agent-cite-title">{h.title}</span>
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                      <Show when={item().role === "plan" && item().pending && item().action}>
+                        <div class="agent-approve">
+                          <button
+                            class="agent-approve-yes"
+                            onClick={() => void approve(i, item().action!, item().tabId, item().expectedUrl)}
+                          >
+                            ✓ Approve
+                          </button>
+                          <button class="agent-approve-no" onClick={() => cancelPlan(i)}>
+                            Skip
+                          </button>
+                        </div>
+                      </Show>
+                      <Show when={item().role === "shell" && item().pending && item().shellCmd}>
+                        <div class="agent-approve">
+                          <button
+                            class="agent-approve-yes"
+                            onClick={() => void approveShell(i, item().shellCmd!)}
+                          >
+                            ▶ Run in terminal
+                          </button>
+                          <button class="agent-approve-no" onClick={() => cancelShell(i)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </Show>
+                      {/* A proposed write into your notes. The card shows the exact
+                          text — you approve content, not a description of it. */}
+                      <Show when={item().role === "note" && item().note}>
+                        <div class="agent-note">
+                          <div class="agent-note-head">
+                            <span class="agent-note-ico">✎</span>
+                            <span class="agent-note-target">{item().note!.summary}</span>
+                          </div>
+                          <Show when={item().note!.body}>
+                            <pre class="agent-note-body">{item().note!.body}</pre>
+                          </Show>
+                          <Show
+                            when={!item().noteDone}
+                            fallback={
+                              <div class="agent-note-done">
+                                ✓ Added ·{" "}
+                                <span class="agent-note-path" title={item().noteDone}>
+                                  {item().noteDone}
+                                </span>
+                              </div>
+                            }
+                          >
+                            {/* `pending`, not just `!noteDone`: a reopened chat stores
+                                pending=false, and its stale proposal must not write. */}
+                            <Show when={item().pending}>
+                              <div class="agent-approve">
+                                <button
+                                  class="agent-approve-yes"
+                                  onClick={() => void applyNote(i, item().note!)}
+                                >
+                                  ✓ Add to my notes
+                                </button>
+                                <button class="agent-approve-no" onClick={() => discardNote(i)}>
+                                  Discard
+                                </button>
+                              </div>
+                            </Show>
+                          </Show>
+                        </div>
+                      </Show>
+                      <Show when={item().role === "edit" && item().editDiff}>
+                        <div class="agent-diff">
+                          <For each={item().editDiff!.split("\n")}>
+                            {(ln) => (
+                              <div
+                                classList={{
+                                  "diff-add": ln.startsWith("+ "),
+                                  "diff-del": ln.startsWith("- "),
+                                  "diff-hunk": ln.startsWith("@@"),
+                                }}
+                              >
+                                {ln || " "}
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                        <Show when={item().pending && item().editPath && item().editNew !== undefined}>
                           <div class="agent-approve">
-                            <button class="agent-approve-yes" onClick={() => void applyNote(i(), item.note!)}>
-                              ✓ Add to my notes
+                            <button
+                              class="agent-approve-yes"
+                              onClick={() =>
+                                void approveEdit(i, item().editPath!, item().editNew!, item().editBase)
+                              }
+                            >
+                              ✓ Apply
                             </button>
-                            <button class="agent-approve-no" onClick={() => discardNote(i())}>
-                              Discard
+                            <button class="agent-approve-no" onClick={() => cancelEdit(i)}>
+                              Cancel
                             </button>
                           </div>
                         </Show>
                       </Show>
                     </div>
-                  </Show>
-                  <Show when={item.role === "edit" && item.editDiff}>
-                    <div class="agent-diff">
-                      <For each={item.editDiff!.split("\n")}>
-                        {(ln) => (
-                          <div
-                            classList={{
-                              "diff-add": ln.startsWith("+ "),
-                              "diff-del": ln.startsWith("- "),
-                              "diff-hunk": ln.startsWith("@@"),
-                            }}
-                          >
-                            {ln || " "}
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                    <Show when={item.pending && item.editPath && item.editNew !== undefined}>
-                      <div class="agent-approve">
-                        <button
-                          class="agent-approve-yes"
-                          onClick={() => void approveEdit(i(), item.editPath!, item.editNew!, item.editBase)}
-                        >
-                          ✓ Apply
-                        </button>
-                        <button class="agent-approve-no" onClick={() => cancelEdit(i())}>
-                          Cancel
-                        </button>
-                      </div>
-                    </Show>
-                  </Show>
-                </div>
+                  )}
+                </Index>
               )}
-            </For>
+            </Show>
           </Show>
           <Show when={status().state === "acting"}>
             <div class="agent-msg agent-action">

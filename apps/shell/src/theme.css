@@ -538,8 +538,9 @@ input::placeholder {
   position: relative;
   display: grid;
   height: 100vh;
-  transition: grid-template-columns 0.34s var(--ease-soft);
-  will-change: grid-template-columns;
+  /* Columns snap open and shut, with no transition: sliding them laid the whole
+     interface out again every frame (7-11 slow frames a toggle at 60 tabs,
+     measured in WebKit, against 1-2 snapping) and moved the page with it. */
 
   /* Opaque square window (Win11 native rounding is BACKLOG #80). The velvet
      also lives on body, so there are no bare corners. */

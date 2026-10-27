@@ -18,6 +18,8 @@
  * DOM-rendered, polls only while visible.
  */
 import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
+import { createStore } from "solid-js/store";
+import { mergeByPid } from "./keyedRows";
 
 import { visibleInterval } from "./poll";
 import {
@@ -96,7 +98,9 @@ const Bar: Component<{ label: string; pct: number; text: string; color: string }
 );
 
 const TasksPage: Component = () => {
-  const [procs, setProcs] = createSignal<ProcInfo[]>([]);
+  // Keyed by pid, so a poll updates the rows that changed (and moves them when
+  // the order does) instead of every 2 s rebuilding hundreds of rows.
+  const [procs, setProcs] = createStore<ProcInfo[]>([]);
   const [stats, setStats] = createSignal<SysStats | null>(null);
   const [gpus, setGpus] = createSignal<GpuInfo[]>([]);
   const [disks, setDisks] = createSignal<DiskInfo[]>([]);
@@ -110,7 +114,7 @@ const TasksPage: Component = () => {
 
   const refresh = () => {
     void tasksList()
-      .then((p) => setProcs(p ?? []))
+      .then((p) => mergeByPid(procs, setProcs, p ?? []))
       .catch(() => {});
     void tasksStats()
       .then((s) => {
@@ -147,15 +151,18 @@ const TasksPage: Component = () => {
 
   const sorted = createMemo(() => {
     const k = sort();
-    return [...procs()].sort((a, b) =>
+    return [...procs].sort((a, b) =>
       k === "name" ? a.name.localeCompare(b.name) : k === "cpu" ? b.cpu - a.cpu : b.mem_mb - a.mem_mb,
     );
   });
-  const fluxProcs = createMemo(() => procs().filter((p) => p.is_flux));
+  const fluxProcs = createMemo(() => procs.filter((p) => p.is_flux));
   const fluxMem = createMemo(() => fluxProcs().reduce((s, p) => s + p.mem_mb, 0));
 
   /** The heaviest process for a resource — what each card names. */
-  const topBy = (key: "cpu" | "mem_mb") => createMemo(() => [...procs()].sort((a, b) => b[key] - a[key])[0]);
+  const topBy = (key: "cpu" | "mem_mb") =>
+    createMemo(() =>
+      procs.reduce<ProcInfo | undefined>((top, p) => (!top || p[key] > top[key] ? p : top), undefined),
+    );
   const topCpu = topBy("cpu");
   const topMem = topBy("mem_mb");
 
@@ -202,7 +209,7 @@ const TasksPage: Component = () => {
     return {
       level: "ok" as const,
       what: "Nothing is under pressure",
-      why: `${mem}% memory, ${cpu.toFixed(0)}% CPU, ${procs().length} processes.`,
+      why: `${mem}% memory, ${cpu.toFixed(0)}% CPU, ${procs.length} processes.`,
     };
   });
 
@@ -211,7 +218,7 @@ const TasksPage: Component = () => {
   // Nine, not more: past that the tail tiles become slivers whose area a reader
   // can't judge, which is the whole reason for using a treemap. The remainder
   // still counts — it's gathered into "other" so the areas sum to the whole.
-  const memGroups = createMemo(() => groupByName(procs(), 9));
+  const memGroups = createMemo(() => groupByName(procs, 9));
   const [focus, setFocus] = createSignal<string | null>(null);
   const listed = createMemo(() => {
     const f = focus();
@@ -227,13 +234,15 @@ const TasksPage: Component = () => {
   const procLabel = (p: ProcInfo) => `${p.name || "(unknown)"} (PID ${p.pid})`;
   const arm = (p: ProcInfo) => {
     setKillNote("");
-    setPendingKill(p);
+    // A copy: the row's own object follows its pid, so if the pid is taken over
+    // before the confirmation, `end` must still see the process that was shown.
+    setPendingKill({ ...p });
   };
   const end = async (p: ProcInfo) => {
     setPendingKill(null);
     // The pid is from a poll that may predate the confirmation: don't kill a
     // process that has since taken it over.
-    const now = procs().find((q) => q.pid === p.pid);
+    const now = procs.find((q) => q.pid === p.pid);
     if (now && now.name !== p.name) {
       setKillNote(`PID ${p.pid} now belongs to ${now.name || "another process"}. Nothing was ended.`);
       return;
@@ -264,8 +273,8 @@ const TasksPage: Component = () => {
         <Show when={stats()}>
           {(s) => (
             <span class="tm-sub" title={s().cpu_brand}>
-              {s().cpu_brand || "CPU"} · {s().cores} cores · up {fmtUptime(s().uptime_secs)} ·{" "}
-              {procs().length} procs · Flux {fluxProcs().length} ({fluxMem()} MB)
+              {s().cpu_brand || "CPU"} · {s().cores} cores · up {fmtUptime(s().uptime_secs)} · {procs.length}{" "}
+              procs · Flux {fluxProcs().length} ({fluxMem()} MB)
             </span>
           )}
         </Show>

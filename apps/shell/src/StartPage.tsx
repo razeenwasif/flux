@@ -88,6 +88,31 @@ interface TopSite {
   host: string;
 }
 
+/** What the last start page fetched. The page remounts on every switch to it,
+ *  so the next one shows these at once and refetches only what has gone stale:
+ *  the weather (two third-party calls) and the headlines (every feed) each cost
+ *  network round trips. */
+const kept = new Map<string, { at: number; value: unknown }>();
+const keptValue = <T,>(key: string): T | undefined => kept.get(key)?.value as T | undefined;
+const fresh = (key: string, maxAgeMs: number) => Date.now() - (kept.get(key)?.at ?? -Infinity) < maxAgeMs;
+const keep = <T,>(key: string, value: T): T => {
+  kept.set(key, { at: Date.now(), value });
+  return value;
+};
+const MINUTE = 60_000;
+
+type Weather = { temp: number; code: number; city: string };
+/** Also across launches: a first new tab shouldn't wait on two lookups for it. */
+const WEATHER_KEY = "flux.start.weather";
+const savedWeather = (): { at: number; value: Weather } | null => {
+  try {
+    const v = JSON.parse(localStorage.getItem(WEATHER_KEY) ?? "null");
+    return v && typeof v.at === "number" && v.value ? v : null;
+  } catch {
+    return null;
+  }
+};
+
 /** Persisted home-page scratchpad note (reuses the notes store, #53). */
 const SCRATCH_KEY = "flux://start#scratchpad";
 
@@ -157,9 +182,11 @@ const StartPage: Component<{
   const [liquidOk, setLiquidOk] = createSignal(true);
   const [engineName, setEngineName] = createSignal("");
   const [now, setNow] = createSignal(new Date());
-  const [weather, setWeather] = createSignal<{ temp: number; code: number; city: string } | null>(null);
-  const [headlines, setHeadlines] = createSignal<FeedItem[]>([]);
-  const [topSites, setTopSites] = createSignal<TopSite[]>([]);
+  const [weather, setWeather] = createSignal<Weather | null>(
+    keptValue<Weather>("weather") ?? savedWeather()?.value ?? null,
+  );
+  const [headlines, setHeadlines] = createSignal<FeedItem[]>(keptValue("headlines") ?? []);
+  const [topSites, setTopSites] = createSignal<TopSite[]>(keptValue("topSites") ?? []);
   // Daily briefing (#71): the local agent (Gemma) condenses today's headlines into
   // a few bullets. Generated on demand and cached per day so opening a new tab
   // doesn't re-hit the model; "Refresh" regenerates. Stays fully local (privacy).
@@ -204,7 +231,7 @@ const StartPage: Component<{
   // Raw feed+local events; `events()` below is the filtered view every consumer
   // reads, so the calendar picker applies to the month dots, the day list and
   // the expanded week grid without each having to remember to filter.
-  const [allEvents, setAllEvents] = createSignal<CalEvent[]>([]);
+  const [allEvents, setAllEvents] = createSignal<CalEvent[]>(keptValue("events") ?? []);
   const [homeCal, setHomeCal] = createSignal(localStorage.getItem("flux.start.cal") ?? "");
   const pickHomeCal = (v: string) => {
     setHomeCal(v);
@@ -288,7 +315,7 @@ const StartPage: Component<{
     localStorage.setItem("flux.start.order", JSON.stringify(arr));
   };
   // Omni index glance (#97).
-  const [omni, setOmni] = createSignal<OmniStats | null>(null);
+  const [omni, setOmni] = createSignal<OmniStats | null>(keptValue("omni") ?? null);
   // Custom start-page background (#71): an image URL or any CSS color/gradient.
   // Empty = the liquid/wave backdrop. Persisted.
   const [bg, setBgRaw] = createSignal(localStorage.getItem("flux.start.bg") || "");
@@ -371,9 +398,10 @@ const StartPage: Component<{
         setScratchReady(true);
       })
       .catch((e) => console.error("scratchpad load", e));
-    void omniStats()
-      .then(setOmni)
-      .catch(() => {}); // #97 glance widget (best-effort)
+    if (!fresh("omni", MINUTE))
+      void omniStats()
+        .then((o) => setOmni(keep("omni", o)))
+        .catch(() => {}); // #97 glance widget (best-effort)
 
     try {
       const [def, engines] = await Promise.all([searchDefault(), searchEngines()]);
@@ -383,39 +411,56 @@ const StartPage: Component<{
     }
 
     // Real weather: IP geolocation → Open-Meteo (both free, no key, CORS-ok).
-    try {
-      const geo = await fetch("https://ipapi.co/json/").then((r) => r.json());
-      const w = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${geo.latitude}&longitude=${geo.longitude}&current=temperature_2m,weather_code`,
-      ).then((r) => r.json());
-      setWeather({
-        temp: Math.round(w.current.temperature_2m),
-        code: w.current.weather_code,
-        city: geo.city,
+    // Not awaited, and given up on after a few seconds: nothing below waits on it.
+    const saved = savedWeather();
+    if (!fresh("weather", 30 * MINUTE) && !(saved && Date.now() - saved.at < 30 * MINUTE)) {
+      void (async () => {
+        const get = (url: string) => fetch(url, { signal: AbortSignal.timeout(4000) }).then((r) => r.json());
+        const geo = await get("https://ipapi.co/json/");
+        const w = await get(
+          `https://api.open-meteo.com/v1/forecast?latitude=${geo.latitude}&longitude=${geo.longitude}&current=temperature_2m,weather_code`,
+        );
+        const now = {
+          temp: Math.round(w.current.temperature_2m),
+          code: w.current.weather_code,
+          city: geo.city,
+        };
+        setWeather(keep("weather", now));
+        try {
+          localStorage.setItem(WEATHER_KEY, JSON.stringify({ at: Date.now(), value: now }));
+        } catch {
+          /* storage full or blocked: this visit still has it */
+        }
+      })().catch(() => {
+        /* offline — the widget keeps the last reading, or omits weather */
       });
-    } catch {
-      /* offline — the widget just omits weather */
     }
 
     // Feed headlines (#72) — aggregate of all subscribed feeds, newest-ish first.
-    feedItems(0)
-      .then((items) => setHeadlines(items ?? []))
-      .catch(() => {});
+    // Each call downloads every feed. None kept yet (or none subscribed when they
+    // were) counts as stale, so a feed subscribed just now shows on return.
+    if (!fresh("headlines", 5 * MINUTE) || !keptValue<FeedItem[]>("headlines")?.length)
+      feedItems(0)
+        .then((items) => setHeadlines(keep("headlines", items ?? [])))
+        .catch(() => {});
 
     // Top sites — most-visited hosts from history, deduped by host.
-    historyRecent(250)
-      .then((rows) => {
-        const byHost = new Map<string, TopSite>();
-        for (const h of rows ?? []) {
-          if (h.url.startsWith("flux://")) continue;
-          const host = hostOf(h.url);
-          if (!byHost.has(host)) byHost.set(host, { url: h.url, title: h.title || host, host });
-        }
-        setTopSites([...byHost.values()].slice(0, 24));
-      })
-      .catch(() => {});
+    if (!fresh("topSites", MINUTE))
+      historyRecent(250)
+        .then((rows) => {
+          const byHost = new Map<string, TopSite>();
+          for (const h of rows ?? []) {
+            if (h.url.startsWith("flux://")) continue;
+            const host = hostOf(h.url);
+            if (!byHost.has(host)) byHost.set(host, { url: h.url, title: h.title || host, host });
+          }
+          setTopSites(keep("topSites", [...byHost.values()].slice(0, 24)));
+        })
+        .catch(() => {});
 
-    // Calendar events (#114) from subscribed ICS feeds + local tasks.
+    // Calendar events (#114) from subscribed ICS feeds + local tasks. Shown from
+    // the last visit at once, but always re-read: an event added anywhere else
+    // (the Calendar, the agent) belongs on the very next new tab.
     loadEvents();
     refreshTodos();
   });
@@ -428,7 +473,7 @@ const StartPage: Component<{
     const seq = ++eventsSeq;
     void calEvents()
       .then((e) => {
-        if (seq === eventsSeq) setAllEvents(e ?? []);
+        if (seq === eventsSeq) setAllEvents(keep("events", e ?? []));
       })
       .catch(() => {});
   };

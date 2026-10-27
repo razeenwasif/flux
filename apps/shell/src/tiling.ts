@@ -398,13 +398,23 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
   // Manage the open panel webview(s) — positioned in their own grid pane beside
   // the content card. Switching panels closes the old one; hidden mid-drag.
   const opened: { top: number | null; bottom: number | null } = { top: null, bottom: null };
+  // Where each slot's webview was last put and whether it's showing, so a run
+  // that changes nothing sends nothing. A column sliding open re-runs this every
+  // frame, and each run sent a bounds and a show per panel. (A hidden webview
+  // keeps its frame: panel_hide is a hide, not a move.)
+  const placed: { top: Rect | null; bottom: Rect | null } = { top: null, bottom: null };
+  const showing = { top: false, bottom: false };
   // Reconcile one split slot's native webview against the panel it should show
-  // and the rect it should occupy (null rect = keep alive but hidden).
-  const syncSlot = (slot: "top" | "bottom", p: WebPanel | null, rect: Rect | null) => {
+  // and the rect it should occupy (null rect = keep alive but hidden). `resend`:
+  // the webview may have moved without us (fullscreen video), so send bounds
+  // even if they match.
+  const syncSlot = (slot: "top" | "bottom", p: WebPanel | null, rect: Rect | null, resend: boolean) => {
     const prev = opened[slot];
     if (prev != null && prev !== (p?.id ?? null)) {
       wv(panelClose(prev));
       opened[slot] = null;
+      placed[slot] = null;
+      showing[slot] = false;
     }
     if (!p) return;
     // A flux:// panel is DOM (WebPanelPane renders it through InternalPage), so
@@ -414,24 +424,29 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
       if (opened[slot] != null) {
         wv(panelClose(opened[slot]!));
         opened[slot] = null;
+        placed[slot] = null;
+        showing[slot] = false;
       }
       return;
     }
     if (!rect) {
-      wv(panelHide(p.id));
+      if (opened[slot] === p.id && showing[slot]) wv(panelHide(p.id));
+      showing[slot] = false;
       return;
     }
     if (opened[slot] === p.id) {
-      wv(panelSetBounds(p.id, rect));
-      wv(panelShow(p.id));
+      if (resend || !sameRect(placed[slot], rect)) wv(panelSetBounds(p.id, rect));
+      if (!showing[slot]) wv(panelShow(p.id));
     } else {
       opened[slot] = p.id;
       wv(panelOpen(p.id, p.url, rect).then(() => panelSetBounds(p.id, rect)));
     }
+    placed[slot] = rect;
+    showing[slot] = true;
   };
+  let panelTick = 0;
   createEffect(() => {
     contentRect();
-    relayoutTick(); // subscribe: forced re-tile (e.g. after fullscreen-video exit)
     panelWidth(); // subscribe: re-position on resize / divider drag
     panelSplitRatio(); // subscribe: re-tile both slots when the split moves
     const top = activePanel();
@@ -441,8 +456,11 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
     // overlay); panel drags hide only the panel webviews (split-seam drags
     // don't touch this pane).
     const hidden = panelDragging() || focusMode() || overlayActive();
-    syncSlot("top", top, hidden ? null : panelViewRect());
-    syncSlot("bottom", bottom, hidden ? null : panelViewRectB());
+    const tick = relayoutTick();
+    const resend = tick !== panelTick;
+    panelTick = tick;
+    syncSlot("top", top, hidden ? null : panelViewRect(), resend);
+    syncSlot("bottom", bottom, hidden ? null : panelViewRectB(), resend);
   });
 
   return {

@@ -8,9 +8,11 @@
  * is the usual case.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { TabMeta } from "./ipc";
+import type { TabMeta, WebPanel } from "./ipc";
 
 const CARD = { x: 260, y: 44, width: 900, height: 800 };
+// The web panel's box; its webview sits below the toolbar, right of the gutter.
+let panelBox = { x: 1180, y: 44, width: 380, height: 800 };
 
 const ipc = vi.hoisted(() => {
   const ok = () => vi.fn((..._args: unknown[]) => Promise.resolve());
@@ -37,22 +39,30 @@ const ipc = vi.hoisted(() => {
 vi.mock("./ipc", () => ipc);
 const asleep = vi.hoisted(() => new Set<number>());
 
-// The store's tab signal, settable from the tests.
-const live = vi.hoisted(() => ({ setActiveTab: (_t: TabMeta | null) => {} }));
+// The store's tab, panel and panel-width signals, settable from the tests.
+const live = vi.hoisted(() => ({
+  setActiveTab: (_t: TabMeta | null) => {},
+  setPanel: (_p: WebPanel | null) => {},
+  setPanelWidth: (_w: number) => {},
+}));
 vi.mock("./store", async () => {
   const { createSignal } = await import("solid-js");
   const [activeTab, setActiveTab] = createSignal<TabMeta | null>(null);
+  const [panel, setPanel] = createSignal<WebPanel | null>(null);
+  const [panelWidth, setPanelWidth] = createSignal(380);
   live.setActiveTab = (t) => void setActiveTab(t);
+  live.setPanel = (p) => void setPanel(p);
+  live.setPanelWidth = (w) => void setPanelWidth(w);
   const none = () => null;
   return {
-    activePanel: none,
+    activePanel: panel,
     activePanelB: none,
-    activePanelId: none,
+    activePanelId: () => panel()?.id ?? null,
     activePanelIdB: none,
     activeTab,
     panelDragging: () => false,
     panelSplitRatio: () => 0.5,
-    panelWidth: () => 380,
+    panelWidth,
     readerOpen: () => false,
     isHibernated: (id: number) => asleep.has(id),
     setHibernated: (id: number, on: boolean) => void (on ? asleep.add(id) : asleep.delete(id)),
@@ -106,7 +116,11 @@ beforeEach(() => {
   vi.stubGlobal("document", {
     ...listeners,
     getElementById: (id: string) =>
-      id === "flux-web-area" ? { getBoundingClientRect: () => ({ ...CARD }) } : null,
+      id === "flux-web-area"
+        ? { getBoundingClientRect: () => ({ ...CARD }) }
+        : id === "flux-panel-area"
+          ? { getBoundingClientRect: () => ({ ...panelBox }) }
+          : null,
   });
   vi.stubGlobal("window", listeners);
   vi.stubGlobal(
@@ -122,6 +136,9 @@ beforeEach(() => {
 afterEach(() => {
   dispose?.();
   live.setActiveTab(null);
+  live.setPanel(null);
+  live.setPanelWidth(380);
+  panelBox = { x: 1180, y: 44, width: 380, height: 800 };
   asleep.clear();
   vi.unstubAllGlobals();
 });
@@ -193,5 +210,64 @@ describe("the restored tab's open", () => {
     await settle();
     expect(ipc.webviewShow).not.toHaveBeenCalled();
     expect(ipc.webviewHide).toHaveBeenCalledWith(7);
+  });
+});
+
+describe("a web panel's webview", () => {
+  const panel: WebPanel = { id: 3, url: "https://example.org/", title: "" };
+  const view = (box: typeof panelBox) => ({
+    x: box.x + 14,
+    y: box.y + 34,
+    width: box.width - 14,
+    height: box.height - 34,
+  });
+
+  it("is opened once and then left alone while nothing about it changes", async () => {
+    boot(() => false);
+    live.setPanel(panel);
+    await settle();
+    expect(ipc.panelOpen).toHaveBeenCalledWith(3, "https://example.org/", view(panelBox));
+    // A column sliding open re-runs the effect every frame (here: the width
+    // signal), with the panel's own box where it was.
+    for (const w of [381, 382, 383]) live.setPanelWidth(w);
+    await settle();
+    expect(ipc.panelSetBounds).toHaveBeenCalledTimes(1); // the one after the open
+    expect(ipc.panelShow).not.toHaveBeenCalled();
+  });
+
+  it("is moved only when its box moves, and shown and hidden only on a change", async () => {
+    const [overlay, setOverlay] = createSignal(false);
+    boot(overlay);
+    live.setPanel(panel);
+    await settle();
+    vi.clearAllMocks();
+
+    panelBox = { ...panelBox, x: 1100, width: 460 };
+    live.setPanelWidth(460);
+    await settle();
+    expect(ipc.panelSetBounds).toHaveBeenCalledTimes(1);
+    expect(ipc.panelSetBounds).toHaveBeenCalledWith(3, view(panelBox));
+    expect(ipc.panelShow).not.toHaveBeenCalled();
+
+    setOverlay(true);
+    live.setPanelWidth(461);
+    await settle();
+    expect(ipc.panelHide).toHaveBeenCalledTimes(1);
+
+    setOverlay(false);
+    await settle();
+    expect(ipc.panelShow).toHaveBeenCalledTimes(1);
+    expect(ipc.panelSetBounds).toHaveBeenCalledTimes(1); // same box as before it hid
+  });
+
+  it("gets its bounds again after a forced relayout", async () => {
+    const tiling = boot(() => false);
+    live.setPanel(panel);
+    await settle();
+    vi.clearAllMocks();
+    tiling.forceRelayout();
+    await settle();
+    expect(ipc.panelSetBounds).toHaveBeenCalledWith(3, view(panelBox));
+    expect(ipc.panelShow).not.toHaveBeenCalled();
   });
 });
