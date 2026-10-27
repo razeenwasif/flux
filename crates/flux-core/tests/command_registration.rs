@@ -149,13 +149,23 @@ fn invoked_commands(files: &[PathBuf]) -> BTreeSet<String> {
             if !(head.starts_with('(') || head.starts_with('<')) {
                 continue;
             }
+            // Type arguments can hold string literals too (`invoke<"normal" |
+            // "warn">("memory_pressure")`), so start after them.
+            let args = if head.starts_with('<') {
+                match after.find(">(") {
+                    Some(i) => &after[i + 1..],
+                    None => continue,
+                }
+            } else {
+                after
+            };
             // First string literal after the opening paren is the command name.
-            let Some(q1) = after.find('"') else { continue };
-            let rest = &after[q1 + 1..];
+            let Some(q1) = args.find('"') else { continue };
+            let rest = &args[q1 + 1..];
             let Some(q2) = rest.find('"') else { continue };
             let raw = &rest[..q2];
             // Reject if a closing paren precedes the quote (no string arg here).
-            if after[..q1].contains(')') {
+            if args[..q1].contains(')') {
                 continue;
             }
             // Tauri's own core plugins are registered by Tauri, not by a handler
