@@ -243,6 +243,12 @@ const StartPage: Component<{
   };
   const [customizing, setCustomizing] = createSignal(false);
   createEffect(() => setHomeModalOpen(expandedWidget() !== null || customizing()));
+  // Velvet Paper scrolls the whole page (.start), and an expanded widget's
+  // backdrop is absolute in it: kept at the scroll offset, it covers the part
+  // in view. The page holds still under it while it's open, though focus moving
+  // behind it can still scroll the page, so the offset follows the scroll.
+  const [scrollY, setScrollY] = createSignal(0);
+  const inView = () => ({ top: `${scrollY()}px`, bottom: `${-scrollY()}px` });
   const [previousHidden, setPreviousHidden] = createSignal<string[] | null>(null);
   const applyPreset = (hidden: string[]) => {
     setPreviousHidden([...hiddenWidgets()]);
@@ -1242,7 +1248,11 @@ const StartPage: Component<{
   );
 
   return (
-    <div class="start" style={bgStyle()}>
+    <div
+      class="start"
+      onScroll={(e) => setScrollY(e.currentTarget.scrollTop)}
+      style={{ ...bgStyle(), overflow: expandedWidget() ? "hidden" : undefined }}
+    >
       <button class="start-customize" title="Customize home" onClick={() => setCustomizing((v) => !v)}>
         ⚙ <span>Customize home</span>
       </button>
@@ -1940,6 +1950,7 @@ const StartPage: Component<{
       <Show when={expandedWidget()}>
         <div
           class="cal-modal-backdrop"
+          style={inView()}
           onClick={() => setExpandedWidget(null)}
           onKeyDown={(e) => {
             if (e.key === "Escape") setExpandedWidget(null);

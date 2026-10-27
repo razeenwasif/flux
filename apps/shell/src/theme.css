@@ -5903,8 +5903,9 @@ body.busy .start-card {
 /* Absolute, not fixed: the expanded widget belongs to the home page, so it
    centres inside the page's own box. Fixed centred it on the whole window,
    which reads as off-centre whenever the sidebar, agent or panel columns are
-   open. `.start` is position: relative and never scrolls (its inner
-   .start-scroll does), so this stays pinned to the visible page. */
+   open. Classic's `.start` never scrolls (its inner .start-scroll does);
+   Velvet Paper's does, so StartPage sets this box's top and bottom to the
+   scroll offset, which keeps it over the part of the page in view. */
 .cal-modal-backdrop {
   position: absolute;
   inset: 0;
