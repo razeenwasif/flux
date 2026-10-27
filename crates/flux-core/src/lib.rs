@@ -1402,6 +1402,7 @@ pub fn run(intent: cli::LaunchIntent) {
             todos::todo_remove,
             todos::todos_clear_done,
             favicon::favicon,
+            favicon::site_icon,
             history::history_recent,
             history::history_search,
             history::history_delete,

@@ -7016,6 +7016,17 @@ body.busy .start-card {
   box-shadow: 0 8px 20px -8px var(--tint, var(--flux-violet-bright));
   border-color: var(--tint, var(--flux-violet-bright));
 }
+/* The site's own icon (start/SiteIcon.tsx), in place of the letters once it loads. */
+.start-tile-icon {
+  width: min(42%, 34px);
+  aspect-ratio: 1;
+  object-fit: contain;
+  border-radius: 22%;
+  pointer-events: none;
+}
+.widget-modal-dial .start-tile-icon {
+  width: min(42%, 56px);
+}
 .start-tile-x {
   position: absolute;
   top: -6px;

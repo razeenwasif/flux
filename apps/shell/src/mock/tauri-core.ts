@@ -872,6 +872,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         available_pct: 56,
       } as T);
     case "favicon":
+    case "site_icon":
       return Promise.resolve(null as T); // no network in preview → letter glyphs
     case "darkmode_status":
       return Promise.resolve(false as T);

@@ -65,6 +65,7 @@ import Converter from "./Converter";
 import { askConfirm } from "./ask";
 import { design } from "./design";
 import { focusLine } from "./focusGate";
+import SiteIcon from "./start/SiteIcon";
 // Velvet Paper's own cards (design.ts): split out so Classic never loads them and
 // they stay off the boot path (`npm run perf`).
 const VpFocusCard = lazy(() => import("./start/VpFocusCard"));
@@ -1217,8 +1218,9 @@ const StartPage: Component<{
                   style={{ "--tint": s.tint }}
                   onClick={() => props.onNavigate(s.url)}
                   title={s.url}
+                  aria-label={hostOf(s.url)}
                 >
-                  {s.label}
+                  <SiteIcon url={s.url} fallback={s.label} />
                 </button>
                 <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>
                   ×
@@ -1464,8 +1466,9 @@ const StartPage: Component<{
                         style={{ "--tint": TINTS[i() % TINTS.length] }}
                         onClick={() => props.onNavigate(s.url)}
                         title={s.title}
+                        aria-label={s.host}
                       >
-                        {(s.host[0] ?? "?").toUpperCase()}
+                        <SiteIcon url={s.url} fallback={(s.host[0] ?? "?").toUpperCase()} />
                       </button>
                     </div>
                   )}
@@ -2008,8 +2011,9 @@ const StartPage: Component<{
                               props.onNavigate(s.url);
                             }}
                             title={s.url}
+                            aria-label={hostOf(s.url)}
                           >
-                            {s.label}
+                            <SiteIcon url={s.url} fallback={s.label} />
                           </button>
                           <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>
                             ×
@@ -2040,8 +2044,9 @@ const StartPage: Component<{
                             props.onNavigate(s.url);
                           }}
                           title={s.title}
+                          aria-label={s.host}
                         >
-                          {(s.host[0] ?? "?").toUpperCase()}
+                          <SiteIcon url={s.url} fallback={(s.host[0] ?? "?").toUpperCase()} />
                         </button>
                       )}
                     </For>
