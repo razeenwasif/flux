@@ -91,7 +91,7 @@ jobs:
       - name: Run perf benches
         run: cargo bench -p flux-core --bench ipc -- --warm-up-time 1 --measurement-time 3
 
-  # Release binary size budget (≤ 25 MB). Heavier (full LTO build), so it's its
+  # Release binary size budget (≤ 28 MB). Heavier (full LTO build), so it's its
   # own job and only on main / when manually triggered.
   binary-size:
     runs-on: ubuntu-latest

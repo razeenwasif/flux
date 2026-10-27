@@ -14,7 +14,7 @@
  *                                  startup with the default layout: the above plus
  *                                  the lazy columns and panes it shows.
  *   • Entry stylesheet, gzip — the render-blocking CSS index.html links.
- *   • Installer / binary ≤ 25 MB — the release `flux` binary, when present.
+ *   • Installer / binary ≤ 28 MB — the release `flux` binary, when present.
  *
  * The eager set is computed from Vite's build manifest: start at the entry and
  * follow static `imports` transitively; `dynamicImports` (lazy) are not counted,
@@ -116,7 +116,10 @@ const DEFAULT_BOOT_ROOTS = [
 // the same day, once twelve screens' rules moved into sheets of their own that
 // load with those screens (29.0 KB).
 const ENTRY_CSS_BUDGET = 31 * 1024;
-const BINARY_BUDGET = 25 * 1024 * 1024; // bytes
+// Release binary, raised 25 → 28 MB on 2026-10-27 (a loosening, approved by the
+// maintainer): CI's Linux build had reached 25.99 MB (25.66 MB on 10-25) with
+// the browser import, the command registry and the welcome; macOS's is 20.4 MB.
+const BINARY_BUDGET = 28 * 1024 * 1024; // bytes
 
 // ── args ─────────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);

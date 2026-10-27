@@ -3,7 +3,7 @@
 Flux's headline claim is **"lighter than Chrome."** This doc makes that a
 *number you can cite*, and a procedure anyone can rerun. It complements the
 artifact gates in [`scripts/perf-budget.mjs`](../../scripts/perf-budget.mjs)
-(chrome JS ≤ 50 KB gzip, binary ≤ 25 MB — checked in CI on every PR) by covering
+(chrome JS ≤ 50 KB gzip, binary ≤ 28 MB — checked in CI on every PR) by covering
 the budgets that need a running window: **idle RAM** and **RAM under N tabs**
 (ADR 0001).
 
@@ -110,6 +110,6 @@ cargo bench -p flux-core --bench ipc   # ipc_roundtrip, dom_snapshot latency
 | Budget | Limit | Where |
 |---|---|---|
 | Chrome JS (gzip, eager) | ≤ 50 KB | `scripts/perf-budget.mjs` → CI `chrome-budget` |
-| Release binary | ≤ 25 MB | `scripts/perf-budget.mjs --binary` → CI `binary-size` |
+| Release binary | ≤ 28 MB | `scripts/perf-budget.mjs --binary` → CI `binary-size` |
 | `ipc_roundtrip` (1 KB) | < 1 ms p99 | `benches/ipc.rs` → CI `benches` |
 | `dom_snapshot` (5 MB) | < 12 ms p99 | `benches/ipc.rs` → CI `benches` |

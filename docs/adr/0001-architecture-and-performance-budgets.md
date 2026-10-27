@@ -87,7 +87,7 @@ Both were prototyped. **SolidJS** wins for the chrome layer:
 | Agent first token (Gemma-4-12B Q4, warm) | **< 350 ms** | `flux-agent` bench, reference HW: M3 Pro / RTX 4070 |
 | Tab embedding (title + summary) | **< 5 ms/tab** | `flux-embed` bench |
 | Shipped JS for chrome (gzip) | **< 65 KB** ¹ | `vite build` size gate |
-| Installer size | **< 25 MB** | CI artifact gate |
+| Installer size | **< 28 MB** ² | CI artifact gate |
 
 ¹ Re-baselined 50 → 65 KB (2026-07-16 code audit). The 50 KB was set before
 ~30 chrome features landed (workspaces, split view, groups/folders, containers,
@@ -97,6 +97,12 @@ panel, tracker graph, and app panes are now lazy + store-gated (70.1 → 64.4 KB
 measured) — and what remains is load-bearing boot chrome, so the budget moved
 to just above the real floor to keep regression pressure. Revisit if the
 eager set is ever split further (e.g. per-feature store/ipc modules).
+
+² Raised 25 → 28 MB (2026-10-27). CI's Linux release binary had reached
+25.99 MB (25.66 MB two days earlier) as the browser import, the command
+registry, the welcome and site icons landed; the macOS binary is 20.4 MB. The
+28 MB leaves about 2 MB of room so the gate still catches a jump. Slimming the
+Linux build is the way back under 25.
 
 ## Consequences
 
