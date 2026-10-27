@@ -1210,7 +1210,8 @@ const StartPage: Component<{
       </div>
       <div class="start-card-body">
         <div class="start-dial">
-          <For each={shortcuts().slice(0, 5)}>
+          {/* Velvet Paper's card has room for three rows of three. */}
+          <For each={shortcuts().slice(0, vp() ? 8 : 5)}>
             {(s, i) => (
               <div class="start-tile-wrap">
                 <button

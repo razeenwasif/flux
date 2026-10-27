@@ -2237,14 +2237,18 @@
   grid-column: span 3;
   height: auto;
 }
-/* Shortcuts in the lead row: two columns of low tiles. */
+/* Shortcuts in the lead row: three columns of tiles, up to three rows, that
+   share the card's height (two rows of five shortcuts don't leave a gap). */
 :root[data-design="velvet-paper"] .start-card[data-row="lead"] .start-dial {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: minmax(58px, 1fr);
+  height: 100%;
   gap: 8px;
 }
 :root[data-design="velvet-paper"] .start-card[data-row="lead"] .start-tile {
   aspect-ratio: auto;
-  height: 58px;
+  height: 100%;
+  min-height: 58px;
   border-radius: 18px;
 }
 
