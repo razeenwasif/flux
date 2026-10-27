@@ -1216,8 +1216,8 @@ const StartPage: Component<{
       </div>
       <div class="start-card-body">
         <div class="start-dial">
-          {/* Velvet Paper's card has room for three rows of three. */}
-          <For each={shortcuts().slice(0, vp() ? 8 : 5)}>
+          {/* Two rows of five, the add tile included. */}
+          <For each={shortcuts().slice(0, 9)}>
             {(s, i) => (
               <div class="start-tile-wrap">
                 <button
@@ -1227,7 +1227,7 @@ const StartPage: Component<{
                   title={s.url}
                   aria-label={hostOf(s.url)}
                 >
-                  <SiteIcon url={s.url} fallback={s.label} />
+                  <SiteIcon url={s.url} letters={s.label} />
                 </button>
                 <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>
                   ×
@@ -1240,7 +1240,7 @@ const StartPage: Component<{
             title="Add shortcut"
             onClick={() => setExpandedWidget("shortcuts")}
           >
-            +
+            <span class="start-tile-badge">+</span>
           </button>
         </div>
       </div>
@@ -1469,7 +1469,7 @@ const StartPage: Component<{
                 </button>
               </div>
               <div class="start-dial start-card-body">
-                <For each={topSites().slice(0, 6)}>
+                <For each={topSites().slice(0, 10)}>
                   {(s, i) => (
                     <div class="start-tile-wrap">
                       <button
@@ -1479,7 +1479,7 @@ const StartPage: Component<{
                         title={s.title}
                         aria-label={s.host}
                       >
-                        <SiteIcon url={s.url} fallback={(s.host[0] ?? "?").toUpperCase()} />
+                        <SiteIcon url={s.url} letters={(s.host[0] ?? "?").toUpperCase()} />
                       </button>
                     </div>
                   )}
@@ -2025,7 +2025,7 @@ const StartPage: Component<{
                             title={s.url}
                             aria-label={hostOf(s.url)}
                           >
-                            <SiteIcon url={s.url} fallback={s.label} />
+                            <SiteIcon url={s.url} letters={s.label} />
                           </button>
                           <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>
                             ×
@@ -2058,7 +2058,7 @@ const StartPage: Component<{
                           title={s.title}
                           aria-label={s.host}
                         >
-                          <SiteIcon url={s.url} fallback={(s.host[0] ?? "?").toUpperCase()} />
+                          <SiteIcon url={s.url} letters={(s.host[0] ?? "?").toUpperCase()} />
                         </button>
                       )}
                     </For>

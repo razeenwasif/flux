@@ -1,10 +1,11 @@
 /**
  * A site's own icon on the new tab's tiles (Shortcuts, Top sites): the biggest
  * one it offers, from Rust's `site_icon` — a tab's 16 px favicon would blur at
- * tile size. The tile's letters show while it loads, or for a site without one.
+ * tile size. A badge of the tile's letters shows while it loads, or for a site
+ * without one.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { type Component, type JSX, Show, createEffect } from "solid-js";
+import { type Component, Show, createEffect } from "solid-js";
 import { createStore } from "solid-js/store";
 
 // Per host, so a tile only re-renders when its own icon lands.
@@ -29,7 +30,7 @@ const hostOf = (url: string): string | null => {
   }
 };
 
-const SiteIcon: Component<{ url: string; fallback: JSX.Element }> = (props) => {
+const SiteIcon: Component<{ url: string; letters: string }> = (props) => {
   const host = () => hostOf(props.url);
   createEffect(() => ensure(host()));
   const src = () => {
@@ -37,7 +38,7 @@ const SiteIcon: Component<{ url: string; fallback: JSX.Element }> = (props) => {
     return h ? icons[h] : undefined;
   };
   return (
-    <Show when={src()} fallback={props.fallback}>
+    <Show when={src()} fallback={<span class="start-tile-badge">{props.letters}</span>}>
       {(s) => (
         <img
           class="start-tile-icon"

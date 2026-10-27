@@ -5979,9 +5979,6 @@ body.busy .start-card {
   flex-direction: column;
   gap: 14px;
 }
-.widget-modal-dial {
-  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
-}
 .widget-modal-scratch {
   min-height: 46vh;
   resize: vertical;
@@ -6992,10 +6989,17 @@ body.busy .start-card {
   border-color: rgba(var(--accent-rgb), 0.4);
 }
 
+/* Shortcuts and Top sites: five to a row, each tile the site's own icon (a
+   badge of its letters until the icon loads, or for a site without one), with
+   no box around it. */
 .start-dial {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px 4px;
+  align-content: center;
+}
+.start-card-body > .start-dial {
+  height: 100%;
 }
 .start-tile-wrap {
   position: relative;
@@ -7005,33 +7009,48 @@ body.busy .start-card {
   aspect-ratio: 1;
   display: grid;
   place-items: center;
-  font-size: 16px;
-  font-weight: 700;
   color: var(--flux-text);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--tint, var(--flux-violet-bright)) 16%, transparent);
-  border: 1px solid color-mix(in srgb, var(--tint, var(--flux-violet-bright)) 36%, transparent);
+  background: transparent;
+  border: 0;
+  transition:
+    background 0.15s var(--ease-soft),
+    transform 0.15s var(--ease-soft);
 }
 .start-tile:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px -8px var(--tint, var(--flux-violet-bright));
-  border-color: var(--tint, var(--flux-violet-bright));
+  background: color-mix(in srgb, var(--flux-text) 7%, transparent);
+  transform: translateY(-1px);
 }
-/* The site's own icon (start/SiteIcon.tsx), in place of the letters once it loads. */
-.start-tile-icon {
-  width: min(42%, 34px);
+/* The site's own icon (start/SiteIcon.tsx), or its letters in a tinted badge. */
+.start-tile-icon,
+.start-tile-badge {
+  width: min(80%, 40px);
   aspect-ratio: 1;
-  object-fit: contain;
   border-radius: 22%;
+}
+.start-tile-icon {
+  object-fit: contain;
   pointer-events: none;
 }
-.widget-modal-dial .start-tile-icon {
-  width: min(42%, 56px);
+.start-tile-badge {
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--tint, var(--flux-violet-bright)) 30%, transparent);
 }
+.start-dial.widget-modal-dial {
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+}
+.widget-modal-dial .start-tile-icon,
+.widget-modal-dial .start-tile-badge {
+  width: min(80%, 52px);
+}
+/* On the icon's corner, wherever the icon sits in its cell. */
 .start-tile-x {
   position: absolute;
-  top: -6px;
-  right: -6px;
+  top: calc(50% - min(40%, 20px) - 7px);
+  right: calc(50% - min(40%, 20px) - 7px);
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -7045,6 +7064,10 @@ body.busy .start-card {
   opacity: 0;
   transition: opacity 0.15s var(--ease-soft);
 }
+.widget-modal-dial .start-tile-x {
+  top: calc(50% - min(40%, 26px) - 7px);
+  right: calc(50% - min(40%, 26px) - 7px);
+}
 .start-tile-wrap:hover .start-tile-x {
   opacity: 1;
 }
@@ -7052,13 +7075,14 @@ body.busy .start-card {
   background: var(--flux-magenta);
   color: #fff;
 }
-.start-tile-add {
-  border-style: dashed;
+.start-tile-add .start-tile-badge {
+  font-size: 16px;
+  font-weight: 500;
   color: var(--flux-text-dim);
   background: transparent;
-  border-color: var(--flux-border);
+  border: 1px dashed var(--flux-border);
 }
-.start-tile-add:hover {
+.start-tile-add:hover .start-tile-badge {
   color: var(--flux-teal);
   border-color: var(--flux-teal);
 }
