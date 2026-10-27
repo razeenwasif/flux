@@ -176,7 +176,7 @@ const InternalPage: Component<InternalPageProps> = (props) => {
   });
 
   return (
-    <div ref={host} style={{ display: "contents" }}>
+    <div ref={host} class="internal-page">
       <Switch
         fallback={
           <Show

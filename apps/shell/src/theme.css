@@ -3194,6 +3194,20 @@ body.resizing .panel-edge-resize::after {
   box-shadow: var(--glass-shadow), var(--glass-inset);
 }
 
+/* Flux's own pages fill the card (and a split half, and a web panel). The card
+   centres what it holds, for the loading state, so a page that set no width of
+   its own was left at its content's width: History a 415 px column at the top,
+   Agent activity floating mid-card, and Activity, a size container with no
+   content width at all, 40 px. */
+.internal-page {
+  display: contents;
+}
+.internal-page > * {
+  justify-self: stretch;
+  align-self: stretch;
+  min-width: 0;
+}
+
 /* Split view (#43): each half renders its tab's DOM page (or sits under a tiled
    webview). Absolutely positioned over the card, same single-cell grid so the
    page fills + can scroll. */
