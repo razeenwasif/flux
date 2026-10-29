@@ -428,7 +428,11 @@ export type IndexerMatch = { label: string; question: string; answer: string; ke
  * Results of one search, best first.
  */
 export type IndexerResults = { matches: IndexerMatch[]; ambiguous: boolean; semantic: boolean }
-export type IndexerStatus = { cards: number; notes: number; books: number; building: boolean; files_done: number; files_todo: number; current: string | null; embed_model: string; semantic: boolean; pending: number; sources: string[]; notice: string | null; error: string | null }
+/**
+ * A folder of PDFs the Indexer reads.
+ */
+export type IndexerShelf = { path: string; books: number; added: boolean }
+export type IndexerStatus = { cards: number; notes: number; books: number; building: boolean; files_done: number; files_todo: number; current: string | null; embed_model: string; semantic: boolean; pending: number; sources: string[]; shelves: IndexerShelf[]; notice: string | null; error: string | null }
 /**
  * The System 1 model's pick among the options it was given.
  */

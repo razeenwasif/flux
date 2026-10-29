@@ -356,6 +356,27 @@ for (let n = Number(previewParams.get("previewTabs")) || 0; n > 0; n--) {
 // IPC a UI event causes.
 const ipcLog: string[] = [];
 (window as unknown as { __fluxPreviewIpc: string[] }).__fluxPreviewIpc = ipcLog;
+// The Indexer's folders of PDFs added in its panel (indexer.rs `folders.json`).
+let mockIndexerFolders: string[] = [];
+const mockIndexerStatus = () => ({
+  cards: 37532,
+  notes: 966,
+  books: 26 + mockIndexerFolders.length * 40,
+  building: false,
+  files_done: 0,
+  files_todo: 0,
+  current: null,
+  embed_model: "embeddinggemma-2:270m",
+  semantic: true,
+  pending: 0,
+  sources: ["/Users/preview/OnyxVault", "/Users/preview/Documents/Books", ...mockIndexerFolders],
+  shelves: [
+    { path: "/Users/preview/Documents/Books", books: 26, added: false },
+    ...mockIndexerFolders.map((path) => ({ path, books: 40, added: true })),
+  ],
+  notice: null,
+  error: null,
+});
 let mockDefaultEngine = "ddg";
 let mockShieldsOn = true;
 let mockHidden = 1;
@@ -2221,23 +2242,21 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "set_window_acrylic":
       return Promise.resolve(undefined as T);
     // The Indexer, so its sheet (and the Tuning scale) has something to show.
+    case "indexer_add_folder": {
+      const path = String(args?.path ?? "")
+        .replace(/^~(?=\/|$)/, "/Users/preview")
+        .replace(/\/+$/, "");
+      if (!path.startsWith("/"))
+        return Promise.reject("Give the folder's full path, or one starting with ~/");
+      if (!mockIndexerFolders.includes(path)) mockIndexerFolders.push(path);
+      return Promise.resolve(mockIndexerStatus() as T);
+    }
+    case "indexer_remove_folder":
+      mockIndexerFolders = mockIndexerFolders.filter((f) => f !== args?.path);
+      return Promise.resolve(mockIndexerStatus() as T);
     case "indexer_status":
     case "indexer_reindex":
-      return Promise.resolve({
-        cards: 37532,
-        notes: 966,
-        books: 26,
-        building: false,
-        files_done: 0,
-        files_todo: 0,
-        current: null,
-        embed_model: "embeddinggemma-2:270m",
-        semantic: true,
-        pending: 0,
-        sources: ["/Users/preview/OnyxVault", "/Users/preview/Documents/Books"],
-        notice: null,
-        error: null,
-      } as T);
+      return Promise.resolve(mockIndexerStatus() as T);
     case "indexer_search": {
       const card = (question: string, confidence: number, book = false) => ({
         label: question,

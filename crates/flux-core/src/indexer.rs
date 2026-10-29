@@ -18,7 +18,8 @@
 //! candidates.
 //!
 //! Books are a second source: every PDF in a books folder (`~/Documents/Books`,
-//! or `FLUX_INDEXER_BOOKS`), read with poppler's `pdftotext` and cut into
+//! or `FLUX_INDEXER_BOOKS`, plus any folders added in the panel, such as a
+//! folder of lecture slides), read with poppler's `pdftotext` and cut into
 //! passages of about a page, each a card titled by book and page. A book's
 //! first index takes a while (about a thousand passages a minute), so a build
 //! saves as it goes: books appear as they're done, and quitting halfway resumes
@@ -60,6 +61,9 @@ const BOOK_CHUNK_CHARS: usize = 1_500;
 /// Shorter passages (a page holding only a heading, a figure caption or a page
 /// number) aren't worth a card.
 const MIN_BOOK_CHUNK: usize = 160;
+/// A short page with at least this much on it is carried into the next card;
+/// less (a page number, "Questions?") is dropped.
+const MIN_CARRIED: usize = 20;
 /// pdftotext reads a 1,200-page book in a few seconds; one that takes minutes
 /// is malformed or hostile.
 const PDFTOTEXT_TIMEOUT: Duration = Duration::from_secs(180);
@@ -469,35 +473,53 @@ fn split_long(text: &str, max: usize) -> Vec<String> {
 }
 
 /// Passages of a book from pdftotext's output, where a form feed ends each page.
-/// `rel` is the book's path under the books folder; `path` is what the cards
-/// point at.
-fn parse_book(text: &str, rel: &str, path: &str) -> Vec<Card> {
+/// `rel` is the book's path under its folder, `shelf` that folder's name
+/// ("Books", "Courses"); `path` is what the cards point at.
+///
+/// A page too short for a card of its own (a slide with a definition and a
+/// diagram) is carried into the next page's card rather than dropped: in a
+/// folder of lecture slides that was one page in seven.
+fn parse_book(text: &str, rel: &str, path: &str, shelf: &str) -> Vec<Card> {
     let parts: Vec<&str> = rel.split('/').collect();
     let title = book_title(parts.last().copied().unwrap_or(rel));
-    let category = if parts.len() > 1 { parts[0] } else { "Books" };
-    let source = format!("Books > {title}");
+    let category = if parts.len() > 1 { parts[0] } else { shelf };
+    let source = format!("{shelf} > {title}");
     let mut cards = Vec::new();
+    // The passage being built and the page it started on.
+    let mut chunk = String::new();
+    let mut from = 1;
     for (i, page) in text.split('\u{c}').enumerate() {
         let n = i as u32 + 1;
+        if chunk.is_empty() {
+            from = n;
+        }
         let pieces: Vec<String> = paragraphs(page)
             .iter()
             .flat_map(|p| split_long(p, BOOK_CHUNK_CHARS))
             .collect();
-        let mut chunk = String::new();
         for piece in pieces {
             if !chunk.is_empty()
                 && chunk.chars().count() + piece.chars().count() + 2 > BOOK_CHUNK_CHARS
             {
-                cards.extend(book_card(path, &source, category, &title, n, &chunk));
+                cards.extend(book_card(path, &source, category, &title, from, &chunk));
                 chunk.clear();
+                from = n;
             }
             if !chunk.is_empty() {
                 chunk.push_str("\n\n");
             }
             chunk.push_str(&piece);
         }
-        cards.extend(book_card(path, &source, category, &title, n, &chunk));
+        let len = chunk.trim().chars().count();
+        if len >= MIN_BOOK_CHUNK {
+            cards.extend(book_card(path, &source, category, &title, from, &chunk));
+            chunk.clear();
+        } else if len < MIN_CARRIED {
+            // A page number, a "Questions?": nothing to carry.
+            chunk.clear();
+        }
     }
+    cards.extend(book_card(path, &source, category, &title, from, &chunk));
     cards
 }
 
@@ -1538,6 +1560,8 @@ struct Job {
     key: String,
     /// Its path under its folder, `/`-separated (names its category).
     rel: String,
+    /// That folder's name, which a book's cards are filed under.
+    shelf: String,
     path: PathBuf,
     mtime: u64,
     kind: Kind,
@@ -1621,13 +1645,18 @@ impl Embedder<'_> {
 }
 
 /// Every note (`.md`) or book (`.pdf`) under `root`, sorted by path. Skips
-/// dot-folders (`.obsidian`, `.git`), and for notes `Daily` and `Entertainment`
-/// as the original does. Never follows a link out of the folder.
+/// dot-folders (`.obsidian`, `.git`), installed code (a Python environment,
+/// `site-packages`, `node_modules`: a course folder's assignments carry them,
+/// and matplotlib's toolbar icons are PDFs), and for notes `Daily` and
+/// `Entertainment` as the original does. Never follows a link out of the folder.
 fn walk(root: &Path, kind: Kind) -> Vec<Job> {
     let ext = match kind {
         Kind::Note => ".md",
         Kind::Book => ".pdf",
     };
+    let shelf = root
+        .file_name()
+        .map_or_else(|| "Books".to_string(), |n| n.to_string_lossy().into_owned());
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -1645,7 +1674,13 @@ fn walk(root: &Path, kind: Kind) -> Vec<Job> {
             };
             let path = entry.path();
             if file_type.is_dir() {
-                if kind == Kind::Book || (name != "Daily" && name != "Entertainment") {
+                let installed = matches!(
+                    name.as_ref(),
+                    "node_modules" | "site-packages" | "__pycache__"
+                ) || path.join("pyvenv.cfg").is_file();
+                if !installed
+                    && (kind == Kind::Book || (name != "Daily" && name != "Entertainment"))
+                {
                     stack.push(path);
                 }
                 continue;
@@ -1674,6 +1709,7 @@ fn walk(root: &Path, kind: Kind) -> Vec<Job> {
             out.push(Job {
                 key: path.to_string_lossy().into_owned(),
                 rel: rel.join("/"),
+                shelf: shelf.clone(),
                 path,
                 mtime,
                 kind,
@@ -1756,6 +1792,16 @@ pub struct IndexerResults {
     pub semantic: bool,
 }
 
+/// A folder of PDFs the Indexer reads.
+#[derive(Serialize, Clone, Debug, PartialEq, specta::Type)]
+pub struct IndexerShelf {
+    pub path: String,
+    pub books: u32,
+    /// Added in the panel, so it can be taken out there; the default books
+    /// folder can't.
+    pub added: bool,
+}
+
 #[derive(Serialize, Clone, specta::Type)]
 pub struct IndexerStatus {
     pub cards: u32,
@@ -1775,6 +1821,8 @@ pub struct IndexerStatus {
     pub pending: u32,
     /// The folders read: the vault, then the books.
     pub sources: Vec<String>,
+    /// The books folders, with how many books each holds.
+    pub shelves: Vec<IndexerShelf>,
     /// Worth knowing but not a failure: pdftotext missing, duplicate books.
     pub notice: Option<String>,
     pub error: Option<String>,
@@ -1784,7 +1832,7 @@ pub struct IndexerStatus {
 #[derive(Clone, Default)]
 pub struct Sources {
     pub notes: Option<PathBuf>,
-    pub books: Option<PathBuf>,
+    pub books: Vec<PathBuf>,
 }
 
 /// Which cards a search looks at.
@@ -1864,6 +1912,74 @@ impl IndexerState {
             notice: Arc::default(),
             error: Arc::default(),
         }
+    }
+
+    /// Folders added in the panel, as saved (`folders.json` beside the index).
+    fn added_folders(&self) -> Vec<PathBuf> {
+        let Some(dir) = &self.dir else {
+            return Vec::new();
+        };
+        std::fs::read(dir.join(FOLDERS_FILE))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Vec<PathBuf>>(&b).ok())
+            .unwrap_or_default()
+    }
+
+    fn save_folders(&self, folders: &[PathBuf]) -> Result<(), String> {
+        let Some(dir) = &self.dir else {
+            return Ok(());
+        };
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let json = serde_json::to_vec_pretty(folders).map_err(|e| e.to_string())?;
+        let tmp = dir.join(format!("{FOLDERS_FILE}.tmp"));
+        std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, dir.join(FOLDERS_FILE)).map_err(|e| e.to_string())
+    }
+
+    /// The books folders to read: the default one, then those added, each once
+    /// and only while it exists.
+    fn book_folders(&self) -> Vec<PathBuf> {
+        let mut out: Vec<PathBuf> = books_dir().into_iter().collect();
+        for f in self.added_folders() {
+            if f.is_dir() && !out.contains(&f) {
+                out.push(f);
+            }
+        }
+        out
+    }
+
+    /// Add a books folder. `~/` is the home folder; anything else must be an
+    /// absolute path to a folder.
+    fn add_folder(&self, path: &str) -> Result<(), String> {
+        let path = path.trim();
+        let full = match path
+            .strip_prefix("~/")
+            .or(if path == "~" { Some("") } else { None })
+        {
+            Some(rest) => home_dir().ok_or("no home folder")?.join(rest),
+            None => PathBuf::from(path),
+        };
+        if !full.is_absolute() {
+            return Err("Give the folder's full path, or one starting with ~/".into());
+        }
+        let full = full
+            .canonicalize()
+            .map_err(|_| format!("There's no folder at {}", full.display()))?;
+        if !full.is_dir() {
+            return Err(format!("{} is a file, not a folder", full.display()));
+        }
+        let mut folders = self.added_folders();
+        if folders.contains(&full) || books_dir().as_ref() == Some(&full) {
+            return Ok(());
+        }
+        folders.push(full);
+        self.save_folders(&folders)
+    }
+
+    fn remove_folder(&self, path: &str) -> Result<(), String> {
+        let mut folders = self.added_folders();
+        folders.retain(|f| f.to_string_lossy() != path);
+        self.save_folders(&folders)
     }
 
     /// The index, read from disk first if it isn't in memory: on first use,
@@ -1952,6 +2068,27 @@ impl IndexerState {
                 .iter()
                 .map(|r| r.to_string_lossy().into_owned())
                 .collect(),
+            shelves: {
+                let added = self.added_folders();
+                self.book_folders()
+                    .into_iter()
+                    .map(|f| {
+                        let under = format!("{}/", f.to_string_lossy());
+                        let books = idx
+                            .segs
+                            .iter()
+                            .filter(|s| s.kind == Kind::Book)
+                            .flat_map(|s| &s.docs)
+                            .filter(|d| d.path.starts_with(&under))
+                            .count() as u32;
+                        IndexerShelf {
+                            path: f.to_string_lossy().into_owned(),
+                            books,
+                            added: added.contains(&f),
+                        }
+                    })
+                    .collect()
+            },
             notice: self.notice.lock().clone(),
             error: self.error.lock().clone(),
         }
@@ -1986,17 +2123,14 @@ impl IndexerState {
         if let Some(v) = &src.notes {
             jobs.extend(walk(v, Kind::Note));
         }
-        let mut duplicates = 0;
-        if let Some(b) = &src.books {
-            let (books, dups) = dedupe(walk(b, Kind::Book));
-            jobs.extend(books);
-            duplicates = dups;
-        }
-        let roots: Vec<PathBuf> = [src.notes, src.books].into_iter().flatten().collect();
+        let (books, duplicates) =
+            dedupe(src.books.iter().flat_map(|b| walk(b, Kind::Book)).collect());
+        jobs.extend(books);
+        let roots: Vec<PathBuf> = src.notes.into_iter().chain(src.books).collect();
         if roots.is_empty() {
             return Err(
                 "No Onyx vault or books folder found. Set the vault in the Notebook \
-                 (Onyx source), or create ~/OnyxVault or ~/Documents/Books."
+                 (Onyx source), add a folder here, or create ~/OnyxVault or ~/Documents/Books."
                     .into(),
             );
         }
@@ -2135,7 +2269,7 @@ impl IndexerState {
             // An unreadable book (encrypted, malformed, timed out) is recorded
             // as done with no cards, so it isn't retried on every reindex.
             let fresh = match pdf.as_deref().map(|bin| extract_pdf(bin, &job.path)) {
-                Some(Ok(text)) => parse_book(&text, &job.rel, &job.key),
+                Some(Ok(text)) => parse_book(&text, &job.rel, &job.key, &job.shelf),
                 _ => Vec::new(),
             };
             let mut d = Draft::new(Kind::Book);
@@ -2452,23 +2586,28 @@ fn parse_pick(value: &serde_json::Value, n: usize) -> Result<IndexerPick, String
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
-/// The Onyx vault and the books folder (`FLUX_INDEXER_BOOKS`, else
-/// `~/Documents/Books`), whichever exist.
-fn sources(kb: &crate::kb::KbStore) -> Sources {
+/// The Onyx vault and the books folders (`FLUX_INDEXER_BOOKS`, else
+/// `~/Documents/Books`, then any added in the panel), whichever exist.
+fn sources(kb: &crate::kb::KbStore, state: &IndexerState) -> Sources {
     Sources {
         notes: crate::kb::onyx_vault(kb.source_location("onyx").as_deref()),
-        books: books_dir(),
+        books: state.book_folders(),
     }
+}
+
+/// The books folders added in the panel, beside the index.
+const FOLDERS_FILE: &str = "folders.json";
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
 }
 
 fn books_dir() -> Option<PathBuf> {
     let dir = match std::env::var_os("FLUX_INDEXER_BOOKS").filter(|p| !p.is_empty()) {
         Some(p) => PathBuf::from(p),
-        None => {
-            PathBuf::from(std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?)
-                .join("Documents")
-                .join("Books")
-        }
+        None => home_dir()?.join("Documents").join("Books"),
     };
     dir.is_dir().then_some(dir)
 }
@@ -2483,7 +2622,7 @@ pub async fn indexer_status(
     let (state, kb) = ((*state).clone(), (*kb).clone());
     tauri::async_runtime::spawn_blocking(move || {
         static FIRST: Once = Once::new();
-        FIRST.call_once(|| state.start_build(sources(&kb)));
+        FIRST.call_once(|| state.start_build(sources(&kb, &state)));
         state.status()
     })
     .await
@@ -2498,11 +2637,47 @@ pub async fn indexer_reindex(
 ) -> Result<IndexerStatus, String> {
     let (state, kb) = ((*state).clone(), (*kb).clone());
     tauri::async_runtime::spawn_blocking(move || {
-        state.start_build(sources(&kb));
+        state.start_build(sources(&kb, &state));
         state.status()
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// Read the PDFs in another folder too (a folder of lecture slides, say), and
+/// start reading them.
+#[tauri::command]
+pub async fn indexer_add_folder(
+    state: State<'_, IndexerState>,
+    kb: State<'_, crate::kb::KbStore>,
+    path: String,
+) -> Result<IndexerStatus, String> {
+    let (state, kb) = ((*state).clone(), (*kb).clone());
+    tauri::async_runtime::spawn_blocking(move || {
+        state.add_folder(&path)?;
+        state.start_build(sources(&kb, &state));
+        Ok(state.status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Stop reading a folder added with [`indexer_add_folder`]; its books leave
+/// the index.
+#[tauri::command]
+pub async fn indexer_remove_folder(
+    state: State<'_, IndexerState>,
+    kb: State<'_, crate::kb::KbStore>,
+    path: String,
+) -> Result<IndexerStatus, String> {
+    let (state, kb) = ((*state).clone(), (*kb).clone());
+    tauri::async_runtime::spawn_blocking(move || {
+        state.remove_folder(&path)?;
+        state.start_build(sources(&kb, &state));
+        Ok(state.status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -2881,6 +3056,7 @@ mod tests {
             &text,
             "Machine Learning/mml-book.pdf",
             "/b/Machine Learning/mml-book.pdf",
+            "Books",
         );
         assert!(cards
             .iter()
@@ -2903,6 +3079,93 @@ mod tests {
         assert!(third
             .iter()
             .all(|c| c.answer.chars().count() <= BOOK_CHUNK_CHARS));
+    }
+
+    #[test]
+    fn short_slides_are_carried_into_the_next_card() {
+        let long = "Gradient descent takes a step against the gradient. ".repeat(5);
+        let text = format!(
+            "Convex sets\nA set is convex if it contains every segment.\x0c{long}\x0c42\x0cDuality\nThe dual bounds the primal.\x0c{long}"
+        );
+        let cards = parse_book(
+            &text,
+            "Optimization/week3.pdf",
+            "/c/Optimization/week3.pdf",
+            "Courses",
+        );
+        assert_eq!(cards.len(), 2, "{cards:#?}");
+        assert_eq!(cards[0].page, Some(1), "named by the page it starts on");
+        assert!(
+            cards[0].answer.contains("contains every segment")
+                && cards[0].answer.contains("Gradient descent")
+        );
+        assert!(
+            !cards[1].answer.contains("42"),
+            "a page number isn't carried"
+        );
+        assert_eq!(cards[1].page, Some(4));
+        assert!(cards[1].answer.starts_with("Duality"));
+        assert_eq!(cards[0].source, "Courses > week3");
+        assert_eq!(cards[0].category, "Optimization");
+    }
+
+    #[test]
+    fn installed_code_is_not_read_for_books() {
+        let root = std::env::temp_dir().join(format!("flux-idx-walk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for dir in [
+            "ML/slides",
+            "ML/assignment/venv/lib/python3.13/site-packages/matplotlib",
+            "ML/assignment/env",
+            "Web/node_modules/pkg",
+        ] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        std::fs::write(root.join("ML/assignment/env/pyvenv.cfg"), "home = /usr").unwrap();
+        for f in [
+            "ML/slides/lecture1.pdf",
+            "ML/assignment/report.pdf",
+            "ML/assignment/venv/lib/python3.13/site-packages/matplotlib/home.pdf",
+            "ML/assignment/env/icon.pdf",
+            "Web/node_modules/pkg/doc.pdf",
+        ] {
+            std::fs::write(root.join(f), "%PDF").unwrap();
+        }
+        let mut found: Vec<String> = walk(&root, Kind::Book).into_iter().map(|j| j.rel).collect();
+        found.sort();
+        assert_eq!(
+            found,
+            ["ML/assignment/report.pdf", "ML/slides/lecture1.pdf"]
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn folders_are_added_and_taken_out() {
+        let root = std::env::temp_dir().join(format!("flux-idx-folders-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let courses = root.join("Courses");
+        std::fs::create_dir_all(&courses).unwrap();
+        let state = IndexerState::new(Some(root.join("index")));
+        assert!(state.add_folder("Courses").is_err(), "a relative path");
+        assert!(state
+            .add_folder(&root.join("nowhere").to_string_lossy())
+            .is_err());
+        state.add_folder(&courses.to_string_lossy()).unwrap();
+        state
+            .add_folder(&format!("{}/", courses.to_string_lossy()))
+            .unwrap();
+        let canonical = courses.canonicalize().unwrap();
+        assert_eq!(state.added_folders(), vec![canonical.clone()], "added once");
+        assert!(state.book_folders().contains(&canonical));
+        // Kept with the index, so it outlives the session.
+        assert_eq!(
+            IndexerState::new(Some(root.join("index"))).added_folders(),
+            vec![canonical.clone()]
+        );
+        state.remove_folder(&canonical.to_string_lossy()).unwrap();
+        assert!(state.added_folders().is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -2968,7 +3231,7 @@ mod tests {
         .unwrap();
         let src = || Sources {
             notes: Some(vault.clone()),
-            books: None,
+            books: Vec::new(),
         };
         let state = IndexerState::new(None);
         state.build(src()).unwrap();
@@ -3027,7 +3290,7 @@ mod tests {
         std::env::set_var("FLUX_PDFTOTEXT", &bin);
         let src = || Sources {
             notes: Some(root.join("vault")),
-            books: Some(root.join("books")),
+            books: vec![root.join("books")],
         };
         let files = || -> BTreeMap<String, std::time::SystemTime> {
             std::fs::read_dir(root.join("index"))

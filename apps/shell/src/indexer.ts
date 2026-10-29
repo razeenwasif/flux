@@ -3,12 +3,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { IndexerPick, IndexerResults, IndexerStatus } from "./bindings.gen";
 
-export type { IndexerMatch, IndexerPick, IndexerResults, IndexerStatus } from "./bindings.gen";
+export type { IndexerMatch, IndexerPick, IndexerResults, IndexerShelf, IndexerStatus } from "./bindings.gen";
 
 /** State of the index; the first call of a session starts an incremental build. */
 export const indexerStatus = () => invoke<IndexerStatus>("indexer_status");
 /** Re-read changed notes in the background. */
 export const indexerReindex = () => invoke<IndexerStatus>("indexer_reindex");
+/** Read the PDFs in another folder too (lecture slides, say); starts reading. */
+export const indexerAddFolder = (path: string) => invoke<IndexerStatus>("indexer_add_folder", { path });
+/** Stop reading a folder added with `indexerAddFolder`. */
+export const indexerRemoveFolder = (path: string) => invoke<IndexerStatus>("indexer_remove_folder", { path });
 /** Which cards a search looks at. */
 export type IndexerScope = "all" | "notes" | "books";
 export const indexerSearch = (query: string, k?: number, scope?: IndexerScope) =>

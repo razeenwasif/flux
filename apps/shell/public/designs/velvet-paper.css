@@ -2883,6 +2883,51 @@
   font-family: var(--vp-display);
   font-size: 26px;
 }
+:root[data-design="velvet-paper"] .idx-sheet-source-x {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--flux-text-mute);
+}
+:root[data-design="velvet-paper"] .idx-sheet-source-x:hover {
+  background: var(--vp-raise);
+  color: var(--flux-text);
+}
+/* Add a folder of PDFs: a path field under the folders. */
+:root[data-design="velvet-paper"] .idx-sheet-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+:root[data-design="velvet-paper"] .idx-sheet-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--vp-edge);
+  background: var(--vp-paper);
+  color: var(--flux-text);
+  font-family: var(--vp-mono);
+  font-size: 12px;
+}
+:root[data-design="velvet-paper"] .idx-sheet-add button {
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--vp-edge);
+  background: var(--vp-raise);
+  color: var(--flux-text);
+}
+:root[data-design="velvet-paper"] .idx-sheet-add button:disabled {
+  opacity: 0.5;
+}
+:root[data-design="velvet-paper"] .idx-sheet-add-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #ffb4a8; /* the orb's own note colour (.idx-note) */
+}
 :root[data-design="velvet-paper"] .idx-sheet-model {
   display: flex;
   flex-direction: column;

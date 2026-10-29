@@ -26,7 +26,9 @@ import {
 
 import {
   indexerDecide,
+  indexerAddFolder,
   indexerReindex,
+  indexerRemoveFolder,
   indexerSearch,
   indexerStatus,
   indexerWarm,
@@ -238,6 +240,12 @@ const IndexerBubble: Component = () => {
       setStatus(null);
       setNote(String(e));
     }
+  };
+
+  /** A status from adding or removing a folder: a build may have started. */
+  const adopt = (s: IndexerStatus) => {
+    setStatus(s);
+    if (s.building) void refreshStatus(false);
   };
 
   const statusLine = () => {
@@ -632,6 +640,8 @@ const IndexerBubble: Component = () => {
             scope={scope}
             setScope={setScope}
             status={status}
+            addFolder={async (path) => adopt(await indexerAddFolder(path))}
+            removeFolder={async (path) => adopt(await indexerRemoveFolder(path))}
             reindex={() => void refreshStatus(true)}
             statusText={busyLine}
             note={note}

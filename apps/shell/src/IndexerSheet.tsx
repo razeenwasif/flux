@@ -21,6 +21,10 @@ export type IndexerSheetProps = {
   scope: () => IndexerScope;
   setScope: (s: IndexerScope) => void;
   status: () => IndexerStatus | null;
+  /** Read another folder of PDFs, or stop reading one added before. They
+   *  come from the orb, so this lazy sheet imports no IPC of its own. */
+  addFolder: (path: string) => Promise<void>;
+  removeFolder: (path: string) => Promise<void>;
   reindex: () => void;
   /** The line under the header: listening / searching / indexing progress. */
   statusText: () => string;
@@ -151,15 +155,38 @@ const IndexerSheet: Component<IndexerSheetProps> = (p) => {
       : `Match ${p.page() + 1} · ${score(m.confidence)}`;
   };
 
-  /** The vault first, then the book folders (indexer.rs `sources`). */
+  /** The vault first, then each folder of PDFs (indexer.rs `sources`, `shelves`). */
   const sources = () => {
     const s = p.status();
     if (!s) return [];
-    const out: { name: string; path: string; count: number }[] = [];
+    const out: { name: string; path: string; count: number; added?: boolean }[] = [];
     if (s.sources[0] || s.notes) out.push({ name: "Notes", path: s.sources[0] ?? "", count: s.notes });
-    if (s.sources.length > 1 || s.books)
-      out.push({ name: "Books", path: s.sources.slice(1).join(" · "), count: s.books });
+    for (const f of s.shelves)
+      out.push({ name: f.path.split(/[\\/]/).pop() || f.path, path: f.path, count: f.books, added: f.added });
     return out;
+  };
+  // Another folder of PDFs (a course's lecture slides), typed as a path: Flux
+  // has no folder picker, and the vault is set the same way.
+  const [folder, setFolder] = createSignal("");
+  const [folderError, setFolderError] = createSignal("");
+  const addFolder = async (e: SubmitEvent) => {
+    e.preventDefault();
+    const path = folder().trim();
+    if (!path) return;
+    try {
+      await p.addFolder(path);
+      setFolder("");
+      setFolderError("");
+    } catch (err) {
+      setFolderError(String(err));
+    }
+  };
+  const removeFolder = async (path: string) => {
+    try {
+      await p.removeFolder(path);
+    } catch (err) {
+      setFolderError(String(err));
+    }
   };
   const tilde = (path: string) => path.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~");
 
@@ -488,9 +515,35 @@ const IndexerSheet: Component<IndexerSheetProps> = (p) => {
                         </Show>
                       </span>
                       <span class="idx-sheet-source-count">{s.count.toLocaleString()}</span>
+                      <Show when={s.added}>
+                        <button
+                          class="idx-sheet-source-x"
+                          title={`Stop reading ${tilde(s.path)}`}
+                          aria-label={`Stop reading ${tilde(s.path)}`}
+                          onClick={() => void removeFolder(s.path)}
+                        >
+                          ×
+                        </button>
+                      </Show>
                     </div>
                   )}
                 </For>
+                <form class="idx-sheet-add" onSubmit={(e) => void addFolder(e)}>
+                  <input
+                    value={folder()}
+                    onInput={(e) => setFolder(e.currentTarget.value)}
+                    placeholder="Add a folder of PDFs"
+                    title="Its full path, or one starting with ~/ (~/Courses, say)"
+                    aria-label="Add a folder of PDFs"
+                    spellcheck={false}
+                  />
+                  <button type="submit" disabled={!folder().trim()}>
+                    Add
+                  </button>
+                </form>
+                <Show when={folderError()}>
+                  <div class="idx-sheet-add-error">{folderError()}</div>
+                </Show>
               </section>
             </Show>
             <Show when={p.status()}>
