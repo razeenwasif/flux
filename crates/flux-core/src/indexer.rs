@@ -1587,12 +1587,61 @@ struct Embedder<'a> {
     failed: bool,
     /// Every vector's width in this index; zero until there's one.
     dim: usize,
+    /// Batches in a row that failed even after retrying.
+    misses: usize,
+    /// The model call (Ollama's `/api/embed`), and how long to wait before
+    /// retrying it; tests stand in for both.
+    call: EmbedFn,
+    retry_wait: Duration,
 }
 
+/// An embedding call: the model and its inputs, then a vector per input.
+type EmbedFn = fn(&str, &[String]) -> Option<Vec<Vec<f32>>>;
+
+/// Batches in a row that fail, retries and all, before the model counts as
+/// gone for the rest of a build.
+const EMBED_GIVE_UP: usize = 3;
+
 impl Embedder<'_> {
-    /// Vectors for `cards`, pushed onto `vecs` in order. False when the model
-    /// failed partway: those cards get zero rows (they match on keywords) and
-    /// their file is marked for the next build.
+    /// One batch's vectors. A failure is retried, twice, after a wait (Ollama
+    /// loading the model, or busy with a chat); then the batch's cards are
+    /// tried one at a time, so a card the model can't take costs only itself.
+    /// One build once gave up on the model for good at a single failed batch,
+    /// and every book after it (a whole folder of lecture slides) was left
+    /// matching on keywords alone.
+    fn batch(&mut self, texts: &[String]) -> Vec<Option<Vec<f32>>> {
+        if self.failed {
+            return vec![None; texts.len()];
+        }
+        for attempt in 0..3 {
+            if attempt > 0 {
+                std::thread::sleep(self.retry_wait * (attempt * attempt) as u32);
+            }
+            if let Some(rows) = (self.call)(self.model, texts).filter(|v| v.len() == texts.len()) {
+                self.misses = 0;
+                return rows.into_iter().map(Some).collect();
+            }
+        }
+        let rows: Vec<Option<Vec<f32>>> = if texts.len() > 1 {
+            texts
+                .iter()
+                .map(|t| (self.call)(self.model, std::slice::from_ref(t)).and_then(|mut v| v.pop()))
+                .collect()
+        } else {
+            vec![None]
+        };
+        if rows.iter().all(Option::is_none) {
+            self.misses += 1;
+            self.failed = self.misses >= EMBED_GIVE_UP;
+        } else {
+            self.misses = 0;
+        }
+        rows
+    }
+
+    /// Vectors for `cards`, pushed onto `vecs` in order. False when some card
+    /// got none: those get zero rows (they match on keywords) and their file is
+    /// marked for the next build.
     fn embed(&mut self, cards: &[Card], vecs: &mut VecStore) -> Result<bool, String> {
         let mut embedded = true;
         if self.keyed.is_none() {
@@ -1600,39 +1649,49 @@ impl Embedder<'_> {
         }
         for chunk in cards.chunks(EMBED_BATCH) {
             let texts: Vec<String> = chunk.iter().map(doc_text).collect();
-            let got = if self.failed {
-                None
-            } else {
-                flux_agent::ollama::embed_remote_batch_with(self.model, &texts)
-                    .filter(|v| v.len() == chunk.len())
-            };
-            match got {
-                Some(rows) => {
-                    for row in rows {
-                        // Other segments hold rows of this width, so a store
-                        // of its own can't be the only check.
-                        if (self.dim != 0 && row.len() != self.dim) || !vecs.push(&row) {
-                            return Err(format!(
-                                "{} returned vectors of a different size; reindex to rebuild",
-                                self.model
-                            ));
-                        }
-                        self.dim = row.len();
+            let rows = self.batch(&texts);
+            if rows.iter().all(Option::is_some) {
+                for row in rows.into_iter().flatten() {
+                    // Other segments hold rows of this width, so a store of
+                    // its own can't be the only check.
+                    if (self.dim != 0 && row.len() != self.dim) || !vecs.push(&row) {
+                        return Err(format!(
+                            "{} returned vectors of a different size; reindex to rebuild",
+                            self.model
+                        ));
                     }
+                    self.dim = row.len();
                 }
-                None => {
+            } else {
+                embedded = false;
+                let width = rows
+                    .iter()
+                    .flatten()
+                    .map(Vec::len)
+                    .next()
+                    .unwrap_or(self.dim);
+                if width == 0 {
+                    // Nothing to size a zero row by (no card has a vector
+                    // yet): keywords for the whole index, and everything
+                    // embedded next time.
                     self.failed = true;
-                    embedded = false;
-                    if self.dim == 0 {
-                        // Nothing to size a zero row by (no card has a vector
-                        // yet): keywords for the whole index, and everything
-                        // embedded next time.
-                        self.keyed = None;
-                        break;
-                    }
-                    let zero = vec![0f32; self.dim];
-                    for _ in chunk {
-                        vecs.push(&zero);
+                    self.keyed = None;
+                    break;
+                }
+                if self.dim != 0 && width != self.dim {
+                    return Err(format!(
+                        "{} returned vectors of a different size; reindex to rebuild",
+                        self.model
+                    ));
+                }
+                self.dim = width;
+                let zero = vec![0f32; width];
+                for row in &rows {
+                    if !vecs.push(row.as_deref().unwrap_or(&zero)) {
+                        return Err(format!(
+                            "{} returned vectors of a different size; reindex to rebuild",
+                            self.model
+                        ));
                     }
                 }
             }
@@ -2235,6 +2294,9 @@ impl IndexerState {
             keyed: (available || had_vectors).then(|| model.clone()),
             failed: !available,
             dim,
+            misses: 0,
+            call: flux_agent::ollama::embed_remote_batch_with,
+            retry_wait: Duration::from_secs(1),
         };
         self.files_todo.store(todo.len(), Ordering::Relaxed);
         self.files_done.store(0, Ordering::Relaxed);
@@ -3079,6 +3141,103 @@ mod tests {
         assert!(third
             .iter()
             .all(|c| c.answer.chars().count() <= BOOK_CHUNK_CHARS));
+    }
+
+    mod fake_model {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        pub static CALLS: AtomicUsize = AtomicUsize::new(0);
+        /// The tests share CALLS, so they take turns.
+        pub static TURN: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+        fn vec_for(t: &str) -> Vec<f32> {
+            vec![1.0, t.len() as f32]
+        }
+        /// Fails its first call, then answers.
+        pub fn flaky(_: &str, texts: &[String]) -> Option<Vec<Vec<f32>>> {
+            (CALLS.fetch_add(1, Ordering::SeqCst) > 0)
+                .then(|| texts.iter().map(|t| vec_for(t)).collect())
+        }
+        /// Refuses any request holding a card that says BAD.
+        pub fn picky(_: &str, texts: &[String]) -> Option<Vec<Vec<f32>>> {
+            CALLS.fetch_add(1, Ordering::SeqCst);
+            (!texts.iter().any(|t| t.contains("BAD")))
+                .then(|| texts.iter().map(|t| vec_for(t)).collect())
+        }
+        pub fn gone(_: &str, _: &[String]) -> Option<Vec<Vec<f32>>> {
+            CALLS.fetch_add(1, Ordering::SeqCst);
+            None
+        }
+    }
+
+    fn embedder(call: EmbedFn) -> Embedder<'static> {
+        fake_model::CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+        Embedder {
+            model: "m",
+            keyed: Some("m".into()),
+            failed: false,
+            dim: 0,
+            misses: 0,
+            call,
+            retry_wait: Duration::ZERO,
+        }
+    }
+
+    fn cards(n: usize, bad: Option<usize>) -> Vec<Card> {
+        (0..n)
+            .map(|i| {
+                passage(
+                    "/b/x.pdf",
+                    i as u32 + 1,
+                    if Some(i) == bad { "BAD" } else { "fine" },
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_failed_embedding_batch_is_retried() {
+        let _turn = fake_model::TURN.lock();
+        let mut e = embedder(fake_model::flaky);
+        let mut vecs = VecStore::default();
+        assert_eq!(e.embed(&cards(5, None), &mut vecs), Ok(true));
+        assert_eq!(vecs.len(), 5);
+        assert!(!e.failed);
+    }
+
+    #[test]
+    fn a_card_the_model_refuses_costs_only_itself() {
+        let _turn = fake_model::TURN.lock();
+        let mut e = embedder(fake_model::picky);
+        let mut vecs = VecStore::default();
+        // The bad card is in the first batch; the second batch must still be embedded.
+        let all = cards(EMBED_BATCH + 4, Some(3));
+        assert_eq!(
+            e.embed(&all, &mut vecs),
+            Ok(false),
+            "its file is marked for the next build"
+        );
+        assert_eq!(vecs.len(), all.len());
+        assert!(!e.failed, "the model is still there");
+        let rows: Vec<bool> = vecs
+            .rows()
+            .map(|(r, _)| r.iter().any(|&x| x != 0))
+            .collect();
+        assert!(!rows[3], "the refused card has a zero row");
+        assert!(rows.iter().enumerate().all(|(i, &v)| v || i == 3));
+    }
+
+    #[test]
+    fn a_model_that_is_gone_stops_being_asked() {
+        let _turn = fake_model::TURN.lock();
+        let mut e = embedder(fake_model::gone);
+        e.dim = 2;
+        let mut vecs = VecStore::default();
+        let all = cards(EMBED_BATCH * 6, None);
+        assert_eq!(e.embed(&all, &mut vecs), Ok(false));
+        assert!(e.failed);
+        assert_eq!(vecs.len(), all.len(), "every card still has a (zero) row");
+        let calls = fake_model::CALLS.load(std::sync::atomic::Ordering::SeqCst);
+        // Three tries and one per card for each of EMBED_GIVE_UP batches, then nothing.
+        assert_eq!(calls, EMBED_GIVE_UP * (3 + EMBED_BATCH));
     }
 
     #[test]
