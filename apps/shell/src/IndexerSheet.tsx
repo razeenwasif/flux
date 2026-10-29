@@ -11,6 +11,7 @@
  */
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
 
+import AnswerText from "./AnswerText";
 import type { IndexerMatch, IndexerResults, IndexerScope, IndexerStatus } from "./indexer";
 
 export type IndexerSheetProps = {
@@ -460,12 +461,14 @@ const IndexerSheet: Component<IndexerSheetProps> = (p) => {
                       {m().source}
                     </span>
                     <h2 class="idx-sheet-q">{m().question}</h2>
-                    <Show when={m().key_points.length}>
+                    {/* The points are an interview card's "I built…" lines; on any
+                        other note they're its first sentences again. */}
+                    <Show when={m().key_points.length && /interview/i.test(m().path)}>
                       <ul class="idx-sheet-points">
                         <For each={m().key_points}>{(k) => <li>{k}</li>}</For>
                       </ul>
                     </Show>
-                    <div class="idx-sheet-answer-text">{m().answer}</div>
+                    <AnswerText class="idx-sheet-answer-text" text={m().answer} book={m().book} />
                     <footer class="idx-sheet-foot">
                       <button class="idx-sheet-primary" onClick={() => p.open(m())}>
                         {m().book ? `Open p. ${m().page ?? 1}` : "Open note"}

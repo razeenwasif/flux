@@ -2801,7 +2801,6 @@
   font-size: 15px;
   line-height: 1.75;
   color: #e3dae8;
-  white-space: pre-wrap;
   user-select: text;
 }
 :root[data-design="velvet-paper"] .idx-sheet-empty {

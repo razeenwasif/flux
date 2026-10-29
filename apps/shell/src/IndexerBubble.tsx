@@ -42,6 +42,8 @@ import {
 import { design } from "./design";
 // Velvet Paper's sheet: loaded on first open, so Classic (and boot) never pay for it.
 const IndexerSheet = lazy(() => import("./IndexerSheet"));
+// Markdown and KaTeX for a note's answer: not on the boot path the orb is on.
+const AnswerText = lazy(() => import("./AnswerText"));
 import { indexerPanelOpen, setIndexerPanelOpen } from "./indexerOpen";
 import { pdfViewerUrl, voiceTranscribe } from "./ipc";
 import { openTab } from "./store";
@@ -773,12 +775,16 @@ const IndexerBubble: Component = () => {
                         </span>
                       </div>
                     </header>
-                    <Show when={m().key_points.length}>
+                    {/* The points are an interview card's "I built…" lines; on any
+                        other note they're its first sentences again. */}
+                    <Show when={m().key_points.length && /interview/i.test(m().path)}>
                       <ul class="idx-points">
                         <For each={m().key_points}>{(k) => <li>{k}</li>}</For>
                       </ul>
                     </Show>
-                    <div class="idx-answer">{m().answer}</div>
+                    <Suspense fallback={<div class="idx-answer ans-book">{m().answer}</div>}>
+                      <AnswerText class="idx-answer" text={m().answer} book={m().book} />
+                    </Suspense>
                     <footer class="idx-foot">
                       <Show when={order().length > 1}>
                         <div class="idx-pager">

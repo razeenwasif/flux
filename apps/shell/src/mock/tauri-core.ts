@@ -2258,10 +2258,31 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "indexer_reindex":
       return Promise.resolve(mockIndexerStatus() as T);
     case "indexer_search": {
+      // A note's answer is Onyx Markdown: the first one carries each thing the
+      // answer view renders (bold, a list, inline and display maths, a fenced
+      // diagram), so the preview shows it as a real note would.
+      const NOTE = [
+        "Memory is a **finite** and *hierarchical* resource. Access costs between $100\\text{ ns}$ and $300\\text{ ns}$.",
+        "",
+        "- **Caches**: small, fast copies of `DRAM` lines",
+        "- **Virtual memory**: each process sees its own address space",
+        "  - pages map to frames through the page table",
+        "",
+        "$$\\text{VA} = \\text{VPN} \\times 2^{p} + \\text{VPO}$$",
+        "",
+        "```",
+        "Virtual Address Space     Physical Memory",
+        "+------------------+      +-----------+",
+        "| VP 1 (private)   |----->| PP 2      |",
+        "| VP 2 (libc.so)   |----->| PP 6      |",
+        "+------------------+      +-----------+",
+        "```",
+      ].join("\n");
       const card = (question: string, confidence: number, book = false) => ({
         label: question,
         question,
-        answer: `What your notes say about ${question.toLowerCase()}.`,
+        answer:
+          question === "Positional encodings" ? NOTE : `What your notes say about ${question.toLowerCase()}.`,
         key_points: [],
         source: book ? "Books > Deep Learning" : "Onyx > ML",
         category: "",

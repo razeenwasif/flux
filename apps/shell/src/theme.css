@@ -4263,7 +4263,6 @@ body.resizing .panel-edge-resize::after {
   overflow-y: auto;
   padding: 8px 10px;
   border-radius: 10px;
-  white-space: pre-wrap;
   font-size: 12.5px;
   line-height: 1.55;
   color: var(--flux-text-dim);

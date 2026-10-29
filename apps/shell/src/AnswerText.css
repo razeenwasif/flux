@@ -1,0 +1,79 @@
+/* An Indexer note's answer as Markdown (AnswerText.tsx). Both designs' answer
+   boxes set the type; this sets the structure inside them. */
+.ans-answer {
+  white-space: normal;
+}
+.ans-answer p {
+  margin: 0 0 0.7em;
+}
+.ans-answer .ans-h {
+  margin: 0.9em 0 0.35em;
+  font-weight: 650;
+  color: var(--flux-text);
+}
+.ans-answer .ans-h1 {
+  font-size: 1.2em;
+}
+.ans-answer .ans-h2 {
+  font-size: 1.1em;
+}
+.ans-answer .ans-li {
+  position: relative;
+  margin: 0.15em 0;
+}
+.ans-answer .ans-marker {
+  position: absolute;
+  margin-left: -16px;
+  color: var(--flux-text-mute);
+}
+.ans-answer strong {
+  font-weight: 650;
+  color: var(--flux-text);
+}
+.ans-answer code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.88em;
+  padding: 0.05em 0.35em;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.07);
+}
+/* Fenced blocks are diagrams and code: kept to the column, monospaced, and
+   scrolled sideways rather than wrapped (a wrapped box diagram is noise). */
+.ans-answer .ans-code {
+  margin: 0.4em 0 0.8em;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  overflow-x: auto;
+  white-space: pre;
+  font-size: 0.8em;
+  line-height: 1.45;
+}
+.ans-answer .ans-code code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+.ans-answer blockquote {
+  margin: 0.4em 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--flux-border);
+  color: var(--flux-text-dim);
+}
+.ans-answer hr {
+  border: 0;
+  border-top: 1px solid var(--flux-border);
+  margin: 0.8em 0;
+}
+.ans-answer .ans-link {
+  text-decoration: underline;
+  text-decoration-color: var(--flux-text-mute);
+}
+.ans-answer .sdoc-math[data-display="1"] {
+  display: block;
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+.ans-book {
+  white-space: pre-wrap;
+}
