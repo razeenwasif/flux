@@ -28,7 +28,17 @@ pub struct TuiApp {
 
 /// Bump when adding new default apps; existing users get the new ones merged in
 /// once (by id, without clobbering their edits/order) via `hydrate`.
-const SEED_VERSION: u32 = 3;
+const SEED_VERSION: u32 = 4;
+
+/// Defaults taken out of the seed in v4: Onyx has its own app now, and the
+/// rest weren't installed. An entry still exactly as it was seeded goes; one
+/// the user renamed, moved or pointed elsewhere is theirs and stays.
+const RETIRED: &[(&str, &str)] = &[
+    ("onyx", "Onyx"),
+    ("scroll", "Scroll"),
+    ("lazygit", "LazyGit"),
+    ("tuxedo", "Tuxedo"),
+];
 
 /// What each seed used before Flux drew its own icons (#183), keyed by id.
 ///
@@ -58,18 +68,14 @@ const LEGACY_ICONS: &[(&str, &str)] = &[
 /// user-typed emoji still works.
 fn seed_defaults() -> Vec<TuiApp> {
     [
-        ("onyx", "Onyx", "onyx"),
-        ("scroll", "Scroll", "scroll"),
         ("council", "Council", "council"),
         ("audiopulse", "AudioPulse", "audiopulse"),
         ("boxtube", "BoxTube", "boxtube"),
         ("kata", "Kata", "kata"),
         ("mamba", "Mamba", "mamba"),
         ("forge", "Forge", "forge"),
-        ("lazygit", "LazyGit", "lazygit"),
         ("conduit", "Conduit", "conduit"),
         ("mirage", "Mirage", "mirage"),
-        ("tuxedo", "Tuxedo", "tuxedo"),
     ]
     .into_iter()
     .map(|(cmd, name, icon)| TuiApp {
@@ -184,6 +190,12 @@ impl TuiAppsStore {
                     }
                 }
             }
+            // v4: retired defaults, where the user left them as seeded.
+            apps.retain(|a| {
+                !RETIRED.iter().any(|(id, name)| {
+                    a.id == *id && a.cmd == *id && a.name == *name && a.cwd.is_empty()
+                })
+            });
             version = SEED_VERSION;
             changed = true;
         }
@@ -240,7 +252,8 @@ mod tests {
         let store = TuiAppsStore::empty(dir.join("tui-apps.json"));
         let apps = store.list();
         assert_eq!(apps.len(), seed_defaults().len());
-        assert!(apps.iter().any(|a| a.id == "lazygit" && a.cmd == "lazygit"));
+        assert!(apps.iter().any(|a| a.id == "forge" && a.cmd == "forge"));
+        assert!(!apps.iter().any(|a| a.id == "lazygit"), "retired");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -253,12 +266,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("tui-apps.json");
-        // A v2 file: onyx still on its seeded emoji, forge deliberately changed,
-        // and a user-added app that was never a seed.
+        // A v2 file: council still on its seeded emoji, forge deliberately
+        // changed, and a user-added app that was never a seed.
         std::fs::write(
             &path,
             r#"{"seed_version":2,"apps":[
-                {"id":"onyx","name":"Onyx","icon":"📝","cmd":"onyx","cwd":""},
+                {"id":"council","name":"Council","icon":"⚖","cmd":"council","cwd":""},
                 {"id":"forge","name":"Forge","icon":"🔥","cmd":"forge","cwd":""},
                 {"id":"abc-123","name":"Canopy","icon":"▸","cmd":"canopy","cwd":""}
             ]}"#,
@@ -269,8 +282,8 @@ mod tests {
         let get = |id: &str| apps.iter().find(|a| a.id == id).unwrap().clone();
 
         assert_eq!(
-            get("onyx").icon,
-            "onyx",
+            get("council").icon,
+            "council",
             "an untouched seed gets the drawn icon"
         );
         assert_eq!(
@@ -285,7 +298,10 @@ mod tests {
         );
         // The upgrade is persisted, so it happens once rather than on every boot.
         let again = TuiAppsStore::empty(path).list();
-        assert_eq!(again.iter().find(|a| a.id == "onyx").unwrap().icon, "onyx");
+        assert_eq!(
+            again.iter().find(|a| a.id == "council").unwrap().icon,
+            "council"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -310,11 +326,43 @@ mod tests {
         // …and the new defaults were merged in (no duplicate onyx).
         assert_eq!(apps.iter().filter(|a| a.id == "onyx").count(), 1);
         assert!(apps.iter().any(|a| a.id == "forge"));
-        assert_eq!(apps.len(), seed_defaults().len());
+        // A renamed Onyx is the user's, not a retired default, so it stays.
+        assert_eq!(apps.len(), seed_defaults().len() + 1);
 
         // Re-hydrating a fresh store reads the now-migrated file without re-adding.
         let store2 = TuiAppsStore::empty(path);
-        assert_eq!(store2.list().len(), seed_defaults().len());
+        assert_eq!(store2.list().len(), seed_defaults().len() + 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn v4_retires_untouched_defaults_only() {
+        let dir = std::env::temp_dir().join(format!("flux-tuiapps-v4-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tui-apps.json");
+        std::fs::write(
+            &path,
+            r#"{"seed_version":3,"apps":[
+                {"id":"onyx","name":"Onyx","icon":"onyx","cmd":"onyx","cwd":""},
+                {"id":"lazygit","name":"LazyGit","icon":"lazygit","cmd":"lazygit","cwd":""},
+                {"id":"tuxedo","name":"Tuxedo","icon":"tuxedo","cmd":"tuxedo","cwd":"~/work"},
+                {"id":"forge","name":"Forge","icon":"forge","cmd":"forge","cwd":""}
+            ]}"#,
+        )
+        .unwrap();
+        let ids: Vec<String> = TuiAppsStore::empty(path)
+            .list()
+            .into_iter()
+            .map(|a| a.id)
+            .collect();
+        assert!(!ids.contains(&"onyx".to_string()));
+        assert!(!ids.contains(&"lazygit".to_string()));
+        assert!(
+            ids.contains(&"tuxedo".to_string()),
+            "pointed elsewhere: kept"
+        );
+        assert_eq!(ids[..2], ["tuxedo", "forge"], "the rest keep their order");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -13,12 +13,11 @@
 //! change, and a stale answer here writes a note into the wrong directory.
 
 use serde::Serialize;
-use tauri::Manager as _;
 
 /// A folder worth knowing by name.
 #[derive(Serialize, Debug, Clone, PartialEq, specta::Type)]
 pub struct Place {
-    /// What the user (and the model) can call it: `onyx`, `scribe`, `downloads`.
+    /// What the user (and the model) can call it: `onyx`, `downloads`, `home`.
     pub name: String,
     /// Absolute path. Native form on each platform — a WSL path on the Windows
     /// build stays a WSL path, because that is what the file tools bridge to.
@@ -65,7 +64,7 @@ fn home() -> Option<std::path::PathBuf> {
 /// Only places that actually exist are returned: naming a directory that isn't
 /// there would have the model confidently write to it and fail, which is worse
 /// than not offering it.
-pub fn places(app: &tauri::AppHandle, vault_setting: Option<&str>) -> Vec<Place> {
+pub fn places(vault_setting: Option<&str>) -> Vec<Place> {
     let mut out = Vec::new();
 
     if let Some(root) = crate::kb::onyx_vault(vault_setting) {
@@ -74,18 +73,6 @@ pub fn places(app: &tauri::AppHandle, vault_setting: Option<&str>) -> Vec<Place>
             what: "the user's Onyx markdown vault — where notes are written".into(),
             folders: folders_in(&root),
             path: root.to_string_lossy().into_owned(),
-        });
-    }
-
-    if let Some(dir) = app
-        .try_state::<crate::scribe::ScribeStore>()
-        .and_then(|s| s.dir())
-    {
-        out.push(Place {
-            name: "scribe".into(),
-            what: "handwritten Scribe notebooks (one file per notebook)".into(),
-            folders: folders_in(&dir),
-            path: dir.to_string_lossy().into_owned(),
         });
     }
 
@@ -174,18 +161,13 @@ fn drives() -> Vec<Place> {
 
 /// The named places, for the agent panel's prompt and path resolution.
 #[tauri::command]
-pub async fn agent_places(
-    app: tauri::AppHandle,
-    kb: tauri::State<'_, crate::kb::KbStore>,
-) -> Result<Vec<Place>, String> {
+pub async fn agent_places(kb: tauri::State<'_, crate::kb::KbStore>) -> Result<Vec<Place>, String> {
     // `source_location` hydrates the whole KB on first touch (or waits on the
     // boot thread's hydrate), and the panel asks at startup: off the UI thread.
     let kb = (*kb).clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        places(&app, kb.source_location("onyx").as_deref())
-    })
-    .await
-    .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || places(kb.source_location("onyx").as_deref()))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// The places block as the model reads it — shared by the note planner and the

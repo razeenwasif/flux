@@ -24,7 +24,6 @@ import {
   PDF_URL,
   PERMISSIONS_URL,
   RESOURCES_URL,
-  SCRIBE_URL,
   SENTINEL_URL,
   SESSIONS_URL,
   SETTINGS_URL,
@@ -35,7 +34,6 @@ import {
   TIME_URL,
   TRAIL_URL,
   VAULT_URL,
-  WHITEBOARD_URL,
 } from "./ipc";
 import { focusCover } from "./focusGate";
 import { domPublishInternal } from "./ipc";
@@ -55,7 +53,6 @@ const OmniDashboard = lazy(() => import("./OmniDashboard"));
 const PdfViewer = lazy(() => import("./PdfViewer"));
 const PermissionsPage = lazy(() => import("./PermissionsPage"));
 const ResourcesPage = lazy(() => import("./ResourcesPage"));
-const ScribePage = lazy(() => import("./ScribePage"));
 const SentinelAuditPage = lazy(() => import("./SentinelAuditPage"));
 const SessionsPage = lazy(() => import("./SessionsPage"));
 const SettingsPage = lazy(() => import("./SettingsPage"));
@@ -68,7 +65,6 @@ const TimePage = lazy(() => import("./TimePage"));
 const FocusCover = lazy(() => import("./FocusCover"));
 const TrailPage = lazy(() => import("./TrailPage"));
 const VaultPage = lazy(() => import("./VaultPage"));
-const WhiteboardPage = lazy(() => import("./WhiteboardPage"));
 
 export type InternalPageProps = {
   /** The tab to render. An accessor so navigation stays reactive without
@@ -238,12 +234,6 @@ const InternalPage: Component<InternalPageProps> = (props) => {
         </Match>
         <Match when={tab()?.url === TRAIL_URL}>
           <TrailPage onNavigate={props.onNavigate} />
-        </Match>
-        <Match when={tab()?.url === WHITEBOARD_URL}>
-          <WhiteboardPage />
-        </Match>
-        <Match when={tab()?.url === SCRIBE_URL}>
-          <ScribePage />
         </Match>
         <Match when={tab()?.url === VAULT_URL}>
           <VaultPage onNavigate={props.onNavigate} />

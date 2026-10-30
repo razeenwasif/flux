@@ -337,7 +337,7 @@ mod tests {
 //
 // A PDF open in the viewer used to be invisible to the agent: the viewer is
 // Flux's own DOM inside the chrome, so `capture.js` never runs and no snapshot
-// exists — the same reason `flux://scribe` isn't visible. The text is extracted
+// exists — the same as any of Flux's own pages. The text is extracted
 // **in the viewer**, where PDF.js has already parsed the document for its text
 // layer, rather than parsed a second time in Rust with another dependency.
 //

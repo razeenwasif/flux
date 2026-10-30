@@ -39,7 +39,6 @@ use crate::places::Place;
 use crate::prefetch::PrefetchHint;
 use crate::pwa::PwaApp;
 use crate::reminders::Reminder;
-use crate::scribe::{Notebook, NotebookMeta, Page, PageNote};
 use crate::semfind::FindHit;
 use crate::services::ServiceStatus;
 use crate::sessions::{DaySnapshot, SavedSession, SavedTab};
@@ -105,10 +104,6 @@ pub fn generate_ts() -> String {
         // Sentinel (ADR 0013, Pillar 3): plain-language privacy explainers.
         specta::ts::export::<crate::sentinel::Explainer>(&c),
         specta::ts::export::<crate::sentinel::PolicyFlag>(&c),
-        // Scribe (ADR 0014): Gemma's proofreading suggestions.
-        specta::ts::export::<crate::scribe::TextFix>(&c),
-        // Handwriting transcribed by the local vision model.
-        specta::ts::export::<crate::scribe::Transcript>(&c),
         // Browsing data: what the engine is holding on disk, and clearing it.
         // PDFs read in the built-in viewer, for the agent and the KB.
         specta::ts::export::<crate::pdf::PdfDoc>(&c),
@@ -225,11 +220,6 @@ pub fn generate_ts() -> String {
         specta::ts::export::<KbRecentItem>(&c),
         specta::ts::export::<KbCheck>(&c),
         specta::ts::export::<TuiApp>(&c),
-        // Scribe — handwritten per-course notebooks (ADR 0014).
-        specta::ts::export::<Page>(&c),
-        specta::ts::export::<Notebook>(&c),
-        specta::ts::export::<NotebookMeta>(&c),
-        specta::ts::export::<PageNote>(&c),
         specta::ts::export::<Specialist>(&c),
         specta::ts::export::<ServiceStatus>(&c),
         specta::ts::export::<SpotifyState>(&c),

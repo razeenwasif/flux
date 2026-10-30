@@ -83,9 +83,6 @@ import type {
   KbStatus as GenKbStatus,
   KbRecentItem as GenKbRecentItem,
   KbCheck as GenKbCheck,
-  Notebook as GenNotebook,
-  NotebookMeta as GenNotebookMeta,
-  PageNote as GenPageNote,
   ServiceStatus as GenServiceStatus,
   SpotifyState as GenSpotifyState,
   SpotifyPlaylist as GenSpotifyPlaylist,
@@ -188,8 +185,6 @@ import type {
   Explainer as GenExplainer,
   PolicyFlag as GenPolicyFlag,
   AuditEntry as GenAuditEntry,
-  TextFix as GenTextFix,
-  Transcript as GenTranscript,
   MailConfig as GenMailConfig,
   MailMsg as GenMailMsg,
   StorageEntry as GenStorageEntry,
@@ -606,7 +601,7 @@ export const tabsRecluster = () => invoke<void>("tabs_recluster");
 export function domPublish(tabId: number, url: string, html: string, text: string) {
   return invoke<void>("plugin:fluxtab|dom_publish", { tabId, url, html, text });
 }
-/** Publish a **Flux-owned** page's visible text (Scribe, Notebook, Trail…).
+/** Publish a **Flux-owned** page's visible text (Notebook, Trail…).
  *
  *  A `flux://` page is a Solid component in the chrome's DOM, not a webview, so
  *  nothing injects the capture script and it published nothing — leaving every
@@ -672,48 +667,11 @@ export const OMNI_URL = "flux://omni";
 export const NOTEBOOK_URL = "flux://notebook";
 /** The Trail — browsing provenance graph (ADR 0011). */
 export const TRAIL_URL = "flux://trail";
-/** Built-in whiteboard / paint surface. */
-export const WHITEBOARD_URL = "flux://whiteboard";
-// ─── Scribe — handwritten per-course notebooks (ADR 0014) ───────────────────
-export const SCRIBE_URL = "flux://scribe";
-export type Notebook = GenNotebook;
-export type NotebookMeta = GenNotebookMeta;
-/** Shelf list of notebooks (metadata only, newest first). */
-export const scribeList = () => invoke<NotebookMeta[]>("scribe_list");
-/** Full notebook (all pages + strokes) by id. */
-export const scribeLoad = (id: string) => invoke<Notebook>("scribe_load", { id });
-/** Create an empty notebook (one blank grid page) and return it. */
-export const scribeCreate = (name: string, course?: string) =>
-  invoke<Notebook>("scribe_create", { name, course });
-/** Persist a whole notebook (the debounced autosave). */
-export const scribeSave = (notebook: Notebook) => invoke<void>("scribe_save", { notebook });
-export const scribeDelete = (id: string) => invoke<void>("scribe_delete", { id });
-/** Publish one page to the Onyx vault as Markdown + an embedded PNG; returns
- * the written .md path. `pngB64` is the rendered page (base64, no data: prefix). */
-export type PageNote = GenPageNote;
-export const scribePublishPage = (id: string, pageIndex: number, note: PageNote, pngB64: string) =>
-  invoke<string>("scribe_publish_page", { id, pageIndex, note, pngB64 });
-/** One suggested spelling/grammar fix in a Scribe page. */
-export type TextFix = GenTextFix;
-/** Proofread a page with the local model. Returns suggestions only — each one a
- *  verbatim span of the text sent, so the editor can always locate it. An empty
- *  list means "nothing to fix", including when no model is available. */
-export const scribeProofread = (text: string) => invoke<TextFix[]>("scribe_proofread", { text });
 /** The corpora the user authored or deliberately read, as opposed to `web` —
  *  pages they merely visited, which the Trail already graphs. Mirrors
  *  `kb::OWN_SOURCES`; anything scoped to "my knowledge" rather than "everything
  *  Flux has seen" should use this. */
-export const OWN_SOURCES = ["onyx", "scroll", "council", "scribe", "pdf", "scribe-ocr", "pdf-ocr"];
-
-/** A page's handwriting transcribed to LaTeX by the local vision model. */
-export type Transcript = GenTranscript;
-/** Transcribe a Scribe page's ink to LaTeX. Slow (a vision model, per drawing)
- *  and never written back into the page — the result is stored and indexed under
- *  its own `scribe-ocr` source so its machine-read origin shows in citations. */
-export const scribeTranscribe = (id: string, pageIndex: number) =>
-  invoke<Transcript>("scribe_transcribe", { id, pageIndex });
-export const scribeTranscript = (notebook: string, page: string) =>
-  invoke<Transcript | null>("scribe_transcript", { notebook, page });
+export const OWN_SOURCES = ["onyx", "scroll", "council", "pdf", "pdf-ocr"];
 
 /** Hand a PDF's extracted text to Flux: it becomes the tab's snapshot (so the
  *  agent can read the open document) and is stored for the knowledge base (so it
@@ -1343,7 +1301,7 @@ export type DiskInfo = GenDiskInfo;
 export const tasksDisks = () => invoke<DiskInfo[]>("tasks_disks");
 
 /** Named folders the agent can be pointed at without a path (#166) — the Onyx
- *  vault and its folders, Scribe, Downloads, home. Resolved fresh on each call:
+ *  vault and its folders, Downloads, home. Resolved fresh on each call:
  *  the vault path is a setting, and a stale answer files a note in the wrong
  *  directory. */
 export type Place = GenPlace;

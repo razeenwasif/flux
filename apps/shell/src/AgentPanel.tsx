@@ -1122,7 +1122,7 @@ const AgentPanel: Component = () => {
   };
 
   /** Named folders the agent can be pointed at without a path (#166): the Onyx
-   *  vault and its folders, Scribe, Downloads, home. Loaded once per panel —
+   *  vault and its folders, Downloads, home. Loaded once per panel —
    *  the vault is a setting that rarely changes within a session, and the note
    *  planner resolves its own copy server-side on every call anyway. */
   const [places, setPlaces] = createSignal<Place[]>([]);
@@ -2826,7 +2826,7 @@ const AgentPanel: Component = () => {
   /** A note step written by the loop. Deliberately narrow — the loop emits this
    *  form because the planner prompt tells it to, so it doesn't need the
    *  generous phrasing detection that a human's typing does. */
-  const NOTE_STEP_RE = /^(?:note|save to (?:onyx|scribe|notes?)|write note)\s*[:,-]?\s*([\s\S]+)/i;
+  const NOTE_STEP_RE = /^(?:note|save to (?:onyx|notes?)|write note)\s*[:,-]?\s*([\s\S]+)/i;
 
   // If the previous step pushed an approval card, block until the user resolves it,
   // and surface the result (e.g. terminal output) so the loop can react to it.
@@ -3604,7 +3604,7 @@ const AgentPanel: Component = () => {
           </button>
           <button
             classList={{ "agent-scope": true, on: scope() === "notes" }}
-            title="Answer from your knowledge base, with citations — Onyx notes, Scroll papers, Council debates, Scribe pages, and snapshots of pages you've visited"
+            title="Answer from your knowledge base, with citations — Onyx notes, Scroll papers, Council debates, PDFs, and snapshots of pages you've visited"
             onClick={() => setScope("notes")}
           >
             ✦ My notes

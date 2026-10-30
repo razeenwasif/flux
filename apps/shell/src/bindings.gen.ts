@@ -112,15 +112,6 @@ export type Explainer = { summary: string; insight: string }
  */
 export type PolicyFlag = { clause: string; why: string }
 /**
- * A suggested spelling/grammar fix in a page (mirrors the agent's `TextFix` so
- * the frontend gets a bindings type without depending on `flux-agent`).
- */
-export type TextFix = { before: string; after: string; why: string }
-/**
- * One transcribed page.
- */
-export type Transcript = { key: string; notebook: string; page: string; title: string; latex: string; model: string; ts: number }
-/**
  * One PDF's extracted text, keyed by its source URL/path.
  */
 export type PdfDoc = { src: string; title: string; text: string; ts: number; ocr?: boolean }
@@ -450,25 +441,6 @@ export type KbCheck = { verdict: string; note: string; related: KbHit[] }
  */
 export type TuiApp = { id: string; name: string; icon: string; cmd: string; cwd: string }
 /**
- * One page of a notebook. `strokes` is the ink engine's `Stroke[]` serialized
- * to JSON — opaque here on purpose (see module docs).
- */
-export type Page = { id: string; template: string; strokes: string; ts: number }
-/**
- * A course notebook: an ordered list of fixed-size pages you flip through.
- */
-export type Notebook = { id: string; name: string; course: string | null; tint: string | null; pages: Page[]; created: number; ts: number; deleted_pages?: { [key: string]: number } }
-/**
- * Shelf-list view of a notebook — no strokes, so listing stays cheap.
- */
-export type NotebookMeta = { id: string; name: string; course: string | null; tint: string | null; page_count: number; ts: number }
-/**
- * The written half of a published page — what ends up as Markdown around the
- * embedded ink. Grouped so `scribe_publish_page` takes one coherent argument
- * rather than a run of loose strings.
- */
-export type PageNote = { title: string; body: string; tags: string | null }
-/**
  * A discovered specialist available to route to.
  */
 export type Specialist = { domain: string; label: string; model: string }
@@ -546,7 +518,7 @@ export type ExtractFormat = "csv" | "json"
  * 
  * **A separate vocabulary from [`AgentAction`], deliberately.** That one is
  * page automation compiled to JavaScript and injected into a tab; this one
- * touches the user's own Onyx vault and Scribe notebooks. Sharing an enum
+ * touches the user's own Onyx vault. Sharing an enum
  * would mean one policy check guarding two entirely different blast radii.
  * 
  * **Additive only, and not by policy — by vocabulary.** There is no variant
@@ -560,7 +532,7 @@ export type ExtractFormat = "csv" | "json"
  * Nothing here executes on its own. `plan_note` produces a proposal; the user
  * approves it; a separate command applies it. See `notewrite.rs`.
  */
-export type NoteAction = { action: "new_note"; title: string; body: string; folder: string | null; tags: string | null } | { action: "append_note"; path: string; body: string } | { action: "new_page"; notebook: string; title: string; body: string } | { action: "append_page"; notebook: string; page: string; body: string } | { action: "nothing"; reason: string }
+export type NoteAction = { action: "new_note"; title: string; body: string; folder: string | null; tags: string | null } | { action: "append_note"; path: string; body: string } | { action: "nothing"; reason: string }
 /**
  * A proposal, plus everything the confirmation card needs to show it.
  */

@@ -80,7 +80,7 @@ v2 (`cargo install tauri-cli --version '^2'`), and a portable Temurin JDK under
 script resolves all of these and scaffolds the Gradle project on first run.
 
 Milestone 1 (done): the APK boots the full chrome and every internal page
-(Notebook, Trail, whiteboard, Settings). In-tab web browsing (a single system
+(Notebook, Trail, Settings). In-tab web browsing (a single system
 WebView) and the on-device llama.cpp agent are the next milestones — the desktop
 multi-webview/terminal/peek layers are `#[cfg(mobile)]` stubs for now.
 
@@ -337,8 +337,8 @@ before the next file is read, so stopping halfway keeps what you have. **`/fix <
 same loop invoked explicitly (*"/fix make the tests in src/foo.rs pass"* → run →
 read the failure → edit → re-run).
 
-**Named places.** You don't have to give her paths. `onyx`, `scribe`,
-`downloads` and `home` resolve to the real directories, and your Onyx vault's
+**Named places.** You don't have to give her paths. `onyx`, `downloads`
+and `home` resolve to the real directories, and your Onyx vault's
 folders are known by name — so *"summarise these into onyx under
 00 - Optimization"* is enough, in chat and in the agent's file tools alike
 (`list onyx`, `read onyx/00 - Optimization/duality.md`). They're resolved fresh
@@ -383,22 +383,6 @@ after you actually *dwell* on a page, idle-scheduled so the browser never
 stalls. Everything stays local; the spine is never a network source. Vertical
 slice in progress — see `docs/adr/0011-browsing-provenance-spine.md`.
 
-## Scribe — handwritten course notebooks (ADR 0014)
-
-`flux://scribe`. Per-course notebooks of pages you write on: a real document
-editor with ink inserted as objects, not a drawing surface with text boxes.
-
-- **Equations** — `Σ Equation`, `Ctrl+M`, or just type `$$x^2$$` mid-sentence.
-  The LaTeX lives in the node's `data-tex`, so it survives editing, indexes as
-  LaTeX (not as KaTeX's rendered glyph soup), and Gemma writes the same node.
-- **Transcription** — handwritten pages are read by the local vision model into
-  text + LaTeX under their own `scribe-ocr` KB source, so a citation always
-  carries that a machine read it.
-- **Publish to Onyx** — a page becomes a markdown note with the ink embedded as
-  a PNG, in the course's vault folder.
-
-Notebooks live one JSON file per notebook, in `<app-data>/scribe/`.
-
 ## Sync (ADR 0017)
 
 No server and no account: Flux syncs through **a folder you already replicate**
@@ -408,7 +392,7 @@ the content is:
 | What | How |
 |---|---|
 | Bookmarks, sessions, history, tasks, calendars | one AES-256-GCM blob (`flux-sync.enc`) in the folder |
-| Onyx vault, Scribe notebooks | plaintext files — point the sync tool at them directly |
+| Onyx vault | plaintext files — point the sync tool at it directly |
 
 Set it up at **`flux://sync`**: choose the folder, set a passphrase (the same one
 on every device), unlock, turn on auto-sync. The key is derived with Argon2id
@@ -418,7 +402,7 @@ only ever sees ciphertext. The **password vault is never synced.**
 
 Merges are additive with deletion tombstones, keyed by content rather than id
 (ids are per-device counters): a task by list+title, a session tab by workspace
-*name*, a Scribe page by page id. Restoring a session rebuilds its workspaces.
+*name*. Restoring a session rebuilds its workspaces.
 
 > **Set up the second device only after the first device's `flux-sync.enc` has
 > arrived.** Unlocking into an empty folder mints a *new* salt, so the same

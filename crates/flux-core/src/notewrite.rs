@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use flux_agent::NoteAction;
-use tauri::{Manager as _, State};
+use tauri::State;
 
 use crate::kbfresh::KbFreshness;
 
@@ -46,13 +46,12 @@ pub struct NoteProposal {
 /// Ask the model what to write. **Never writes.**
 #[tauri::command]
 pub async fn note_plan(
-    app: tauri::AppHandle,
     kb: State<'_, crate::kb::KbStore>,
     state: State<'_, crate::state::FluxState>,
     request: String,
     context: Option<String>,
 ) -> Result<NoteProposal, String> {
-    let targets = existing_targets(&app, kb.source_location("onyx").as_deref());
+    let targets = existing_targets(kb.source_location("onyx").as_deref());
     // "note this page" is the obvious request, so fall back to the active page's
     // text. Pulled here rather than shipped in from the frontend: it's already
     // in the DOM cache, and a round trip would put the whole page through IPC.
@@ -81,25 +80,18 @@ pub async fn note_plan(
 /// Apply an approved proposal. Called only after the user confirms.
 #[tauri::command]
 pub async fn note_apply(
-    app: tauri::AppHandle,
     kb: State<'_, crate::kb::KbStore>,
     fresh: State<'_, Arc<KbFreshness>>,
     action: NoteAction,
 ) -> Result<String, String> {
     let vault = kb.source_location("onyx");
     let fresh = Arc::clone(&fresh);
-    let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || apply(&handle, vault.as_deref(), &fresh, action))
+    tauri::async_runtime::spawn_blocking(move || apply(vault.as_deref(), &fresh, action))
         .await
         .map_err(|e| e.to_string())?
 }
 
-fn apply(
-    app: &tauri::AppHandle,
-    vault: Option<&str>,
-    fresh: &KbFreshness,
-    action: NoteAction,
-) -> Result<String, String> {
+fn apply(vault: Option<&str>, fresh: &KbFreshness, action: NoteAction) -> Result<String, String> {
     match action {
         NoteAction::Nothing { reason } => Err(format!("nothing to write: {reason}")),
 
@@ -127,50 +119,6 @@ fn apply(
             append_to_file(&target, &body)?;
             fresh.touch("onyx");
             Ok(target.display().to_string())
-        }
-
-        NoteAction::NewPage {
-            notebook,
-            title,
-            body,
-        } => {
-            let store = app
-                .try_state::<crate::scribe::ScribeStore>()
-                .ok_or("Scribe isn't available")?;
-            let page = crate::scribe::Page::document(&title, &body);
-            // In place and marked, not load-push-save: an editor with this
-            // notebook open still holds the copy it loaded, and its next
-            // autosave must not read this page's absence as a delete.
-            store.update_outside_editor(&notebook, |nb| {
-                let id = page.id.clone();
-                nb.pages.push(page);
-                Ok(id)
-            })?;
-            fresh.touch("scribe");
-            Ok(format!("flux://scribe#{notebook}"))
-        }
-
-        NoteAction::AppendPage {
-            notebook,
-            page,
-            body,
-        } => {
-            let store = app
-                .try_state::<crate::scribe::ScribeStore>()
-                .ok_or("Scribe isn't available")?;
-            // Same: an open editor's older copy of this page must not be put
-            // back over the appended prose.
-            store.update_outside_editor(&notebook, |nb| {
-                let target = nb
-                    .pages
-                    .iter_mut()
-                    .find(|p| p.id == page)
-                    .ok_or("no such page in that notebook")?;
-                crate::scribe::append_prose(target, &body)?;
-                Ok(page.clone())
-            })?;
-            fresh.touch("scribe");
-            Ok(format!("flux://scribe#{notebook}"))
         }
     }
 }
@@ -225,12 +173,12 @@ fn append_to_file(path: &Path, body: &str) -> Result<(), String> {
 }
 
 /// A compact listing of what exists, so the model appends to real targets.
-fn existing_targets(app: &tauri::AppHandle, vault: Option<&str>) -> String {
+fn existing_targets(vault: Option<&str>) -> String {
     // The vault's own folders, first. Without them the model saw a flat list of
     // note *files* and had nothing to match "save it under 00 - Optimization"
     // against, so `new_note`'s folder came back null and the note landed at the
     // vault root — or it invented a folder name close to but not the user's.
-    let mut out = crate::places::describe(&crate::places::places(app, vault));
+    let mut out = crate::places::describe(&crate::places::places(vault));
     if !out.is_empty() {
         out.push_str(
             "Use a folder name from the list verbatim when the user names one. Do not invent \
@@ -250,17 +198,6 @@ fn existing_targets(app: &tauri::AppHandle, vault: Option<&str>) -> String {
         }
         if n == 0 {
             out.push_str("  (none yet)\n");
-        }
-    }
-    if let Some(store) = app.try_state::<crate::scribe::ScribeStore>() {
-        out.push_str("\nScribe notebooks (id — name):\n");
-        for meta in store.list() {
-            out.push_str(&format!("  {} — {}\n", meta.id, meta.name));
-            if let Some(nb) = store.load(&meta.id) {
-                for (i, page) in nb.pages.iter().enumerate().take(40) {
-                    out.push_str(&format!("    page {} — id {}\n", i + 1, page.id));
-                }
-            }
         }
     }
     out

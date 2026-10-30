@@ -10335,18 +10335,6 @@ body.busy .start-card {
   }
 }
 
-/* ─── Scribe — handwritten per-course notebooks (ADR 0014) ────────────────────
-   Reuses the whiteboard's ink toolbar (.wb-*); adds a shelf + a paged notebook
-   view around the shared InkCanvas. Only .scribe-err stays here (the whiteboard
-   uses it too); the rest is in ScribePage.css, the .wb-* toolbar in InkCanvas.css. */
-.scribe-err {
-  font-size: 12px;
-  color: #ffffff;
-  background: rgba(236, 75, 110, 0.12);
-  border: 1px solid rgba(236, 75, 110, 0.3);
-  border-radius: 8px;
-  padding: 7px 11px;
-}
 
 /* ─── Mobile (Android APK) — barebone layout, ADR 0012 ────────────────────────
    The phone build has one system WebView and no window chrome. Strip the

@@ -68,8 +68,6 @@ describe("icon set", () => {
     for (const n of [
       "notebook",
       "trail",
-      "whiteboard",
-      "scribe",
       "sessions",
       "archive",
       "feeds",

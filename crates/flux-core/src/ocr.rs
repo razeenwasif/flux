@@ -14,8 +14,7 @@
 //!
 //! Recognised text is published to the KB under its own `pdf-ocr` source rather
 //! than mixed into `pdf`, so a citation carries the fact that a machine read it
-//! off an image and may be wrong — the same treatment `scribe-ocr` gets for
-//! handwriting.
+//! off an image and may be wrong.
 
 use parking_lot::Mutex;
 use std::io::{Read, Write};

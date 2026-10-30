@@ -4,12 +4,12 @@
 #
 # Reads tools/tui-apps.json and, for each app: clones its repo (or pulls if the
 # directory already exists), then runs its build command so the binary lands on
-# your PATH. Homebrew formulae (e.g. lazygit) are installed via `brew`. Idempotent
+# your PATH. Homebrew formulae are installed via `brew`. Idempotent
 # — safe to re-run to update everything. Works on macOS and Linux.
 #
 # Usage:
 #   ./tools/setup-tui-apps.sh            # set up everything in the manifest
-#   ./tools/setup-tui-apps.sh onyx kata  # only these (match by name/cmd, case-insensitive)
+#   ./tools/setup-tui-apps.sh forge kata  # only these (match by name/cmd, case-insensitive)
 #
 # PATH note: the build commands install to ~/.cargo/bin (Rust), $(go env GOPATH)/bin
 # (Go), ~/.local/bin (BoxTube), and bun's global bin (Council). Make sure those are
@@ -62,7 +62,7 @@ while IFS=$'\t' read -r name cmd dir repo pkg build; do
   echo
   echo "── $name ($cmd) ──────────────────────────────────────"
 
-  # Homebrew package (third-party tools like lazygit).
+  # Homebrew package (a third-party tool).
   if [ -n "$pkg" ]; then
     if command -v "$cmd" >/dev/null 2>&1; then
       echo "  ✓ already installed"; ok+=("$name"); continue

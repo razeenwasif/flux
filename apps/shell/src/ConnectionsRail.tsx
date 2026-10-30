@@ -1,7 +1,7 @@
 /**
  * Connections rail (#123) — the second brain compounding *passively*. As you read
  * a page, Flux embeds its text and surfaces your own related Onyx notes / Scroll
- * papers / Council debates / Scribe pages here, updating on each navigation. Click
+ * papers / Council debates / PDFs here, updating on each navigation. Click
  * one to open it. Fully local (kb_related → kb_query over the on-device index).
  *
  * **Your own writing only.** Visited pages (the `web` corpus) are excluded — the
@@ -45,15 +45,13 @@ const SOURCE_ICON: Record<string, string> = {
   onyx: "📝",
   scroll: "📜",
   council: "⚖",
-  scribe: "✍",
   pdf: "📄",
-  // Machine-read: a vision model transcribed handwriting into this text, so it
-  // may not say quite what the page said. Marked wherever it's cited.
-  "scribe-ocr": "🔍",
+  // Machine-read: OCR lifted this text off page images, so it may not say quite
+  // what the page said. Marked wherever it's cited.
   "pdf-ocr": "🔍",
 };
 /** Sources whose text a model produced rather than the user. */
-const MACHINE_READ = new Set(["scribe-ocr", "pdf-ocr"]);
+const MACHINE_READ = new Set(["pdf-ocr"]);
 
 /** Default cards. */
 const RAIL_LIMIT = 8;
@@ -145,7 +143,7 @@ const ConnectionsRail: Component = () => {
     void onDomUpdated((id) => {
       if (id === activeId()) schedule();
     }).then((u) => (un = u));
-    // Flux's own pages (Notebook, Scribe…) publish without a dom-updated, and only
+    // Flux's own pages (Notebook, Trail…) publish without a dom-updated, and only
     // >=900 ms after they render — after the post-switch refresh below has already
     // queried — so they were never related to anything until you pressed ↻.
     // kb_related reads the active tab's snapshot, so only that tab's publish counts.

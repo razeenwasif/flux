@@ -3,8 +3,8 @@
  *
  * The native dialog is a **no-op in this webview** — it returns `null` without
  * showing anything. Every call site that used one was therefore dead code that
- * looked fine: renaming a Scribe notebook, naming a whiteboard, setting the
- * calendar's week 1, creating a task list. All silently did nothing, and the
+ * looked fine: naming things, setting the calendar's week 1, creating a task
+ * list. All silently did nothing, and the
  * equation editor joined them until it was caught.
  *
  * Deliberately promise-based with the same shape as `prompt()`, so replacing a

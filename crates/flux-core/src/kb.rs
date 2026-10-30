@@ -210,16 +210,7 @@ pub struct KbRecentItem {
 const RELATED_MIN_SCORE: u32 = 30;
 
 /// Sources Flux knows how to pull (Onyx vault notes, Scroll papers, Council briefs).
-pub const SOURCES: &[&str] = &[
-    "onyx",
-    "scroll",
-    "council",
-    "web",
-    "scribe",
-    "pdf",
-    "scribe-ocr",
-    "pdf-ocr",
-];
+pub const SOURCES: &[&str] = &["onyx", "scroll", "council", "web", "pdf", "pdf-ocr"];
 
 /// The corpora that live in memory rather than on disk as files, handed to
 /// `reindex` by the caller.
@@ -231,11 +222,7 @@ pub const SOURCES: &[&str] = &[
 #[derive(Default)]
 pub struct Corpora {
     pub web: Vec<crate::trace::WebDoc>,
-    pub scribe: Vec<RawDoc>,
     pub pdf: Vec<RawDoc>,
-    /// Handwriting transcribed by the local vision model. Its own source so the
-    /// machine-read origin travels with every citation.
-    pub scribe_ocr: Vec<RawDoc>,
     /// Scanned PDFs read by tesseract. Separate from `pdf` for the same reason:
     /// text a machine lifted off an image can be wrong in ways a text layer
     /// can't, and a citation should say which it was.
@@ -247,15 +234,9 @@ pub struct Corpora {
 /// the Trail has its own graph in the sidebar, so surfacing visited pages here
 /// too was showing the same browsing history twice.
 pub const OWN_SOURCES: &[&str] = &[
-    "onyx",
-    "scroll",
-    "council",
-    "scribe",
-    "pdf",
-    // Transcribed handwriting is still your own writing — a machine only read
-    // it. Leaving it out meant Scribe pages you'd transcribed were invisible to
-    // anything scoped to "my knowledge", including the agent's "My notes".
-    "scribe-ocr",
+    "onyx", "scroll", "council", "pdf",
+    // Text read off a scanned PDF is still your own material — a machine only
+    // read it, so it belongs to anything scoped to "my knowledge".
     "pdf-ocr",
 ];
 
@@ -269,10 +250,6 @@ pub struct RawDoc {
     body: String,
 }
 
-/// Turn Scribe notebooks into KB documents — one per page, built from the page's
-/// **typed** text blocks. Handwriting isn't readable without OCR (that's the
-/// deferred transcription follow-up), so a page contributes what it actually has
-/// as text; a page with only ink yields nothing rather than an empty stub.
 /// PDFs read in the built-in viewer. The text was extracted once by PDF.js when
 /// the document was opened; this makes it answerable long after the tab closed.
 pub fn pdf_docs(store: &crate::pdf::PdfStore) -> Vec<RawDoc> {
@@ -300,89 +277,6 @@ fn pdf_docs_where(store: &crate::pdf::PdfStore, ocr: bool) -> Vec<RawDoc> {
             body: d.text,
         })
         .collect()
-}
-
-/// Transcribed handwriting, as its own corpus. Separate from `scribe_docs` on
-/// purpose: the source name is what tells a citation this text was read by a
-/// model rather than written by the user.
-pub fn scribe_ocr_docs(store: &crate::scribe::TranscriptStore) -> Vec<RawDoc> {
-    store
-        .list()
-        .into_iter()
-        .filter(|t| !t.latex.trim().is_empty())
-        .map(|t| RawDoc {
-            doc_id: t.key.clone(),
-            title: t.title,
-            path: format!("flux://scribe#{}", t.notebook),
-            mtime: t.ts,
-            body: t.latex,
-        })
-        .collect()
-}
-
-pub fn scribe_docs(store: &crate::scribe::ScribeStore) -> Vec<RawDoc> {
-    let mut out = Vec::new();
-    for meta in store.list() {
-        let Some(nb) = store.load(&meta.id) else {
-            continue;
-        };
-        let mut handwritten: Vec<usize> = Vec::new();
-        for (i, page) in nb.pages.iter().enumerate() {
-            let body = crate::scribe::page_text(&page.strokes);
-            if body.trim().is_empty() {
-                // Ink, not prose. Recorded rather than skipped — see the
-                // notebook card below.
-                handwritten.push(i + 1);
-                continue;
-            }
-            out.push(RawDoc {
-                doc_id: format!("{}#{}", nb.id, page.id),
-                title: format!("{} — p{}", nb.name, i + 1),
-                // Openable target: the Scribe page itself.
-                path: format!("flux://scribe#{}/{}", nb.id, i + 1),
-                mtime: page.ts,
-                body,
-            });
-        }
-
-        // One card per notebook, always — even when every page is ink.
-        //
-        // Without this a fully handwritten notebook produced *zero* documents,
-        // so asking about it got "the sources contain no information about a
-        // Convex Analysis notebook". Which was true of the corpus and utterly
-        // misleading about reality: the notebook was right there, its pages
-        // just hadn't been transcribed. Now the notebook itself is findable and
-        // says what state it's in, so the answer becomes "it exists, here's how
-        // to make it readable" instead of "it doesn't exist".
-        let mut body = format!("Scribe notebook: {}", nb.name);
-        if let Some(c) = nb.course.as_deref().filter(|c| !c.trim().is_empty()) {
-            body.push_str(&format!("\nCourse: {c}"));
-        }
-        body.push_str(&format!("\nPages: {}", nb.pages.len()));
-        if !handwritten.is_empty() {
-            body.push_str(&format!(
-                "\n{} of these pages are HANDWRITTEN and have not been transcribed, so their \
-                 contents are not searchable yet: page{} {}. To read them, open the page in \
-                 Scribe and use Transcribe (the local vision model writes the handwriting out \
-                 as text and LaTeX).",
-                handwritten.len(),
-                if handwritten.len() == 1 { "" } else { "s" },
-                handwritten
-                    .iter()
-                    .map(|n| n.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
-        out.push(RawDoc {
-            doc_id: format!("{}#notebook", nb.id),
-            title: nb.name.clone(),
-            path: format!("flux://scribe#{}", nb.id),
-            mtime: nb.ts,
-            body,
-        });
-    }
-    out
 }
 
 /// Cheap-to-clone handle (Arcs inside) so a command can move it into a blocking task.
@@ -850,19 +744,13 @@ impl KbStore {
         let mut changed = embedder_changed;
 
         for src in targets {
-            // "web" is an in-process corpus (the Trail's dwell snapshots), supplied
-            // by the caller; every other source is a file/HTTP connector.
-            // Both "web" (Trail snapshots) and "scribe" (handwritten notebooks)
-            // are in-process corpora supplied by the caller, which owns their
-            // stores; the rest are file/HTTP connectors.
+            // "web" (Trail snapshots) and the PDFs are in-process corpora
+            // supplied by the caller, which owns their stores; the rest are
+            // file/HTTP connectors.
             let raw = if src == "pdf" {
                 Ok(c.pdf.clone())
-            } else if src == "scribe-ocr" {
-                Ok(c.scribe_ocr.clone())
             } else if src == "pdf-ocr" {
                 Ok(c.pdf_ocr.clone())
-            } else if src == "scribe" {
-                Ok(c.scribe.clone())
             } else if src == "web" {
                 Ok(c.web
                     .iter()
@@ -1670,20 +1558,16 @@ pub async fn kb_recent(
 pub async fn kb_reindex(
     kb: State<'_, KbStore>,
     snaps: State<'_, crate::trace::TraceSnapshots>,
-    scribe: State<'_, crate::scribe::ScribeStore>,
-    transcripts: State<'_, crate::scribe::TranscriptStore>,
     pdf: State<'_, crate::pdf::PdfStore>,
     source: Option<String>,
 ) -> Result<KbStatus, String> {
     let kb = (*kb).clone();
-    // The Trail's dwell snapshots are the `web` corpus and Scribe's notebooks are
-    // the `scribe` one — both live in-process, so they're pulled here and handed
-    // over, then chunked/embedded/cited like any file-backed source.
+    // The Trail's dwell snapshots are the `web` corpus and the viewer's PDFs the
+    // `pdf` one — both live in-process, so they're pulled here and handed over,
+    // then chunked/embedded/cited like any file-backed source.
     let corpora = Corpora {
         web: snaps.web_docs(),
-        scribe: scribe_docs(&scribe),
         pdf: pdf_docs(&pdf),
-        scribe_ocr: scribe_ocr_docs(&transcripts),
         // Was `Vec::new()`, which meant every OCR'd PDF reindexed to zero
         // documents — the text was extracted, published and stored, and then
         // silently dropped on the way to the index.
@@ -1739,7 +1623,7 @@ pub async fn kb_query(
 /// genuinely-related hits (score-thresholded) so the rail stays quiet on a page
 /// nothing in your corpus touches.
 ///
-/// Restricted to [`OWN_SOURCES`] — your notes, papers, debates and Scribe pages.
+/// Restricted to [`OWN_SOURCES`] — your notes, papers, debates and PDFs.
 /// Visited pages live in the Trail, which has its own graph.
 #[tauri::command]
 pub async fn kb_related(
@@ -2046,6 +1930,43 @@ and scroll it into view, then try again.",
     out
 }
 
+/// Split a free-typed tag string ("kkt, duality  convexity" or "#kkt #duality")
+/// into clean tag tokens. Commas or whitespace separate; a leading `#` is
+/// dropped so both habits work, typed or spoken.
+pub(crate) fn parse_tags(raw: &str) -> Vec<String> {
+    raw.split([',', ' ', '\t', '\n'])
+        .map(|t| t.trim().trim_start_matches('#').trim())
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Escape a value for a double-quoted YAML frontmatter scalar (keep it simple:
+/// backslashes and quotes are the only chars that break the line).
+pub(crate) fn yaml_quote(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Today as `YYYY-MM-DD` (UTC) via Howard Hinnant's civil-from-days — avoids
+/// pulling a date crate for a single frontmatter line.
+pub(crate) fn today_ymd() -> String {
+    let days = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| (d.as_secs() / 86_400) as i64)
+        .unwrap_or(0);
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let year = if m <= 2 { y + 1 } else { y };
+    format!("{year:04}-{m:02}-{d:02}")
+}
+
 pub(crate) fn write_onyx_note(
     location: Option<&str>,
     title: &str,
@@ -2084,23 +2005,22 @@ pub(crate) fn write_onyx_note(
     } else {
         format!("# {}\n\n{}\n", title.trim(), content.trim())
     };
-    // Frontmatter so the note is machine-readable the same way Scribe's pages
-    // are: Onyx's TUI reads the tags, and the KB strips the block before
+    // Frontmatter so the note is machine-readable: Onyx's TUI reads the tags, and the KB strips the block before
     // chunking. Only written when there are tags to carry — a plain note stays
     // a plain note.
-    let tag_list = tags.map(crate::scribe::parse_tags).unwrap_or_default();
+    let tag_list = tags.map(parse_tags).unwrap_or_default();
     let body = if tag_list.is_empty() {
         body
     } else {
         let items = tag_list
             .iter()
-            .map(|t| format!("  - {}\n", crate::scribe::yaml_quote(t)))
+            .map(|t| format!("  - {}\n", yaml_quote(t)))
             .collect::<String>();
         format!(
             "---\ntitle: {}\ntags:\n{}source: flux-agent\ndate: {}\n---\n\n{}",
-            crate::scribe::yaml_quote(title.trim()),
+            yaml_quote(title.trim()),
             items,
-            crate::scribe::today_ymd(),
+            today_ymd(),
             body,
         )
     };
@@ -2162,6 +2082,23 @@ pub(crate) fn sanitize_note_name(title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tags_accept_commas_spaces_and_hashes() {
+        assert_eq!(parse_tags("kkt, duality"), vec!["kkt", "duality"]);
+        assert_eq!(parse_tags("#kkt #duality"), vec!["kkt", "duality"]);
+        assert_eq!(parse_tags("  ,, "), Vec::<String>::new());
+        assert_eq!(parse_tags("convex-opt"), vec!["convex-opt"]);
+        assert_eq!(yaml_quote(r#"a "b" \c"#), r#""a \"b\" \\c""#);
+    }
+
+    #[test]
+    fn today_ymd_is_well_formed() {
+        let d = today_ymd();
+        assert_eq!(d.len(), 10);
+        assert_eq!(d.as_bytes()[4], b'-');
+        assert_eq!(d.as_bytes()[7], b'-');
+    }
 
     /// A vault path is typed once and used on whichever build is running. On the
     /// WSL build an untranslated `C:\…` fails `is_dir`, and `onyx_vault` then
@@ -2641,82 +2578,6 @@ mod tests {
         assert!(!d.chunks.iter().any(|x| x.doc_id == "2"), "and its chunks");
         assert!(d.paired(), "vectors dropped with their chunks");
         drop(d);
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    // ─── Scribe as a KB source ──────────────────────────────────────────────
-
-    #[test]
-    fn a_handwritten_notebook_is_still_findable() {
-        // The bug this fixes: every page was ink, page_text returned "", every
-        // page was skipped, and the notebook produced ZERO documents. Asking
-        // about it got "the sources contain no information about that notebook"
-        // - true of the corpus, and completely misleading about reality.
-        let dir = std::env::temp_dir().join(format!("flux-kb-scribe-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let store = crate::scribe::ScribeStore::restore(dir.clone());
-        let mut nb = store.create(
-            "Convex Analysis & Optimization".into(),
-            Some("MATH3512".into()),
-        );
-        nb.pages[0].strokes = r##"[{"t":"pen","color":"#fff","w":3,"pts":[[1,1],[2,2]]}]"##.into();
-        nb.pages.push(crate::scribe::Page {
-            id: "pg-ink2".into(),
-            template: "grid".into(),
-            strokes: r##"[{"t":"pen","color":"#fff","w":3,"pts":[]}]"##.into(),
-            ts: 2,
-        });
-        store.save(nb);
-
-        let docs = scribe_docs(&store);
-        assert_eq!(docs.len(), 1, "the notebook itself must be indexed");
-        let card = &docs[0];
-        assert_eq!(card.title, "Convex Analysis & Optimization");
-        assert!(card.body.contains("MATH3512"), "course: {}", card.body);
-        assert!(card.body.contains("Pages: 2"), "{}", card.body);
-        assert!(
-            card.body.to_lowercase().contains("handwritten"),
-            "must say why the contents aren't searchable: {}",
-            card.body
-        );
-        assert!(
-            card.body.contains("Transcribe"),
-            "and what to do about it: {}",
-            card.body
-        );
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn typed_scribe_pages_are_indexed_individually() {
-        let dir = std::env::temp_dir().join(format!("flux-kb-scribe2-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let store = crate::scribe::ScribeStore::restore(dir.clone());
-        let mut nb = store.create("Notes".into(), None);
-        nb.pages[0] =
-            crate::scribe::Page::document("Duality", "Slater's condition implies strong duality.");
-        store.save(nb);
-
-        let docs = scribe_docs(&store);
-        assert_eq!(docs.len(), 2, "one page + the notebook card");
-        assert!(
-            docs.iter().any(|d| d.body.contains("Slater")),
-            "the page's prose is indexed"
-        );
-        // A fully-typed notebook shouldn't be told it has handwriting.
-        let card = docs
-            .iter()
-            .find(|d| d.doc_id.ends_with("#notebook"))
-            .unwrap();
-        assert!(
-            !card.body.to_lowercase().contains("handwritten"),
-            "{}",
-            card.body
-        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -77,7 +77,6 @@ pub mod pwa;
 pub mod reminders;
 pub mod rpc;
 pub mod screenshot;
-pub mod scribe;
 pub mod search;
 pub mod semfind;
 pub mod sentinel;
@@ -244,17 +243,9 @@ fn corpora(app: &tauri::AppHandle) -> kb::Corpora {
             .try_state::<trace::TraceSnapshots>()
             .map(|s| s.web_docs())
             .unwrap_or_default(),
-        scribe: app
-            .try_state::<scribe::ScribeStore>()
-            .map(|s| kb::scribe_docs(&s))
-            .unwrap_or_default(),
         pdf: app
             .try_state::<pdf::PdfStore>()
             .map(|s| kb::pdf_docs(&s))
-            .unwrap_or_default(),
-        scribe_ocr: app
-            .try_state::<scribe::TranscriptStore>()
-            .map(|s| kb::scribe_ocr_docs(&s))
             .unwrap_or_default(),
         pdf_ocr: app
             .try_state::<pdf::PdfStore>()
@@ -734,27 +725,6 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
     app.manage(boot_phase("notes.restore", boot_started, || {
         notes::NoteStore::restore(notes_path)
     }));
-    // Scribe — handwritten per-course notebooks (ADR 0014). One JSON file per
-    // notebook under <app_data>/scribe/.
-    let scribe_dir = app
-        .path()
-        .app_data_dir()
-        .map(|d| d.join("scribe"))
-        .unwrap_or_else(|_| std::path::PathBuf::from("flux-scribe"));
-    app.manage(boot_phase("scribe.restore", boot_started, || {
-        scribe::ScribeStore::restore(scribe_dir)
-    }));
-    app.manage(
-        match app
-            .path()
-            .app_data_dir()
-            .ok()
-            .map(|d| d.join("scribe-transcripts.json"))
-        {
-            Some(p) => scribe::TranscriptStore::restore(p),
-            None => scribe::TranscriptStore::default(),
-        },
-    );
     // PDFs read in the built-in viewer: their extracted text, for the agent and
     // the knowledge base.
     app.manage(
@@ -872,21 +842,11 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                 .unwrap_or(true);
             let mut last_seen: u64 = 0;
             let mut last_indexed: u64 = 0;
-            // Scribe gets the same treatment: notebooks reached the KB only on a
-            // manual reindex, so anything written since was invisible to the
-            // agent's "My notes" scope. Same settle rule, so the debounced
-            // autosave doesn't re-embed a notebook on every keystroke.
-            let mut scribe_seen: u64 = 0;
-            let mut scribe_indexed: u64 = 0;
-            // The counter only moves on a *mutation*, so notebooks that arrived
-            // any other way — copied from another machine, restored from a
-            // backup, or simply present before this indexer existed — would sit
-            // unindexed until something happened to edit one. Index once at
-            // startup when the corpus is on disk but absent from the KB.
-            let mut scribe_bootstrapped = false;
             // PDFs are read in bursts too (open, scroll, close), so the same
             // settle rule keeps a document being read from re-embedding on every
-            // page turn.
+            // page turn. Their counter only moves on a *mutation*, so documents
+            // already stored when this indexer first runs are indexed once at
+            // startup when the KB has none of them.
             let mut pdf_seen: u64 = 0;
             let mut pdf_indexed: u64 = 0;
             let mut pdf_bootstrapped = false;
@@ -902,8 +862,8 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                     let generation = s.generation();
                     let settled = generation == last_seen && generation != last_indexed;
                     last_seen = generation;
-                    // Not `continue` when unsettled: that skipped the PDF and
-                    // Scribe blocks below on almost every tick.
+                    // Not `continue` when unsettled: that skipped the PDF
+                    // block below on almost every tick.
                     if settled {
                         // If the embedder changed since the corpus was built (e.g.
                         // Ollama came up), or the Ollama model behind it did, a
@@ -954,40 +914,6 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                             }
                             Err(e) => {
                                 tracing::debug!(target: "flux::kb", "pdf auto-reindex skipped: {e}")
-                            }
-                        }
-                    }
-                }
-                // Scribe notebooks, same settle rule. Kept separate from the web
-                // block (rather than folded into it) so a burst of browsing never
-                // starves an edited notebook, and vice versa.
-                if let (Some(st), Some(kb)) = (
-                    handle.try_state::<scribe::ScribeStore>(),
-                    handle.try_state::<kb::KbStore>(),
-                ) {
-                    let generation = st.generation();
-                    // One startup pass for a corpus the KB has never seen.
-                    let unseen = !scribe_bootstrapped
-                        && !st.list().is_empty()
-                        && kb
-                            .status()
-                            .sources
-                            .iter()
-                            .any(|s| s.source == "scribe" && s.docs == 0);
-                    scribe_bootstrapped = true;
-                    let settled = generation == scribe_seen && generation != scribe_indexed;
-                    scribe_seen = generation;
-                    if settled || unseen {
-                        // Always hand over both in-process corpora: a `None`
-                        // source rebuilds everything, and even a single-source
-                        // rebuild reads them.
-                        match kb.reindex(Some("scribe".to_string()), corpora(&handle)) {
-                            Ok(_) => {
-                                scribe_indexed = generation;
-                                tracing::info!(target: "flux::kb", generation, "auto-indexed Scribe notebooks");
-                            }
-                            Err(e) => {
-                                tracing::debug!(target: "flux::kb", "scribe auto-reindex skipped: {e}")
                             }
                         }
                     }
@@ -1346,15 +1272,6 @@ pub fn run(intent: cli::LaunchIntent) {
             mdnotes::md_note_create,
             mdnotes::md_note_rename,
             mdnotes::md_note_delete,
-            scribe::scribe_list,
-            scribe::scribe_load,
-            scribe::scribe_create,
-            scribe::scribe_save,
-            scribe::scribe_delete,
-            scribe::scribe_publish_page,
-            scribe::scribe_proofread,
-            scribe::scribe_transcribe,
-            scribe::scribe_transcript,
             pdf::pdf_publish_text,
             ocr::ocr_available,
             ocr::ocr_image,

@@ -310,7 +310,7 @@ pub fn agent_roots_set(store: tauri::State<'_, RootsStore>, roots: AgentRoots) {
     store.set(roots);
 }
 
-/// The places worth pre-filling the allowance with — the vault, scribe,
+/// The places worth pre-filling the allowance with — the vault,
 /// downloads and home. Deliberately **not** the drives: naming a drive is a
 /// convenience, letting the agent read it is a decision.
 ///
@@ -323,7 +323,7 @@ pub async fn agent_roots_suggested(app: tauri::AppHandle) -> Vec<String> {
         let onyx = app
             .try_state::<crate::kb::KbStore>()
             .and_then(|kb| kb.source_location("onyx"));
-        crate::places::places(&app, onyx.as_deref())
+        crate::places::places(onyx.as_deref())
             .into_iter()
             // A drive is named by its single letter. Skipping them here is the whole
             // point: `c` is offered as a shorthand, not as an allowance.

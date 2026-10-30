@@ -4,7 +4,7 @@
  * The asymmetry is deliberate and worth stating: a false positive costs one
  * click on Discard, because the approval card still stands between the model
  * and your files. A false negative costs the feature entirely — which is what
- * shipped, and how a request to write into a Scribe notebook silently became an
+ * shipped, and how a request to write into a notebook silently became an
  * ordinary chat reply.
  */
 import { describe, expect, it } from "vitest";
@@ -16,7 +16,6 @@ describe("note write intent", () => {
     for (const p of [
       "add this to my notes",
       "write a summary of this page into my Convex notebook",
-      "save this to Scribe",
       "put the key results in my calculus notebook",
       "append a proof sketch to my duality note",
       "jot this down in my notes",

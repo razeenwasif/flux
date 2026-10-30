@@ -140,8 +140,6 @@ pub const COMMANDS: &[Command] = &[
     c("passwords", "Passwords", "The password vault", PAGES, &[]),
     c("omni", "Omni index", "Everything you saved to Omni", PAGES, &[]),
     c("trail", "Trail", "Your browsing as a graph", PAGES, &[]),
-    c("whiteboard", "Whiteboard", "A canvas to draw and plan on", PAGES, &[]),
-    c("scribe", "Scribe", "Handwritten notebooks", PAGES, &[]),
     c("archive", "Archive", "Pages you saved for offline", PAGES, &[]),
     c("feeds", "Feeds", "Your RSS reader", PAGES, &[]),
     c("resources", "Resource monitor", "What Flux is using", PAGES, &[]),

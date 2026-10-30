@@ -1,6 +1,6 @@
 # 0016 — Letting the agent write to your notes
 
-Status: **accepted — shipped 2026-08-02**
+Status: **accepted — shipped 2026-08-02**. The Scribe page actions (`NewPage`, `AppendPage`) were removed with Scribe on 2026-10-30; the Onyx ones stand.
 Date: 2026-08-02
 Relates to: [0005](0005-agent-backend-ollama.md) (the local agent),
 [0010](0010-knowledge-base-second-brain.md) (the KB / Onyx vault),

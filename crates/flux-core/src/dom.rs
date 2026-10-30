@@ -264,7 +264,7 @@ pub fn dom_publish(
         .map_err(|e| e.to_string())
 }
 
-/// Publish a **Flux-owned** page's visible text (Scribe, the Notebook, the Trail…).
+/// Publish a **Flux-owned** page's visible text (the Notebook, the Trail…).
 ///
 /// A `flux://` page is a Solid component in the chrome's own DOM, not a native
 /// webview — so nothing injects `dom.js` into it and it never published a

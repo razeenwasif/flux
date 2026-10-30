@@ -1,6 +1,8 @@
 # 0014 — Scribe: handwritten per-course notebooks with one-way Onyx publish
 
-Status: **accepted — v1 (foundation) shipped**
+Status: **retired 2026-10-30** — Scribe is a standalone app now, and Flux's copy (with the whiteboard) was removed. Kept as the record of what it was.
+
+_Was: accepted — v1 (foundation) shipped_
 Date: 2026-07-23
 Relates to: [0010](0010-knowledge-base-second-brain.md) (the KB / Onyx corpus),
 [0012](0012-mobile-termux.md) (pointer/stylus input, rung B),

@@ -846,24 +846,6 @@
       "fixed": null
     },
     {
-      "id": "whiteboard",
-      "title": "Whiteboard",
-      "detail": "A canvas to draw and plan on",
-      "group": "Flux pages",
-      "keys": [],
-      "defaults": [],
-      "fixed": null
-    },
-    {
-      "id": "scribe",
-      "title": "Scribe",
-      "detail": "Handwritten notebooks",
-      "group": "Flux pages",
-      "keys": [],
-      "defaults": [],
-      "fixed": null
-    },
-    {
       "id": "archive",
       "title": "Archive",
       "detail": "Pages you saved for offline",

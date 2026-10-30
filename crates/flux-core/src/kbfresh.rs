@@ -1,15 +1,15 @@
 //! Keeping the knowledge base current with what you've just written.
 //!
 //! **The bug this exists to fix.** Indexing was manual — the ↻ button in the
-//! Notebook panel was the only caller of `kb_reindex`. So you could write a page
-//! in Scribe, ask the agent about it under "My notes", and get nothing, with no
+//! Notebook panel was the only caller of `kb_reindex`. So you could write a note
+//! in Onyx, ask the agent about it under "My notes", and get nothing, with no
 //! indication that the answer was drawn from whatever the last manual reindex
 //! happened to capture. An assistant that confidently answers from a stale
 //! corpus is worse than one that says it doesn't know.
 //!
-//! **Why a debounce and not a reindex per save.** `scribe_save` fires roughly
-//! at each pause in your typing or drawing. Rebuilding on each one would
-//! embed the same page dozens of times. Instead a source is *marked* dirty and a
+//! **Why a debounce and not a reindex per save.** An editor saves at each pause
+//! in your typing. Rebuilding on each one would embed the same note dozens of
+//! times. Instead a source is *marked* dirty and a
 //! background worker rebuilds it once the edits stop — and because
 //! `reindex_source` skips documents whose mtime is unchanged, the rebuild only
 //! embeds the pages that actually moved.
@@ -98,12 +98,8 @@ impl KbFreshness {
     }
 }
 
-/// Rebuild one source, pulling only the corpus that source needs.
-///
-/// The in-process corpora (Scribe, its transcripts, PDFs) live in Tauri state;
-/// file/HTTP-backed sources (`onyx`, `scroll`, `council`) collect themselves and
-/// ignore what's passed. Handing over only the relevant slice keeps a Scribe
-/// edit from walking the Onyx vault.
+/// Rebuild one source. The sources marked here (`onyx`, `scroll`, `council`)
+/// collect themselves from disk or HTTP, so no in-process corpus is passed.
 ///
 /// `take_due` has already cleared the source, so when another build holds the
 /// index (often the Trail's `web` auto-index, which doesn't cover this source)
@@ -116,27 +112,8 @@ fn reindex_one(app: &AppHandle, fresh: &KbFreshness, source: &str) {
         fresh.touch(source);
         return;
     }
-    let corpora = match source {
-        "scribe" => app
-            .try_state::<crate::scribe::ScribeStore>()
-            .map(|s| crate::kb::Corpora {
-                scribe: crate::kb::scribe_docs(&s),
-                ..Default::default()
-            }),
-        "scribe-ocr" => {
-            app.try_state::<crate::scribe::TranscriptStore>()
-                .map(|t| crate::kb::Corpora {
-                    scribe_ocr: crate::kb::scribe_ocr_docs(&t),
-                    ..Default::default()
-                })
-        }
-        // Collects from disk / HTTP; the passed corpora is unused.
-        _ => Some(crate::kb::Corpora::default()),
-    };
-    let Some(corpora) = corpora else { return };
-
     let started = Instant::now();
-    match kb.reindex(Some(source.to_string()), corpora) {
+    match kb.reindex(Some(source.to_string()), crate::kb::Corpora::default()) {
         Ok(_) => tracing::info!(
             target: "flux::kb",
             source,
@@ -151,18 +128,6 @@ fn reindex_one(app: &AppHandle, fresh: &KbFreshness, source: &str) {
 
 /// Start the debounce worker and the Onyx vault watch. Idempotent per app.
 pub fn start(app: &AppHandle) {
-    // The stores this watches are managed at different points in setup —
-    // `KbStore` before this is spawned, `ScribeStore` after. Rather than couple
-    // to that order (and break silently when it changes), wait for them to turn
-    // up. Bounded, because a store that never appears is a bug to log, not a
-    // thread to leak.
-    for _ in 0..50 {
-        if app.try_state::<crate::scribe::ScribeStore>().is_some() {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-
     let handle = app.clone();
     match app.try_state::<Arc<KbFreshness>>() {
         Some(fresh) => {
@@ -176,7 +141,6 @@ pub fn start(app: &AppHandle) {
         None => tracing::warn!(target: "flux::kb", "no KbFreshness; edits won't reindex"),
     }
     watch_onyx(app);
-    watch_scribe(app);
 }
 
 /// Watch the Onyx vault so notes written in the Onyx TUI — outside Flux
@@ -256,90 +220,17 @@ fn set_onyx_watch(app: &AppHandle, w: Option<notify::RecommendedWatcher>) {
 /// silently stops delivery).
 struct OnyxWatch(Mutex<Option<notify::RecommendedWatcher>>);
 
-/// Same, for the Scribe folder.
-struct ScribeWatch(#[allow(dead_code)] Mutex<Option<notify::RecommendedWatcher>>);
-
-/// Watch the Scribe folder so notebooks synced from another device appear
-/// without restarting Flux (#62).
-///
-/// `ScribeStore` reads every notebook once at boot and never looks again, which
-/// is fine for a folder only Flux writes to — and wrong the moment it's shared.
-/// A notebook arriving from another machine was invisible until restart, and
-/// worse, the next local save wrote the in-memory copy straight over it.
-///
-/// Merging is per page (see `ScribeStore::merge_notebook`), so two devices
-/// adding different pages to the same notebook keep both.
-fn watch_scribe(app: &AppHandle) {
-    use notify::Watcher;
-
-    let Some(store) = app.try_state::<crate::scribe::ScribeStore>() else {
-        return;
-    };
-    let Some(dir) = store.dir() else { return };
-    let _ = std::fs::create_dir_all(&dir);
-
-    let handle = app.clone();
-    let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        let Ok(ev) = res else { return };
-        let Some(store) = handle.try_state::<crate::scribe::ScribeStore>() else {
-            return;
-        };
-        for path in &ev.paths {
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
-            }
-            let Some(id) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            if matches!(ev.kind, notify::EventKind::Remove(_)) || !path.exists() {
-                // Deleted on another device. The file is the record, so its
-                // absence is the deletion.
-                if store.forget(id) {
-                    tracing::info!(target: "flux::scribe", id, "notebook removed elsewhere");
-                }
-                continue;
-            }
-            match store.reload_file(path) {
-                // Changed by the merge, so write the merged state back — that's
-                // what makes the two devices converge rather than ping-pong.
-                Some(true) => {
-                    store.rewrite(id);
-                    tracing::info!(target: "flux::scribe", id, "merged a notebook from the folder");
-                    if let Some(fresh) = handle.try_state::<Arc<KbFreshness>>() {
-                        fresh.touch("scribe");
-                    }
-                }
-                // Our own write coming back, or an older copy: nothing to do.
-                Some(false) => {}
-                None => tracing::debug!(target: "flux::scribe", id, "unreadable notebook file"),
-            }
-        }
-    });
-
-    match watcher {
-        Ok(mut w) => {
-            if let Err(e) = w.watch(&dir, notify::RecursiveMode::NonRecursive) {
-                tracing::warn!(target: "flux::scribe", "couldn't watch the Scribe folder: {e}");
-                return;
-            }
-            tracing::info!(target: "flux::scribe", dir = %dir.display(), "watching the Scribe folder");
-            app.manage(ScribeWatch(Mutex::new(Some(w))));
-        }
-        Err(e) => tracing::warn!(target: "flux::scribe", "no Scribe watcher: {e}"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn an_edit_burst_becomes_one_rebuild() {
-        // The whole point of the debounce: scribe_save fires ~2x/second while
+        // The whole point of the debounce: an editor saves at every pause while
         // you write, and each rebuild embeds.
         let f = KbFreshness::default();
         for _ in 0..50 {
-            f.touch("scribe");
+            f.touch("onyx");
         }
         assert_eq!(f.pending(), 1, "one source, however many edits");
         assert!(f.take_due().is_empty(), "still within the quiet window");
@@ -348,13 +239,13 @@ mod tests {
     #[test]
     fn a_source_is_due_once_it_goes_quiet() {
         let f = KbFreshness::default();
-        f.touch("scribe");
+        f.touch("onyx");
         // Reach in rather than sleeping QUIET in a unit test.
         f.dirty.lock().insert(
-            "scribe".into(),
+            "onyx".into(),
             Instant::now() - QUIET - Duration::from_millis(1),
         );
-        assert_eq!(f.take_due(), vec!["scribe".to_string()]);
+        assert_eq!(f.take_due(), vec!["onyx".to_string()]);
         assert_eq!(f.pending(), 0, "taken, not left to rebuild forever");
     }
 
@@ -365,11 +256,11 @@ mod tests {
         // that had already read the old state.
         let f = KbFreshness::default();
         f.dirty.lock().insert(
-            "scribe".into(),
+            "onyx".into(),
             Instant::now() - QUIET - Duration::from_millis(1),
         );
         assert_eq!(f.take_due().len(), 1);
-        f.touch("scribe"); // the edit that arrived during the rebuild
+        f.touch("onyx"); // the edit that arrived during the rebuild
         assert_eq!(f.pending(), 1);
     }
 
@@ -382,22 +273,22 @@ mod tests {
         // Nothing dirty: nothing comes back, however long it waits.
         assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
         let at = Instant::now();
-        f.touch("scribe");
+        f.touch("onyx");
         let due = rx.recv_timeout(QUIET * 2).expect("woken by the edit");
-        assert_eq!(due, vec!["scribe".to_string()]);
+        assert_eq!(due, vec!["onyx".to_string()]);
         assert!(at.elapsed() >= QUIET, "not before the edit went quiet");
     }
 
     #[test]
     fn sources_are_tracked_independently() {
         let f = KbFreshness::default();
-        f.touch("scribe");
+        f.touch("scroll");
         f.touch("onyx");
         f.dirty.lock().insert(
             "onyx".into(),
             Instant::now() - QUIET - Duration::from_millis(1),
         );
         assert_eq!(f.take_due(), vec!["onyx".to_string()]);
-        assert_eq!(f.pending(), 1, "scribe is still waiting out its own window");
+        assert_eq!(f.pending(), 1, "scroll is still waiting out its own window");
     }
 }

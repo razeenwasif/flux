@@ -16,16 +16,12 @@ import {
   ACTIVITY_URL,
   TIME_URL,
   TRAIL_URL,
-  WHITEBOARD_URL,
-  SCRIBE_URL,
   VAULT_URL,
 } from "./ipc";
 
 export const PAGES: { icon: IconName; label: string; url: string }[] = [
   { icon: "notebook", label: "Notebook", url: NOTEBOOK_URL },
   { icon: "trail", label: "Trail", url: TRAIL_URL },
-  { icon: "whiteboard", label: "Whiteboard", url: WHITEBOARD_URL },
-  { icon: "scribe", label: "Scribe", url: SCRIBE_URL },
   { icon: "sessions", label: "Sessions", url: SESSIONS_URL },
   { icon: "archive", label: "Saved pages", url: ARCHIVE_URL },
   { icon: "feeds", label: "Feeds", url: FEEDS_URL },

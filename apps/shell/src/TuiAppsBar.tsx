@@ -154,7 +154,7 @@ const TuiAppsBar: Component = () => {
                         // Was 2, for a single emoji. An icon name is longer, and
                         // the field takes either — see IconOrGlyph.
                         maxLength={16}
-                        title="Icon — a Flux icon name (e.g. lazygit) or any emoji"
+                        title="Icon — a Flux icon name (e.g. forge) or any emoji"
                         placeholder="icon"
                         onInput={(e) => upd(a.id, "icon", e.currentTarget.value)}
                       />
@@ -167,7 +167,7 @@ const TuiAppsBar: Component = () => {
                       <input
                         class="tui-in tui-in-cmd"
                         value={a.cmd}
-                        placeholder="command — e.g. onyx"
+                        placeholder="command — e.g. forge"
                         onInput={(e) => upd(a.id, "cmd", e.currentTarget.value)}
                       />
                       <input

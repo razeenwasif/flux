@@ -22,14 +22,12 @@ import {
   TASKS_URL,
   TRAIL_URL,
   VAULT_URL,
-  WHITEBOARD_URL,
 } from "./ipc";
 import { openTab } from "./store";
 
 const DESTINATIONS: { icon: string; label: string; url: string }[] = [
   { icon: "✦", label: "Notebook", url: NOTEBOOK_URL },
   { icon: "🧭", label: "Trail", url: TRAIL_URL },
-  { icon: "🎨", label: "Whiteboard", url: WHITEBOARD_URL },
   { icon: "🕘", label: "History", url: HISTORY_URL },
   { icon: "🔖", label: "Bookmarks", url: BOOKMARKS_URL },
   { icon: "📚", label: "Saved", url: ARCHIVE_URL },

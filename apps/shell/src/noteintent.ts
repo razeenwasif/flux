@@ -21,7 +21,7 @@ const WRITE = /\b(add|append|write|save|put|jot|record|create|start|draft|make)\
 // Deliberately *not* "page": "save this page for offline" is the archive
 // feature, and a web page is the commonest noun in a browser. A real request to
 // add a page says which notebook.
-const TARGET = /\b(note|notes|notebook|notebooks|scribe|onyx|vault)\b/i;
+const TARGET = /\b(note|notes|notebook|notebooks|onyx|vault)\b/i;
 
 /**
  * Openers that mean the sentence is *asking about* content rather than asking

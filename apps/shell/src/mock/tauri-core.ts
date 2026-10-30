@@ -383,9 +383,9 @@ let mockHidden = 1;
 let mockHttpsOn = false;
 
 let mockTuiApps = [
-  { id: "onyx", name: "Onyx", icon: "onyx", cmd: "onyx", cwd: "" },
-  { id: "lazygit", name: "LazyGit", icon: "lazygit", cmd: "lazygit", cwd: "" },
-  { id: "tuxedo", name: "Tuxedo", icon: "tuxedo", cmd: "tuxedo", cwd: "" },
+  { id: "council", name: "Council", icon: "council", cmd: "council", cwd: "" },
+  { id: "forge", name: "Forge", icon: "forge", cmd: "forge", cwd: "" },
+  { id: "kata", name: "Kata", icon: "kata", cmd: "kata", cwd: "" },
   { id: "custom-1", name: "Canopy", icon: "🌳", cmd: "canopy", cwd: "" },
 ];
 
@@ -625,12 +625,6 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
           path: "/home/amaterasu/OnyxVault",
           what: "the user's Onyx markdown vault — where notes are written",
           folders: ["00 - Optimization", "01 - Convex Analysis", "Inbox", "Papers"],
-        },
-        {
-          name: "scribe",
-          path: "/home/amaterasu/.local/share/flux/scribe",
-          what: "handwritten Scribe notebooks (one file per notebook)",
-          folders: [],
         },
         {
           name: "downloads",

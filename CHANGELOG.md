@@ -33,6 +33,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - Tab folders are a row of folder icons, named on hover. Clicking one shows its tabs, with rename and delete, beneath the row.
 - The sidebar's Layout picker is gone. Layout presets and "Restore previous layout" are still in the command palette.
 
+### Removed
+- Scribe, Flux's handwritten notebooks, now that it's a standalone app: the `flux://scribe` page, its notebook store and folder watcher, its place in the knowledge base (`scribe` and `scribe-ocr`), the agent's "new page" / "append to page" note actions, page proofreading, and handwriting transcription. Notes and Onyx are untouched; a notebook folder already on disk is left where it is.
+- The Whiteboard (`flux://whiteboard`), with the ink engine it shared with Scribe.
+- Onyx, Scroll, LazyGit and Tuxedo from the terminal-apps rail. Entries still as they were added go; one you renamed or pointed elsewhere stays. Flux still reads the Onyx vault.
+
 ### Security
 - Saved passwords are filled into a page only after you confirm in a Flux bar above it. A page's own scripts could previously trigger the fill and read the password back, and could read the usernames saved for the site; pages now see only how many logins match. Pages also can no longer write to the vault: a generated sign-up password now waits in the "Save password?" bar like any other.
 - Imported app logins (`android://`, `androidapp://` and `iosapp://` URLs from Chrome or Bitwarden exports) no longer match websites whose domain resembles the app's package name.

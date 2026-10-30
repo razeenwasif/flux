@@ -31,12 +31,10 @@ const SOURCE_LABEL: Record<string, string> = {
   scroll: "Scroll papers",
   council: "Council briefs",
   web: "Browsing",
-  scribe: "Scribe",
   pdf: "PDFs",
-  // Never just "Scribe": a citation has to say when a model read the page rather
-  // than the user writing it, because a model can transcribe a line that wasn't
-  // there and it would otherwise be indistinguishable.
-  "scribe-ocr": "Scribe (machine-read)",
+  // A citation has to say when a machine read the page rather than it having a
+  // text layer: OCR can read a line that wasn't there, and it would otherwise be
+  // indistinguishable.
   "pdf-ocr": "PDF (machine-read)",
 };
 const SOURCE_HINT: Record<string, string> = {
@@ -200,10 +198,10 @@ const NotebookPage: Component = () => {
   };
 
   // Onyx citations are file paths (open the .md); Scroll citations are article
-  // URLs (open the source in a browser tab). Scribe ones are
-  // `flux://scribe#<nb>/<page>`: Flux's own page, which the OS has no handler
-  // for — handed to fsOpen they did nothing (on Windows, offered a Store app).
-  // InternalPage matches the bare URL, so the fragment goes.
+  // URLs (open the source in a browser tab). A `flux://…#…` citation is Flux's
+  // own page, which the OS has no handler for — handed to fsOpen it did nothing
+  // (on Windows, offered a Store app). InternalPage matches the bare URL, so the
+  // fragment goes.
   const openCitation = (h: KbHit) => {
     if (/^https?:\/\//i.test(h.path)) void openTab("browser", h.path);
     else if (h.path.startsWith("flux://")) void openTab("browser", h.path.split("#")[0]!);

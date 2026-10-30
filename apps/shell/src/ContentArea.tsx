@@ -21,8 +21,6 @@ import {
   SYNC_URL,
   TASKS_URL,
   TRAIL_URL,
-  WHITEBOARD_URL,
-  SCRIBE_URL,
   VAULT_URL,
   isStartUrl,
   type TabMeta,

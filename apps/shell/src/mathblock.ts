@@ -1,24 +1,16 @@
 /**
- * LaTeX blocks for Scribe pages (#109).
+ * LaTeX in Indexer answers (#109): `$…$` and `$$…$$` set by KaTeX.
  *
- * **The node is the source of truth, not the rendering.** A math block is
+ * **The node is the source of truth, not the rendering.** A math node is
  *
  *   <span|div class="sdoc-math" data-tex="\int_0^1 x^2 dx" contenteditable="false">…</span>
  *
- * with the TeX in `data-tex` and KaTeX's output as throwaway children. That
- * shape matters for three reasons: the document round-trips through
- * `innerHTML` (so anything not in an attribute is lost the moment KaTeX
- * re-renders), Rust never has to parse HTML to recover the equation — it reads
- * one attribute — and a page written before KaTeX loaded still knows what it
- * says.
+ * with the TeX in `data-tex` and KaTeX's output as throwaway children, so a
+ * node rendered before KaTeX loaded still knows what it says, and re-rendering
+ * is skipped only while the source is unchanged.
  *
- * `contenteditable="false"` makes the whole block one atom to the caret: you
- * can't land inside a rendered fraction and corrupt it by typing, which is
- * exactly what makes Notion's equation blocks usable.
- *
- * KaTeX is imported lazily. It's ~280 KB with fonts, and most pages have no
- * maths on them; nothing loads until a page actually contains a block or you
- * insert one.
+ * KaTeX is imported lazily. It's ~280 KB with fonts, and most answers have no
+ * maths in them; nothing loads until one does.
  */
 
 export const MATH_CLASS = "sdoc-math";
@@ -57,11 +49,9 @@ export const mathNode = (tex: string, display: boolean): HTMLElement => {
 /**
  * Render every math node under `root` that isn't already rendered.
  *
- * Errors are *not* thrown: half-typed LaTeX is the normal state of an equation
- * you're still writing, and an editor that blanks the block (or throws into the
- * console) on every keystroke would be unusable. The block shows its own source
- * in red instead, which is both the error message and the thing you need to
- * edit.
+ * Errors are *not* thrown: a model's LaTeX is sometimes malformed, and an
+ * answer that blanked (or threw into the console) over one bad formula would be
+ * worse than showing it. The node shows its own source in red instead.
  */
 export const renderMath = async (root: ParentNode): Promise<void> => {
   const nodes = Array.from(root.querySelectorAll<HTMLElement>(MATH_SEL));
@@ -77,7 +67,7 @@ export const renderMath = async (root: ParentNode): Promise<void> => {
         displayMode: display,
         throwOnError: false,
         // `strict: false` keeps KaTeX from refusing input it merely disapproves
-        // of (unicode in maths, \newline). A student's notes are not a paper.
+        // of (unicode in maths, \newline).
         strict: false,
         trust: false,
       });
@@ -93,39 +83,9 @@ export const renderMath = async (root: ParentNode): Promise<void> => {
 };
 
 /**
- * Render one snippet for a preview, reporting *why* it failed rather than
- * throwing. The editor needs the error text to show you where the LaTeX is
- * wrong; `renderMath` above only needs to not explode.
- */
-export const previewTex = async (tex: string, display: boolean): Promise<{ html: string; error: string }> => {
-  if (!tex.trim()) return { html: "", error: "" };
-  const k = await loadKatex();
-  try {
-    // `throwOnError` ON here — an editor that silently rendered `\undefined` as
-    // red text would leave you guessing which token it disliked.
-    return {
-      html: k.renderToString(tex, { displayMode: display, throwOnError: true, strict: false }),
-      error: "",
-    };
-  } catch (e) {
-    const msg = String((e as Error)?.message ?? e).replace(/^KaTeX parse error:\s*/, "");
-    // Still show the best-effort render, so a half-typed formula previews.
-    let html = "";
-    try {
-      html = k.renderToString(tex, { displayMode: display, throwOnError: false, strict: false });
-    } catch {
-      html = "";
-    }
-    return { html, error: msg };
-  }
-};
-
-/**
  * Turn `$$…$$` / `$…$` in plain text into math nodes, leaving other text alone.
  *
- * This is the bridge for text that didn't come from the editor — pasted
- * markdown, and anything Gemma writes (`notewrite.rs` produces the same node
- * shape server-side, so both paths converge on one representation).
+ * The bridge from a model's Markdown answer to the nodes `renderMath` sets.
  *
  * A lone `$` is left as a `$`: prices are more common than maths in most prose,
  * and silently eating them would be worse than missing a formula.
@@ -151,13 +111,4 @@ export const texToNodes = (text: string): (string | HTMLElement)[] => {
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
-};
-
-/** The TeX inside `html`, for search and for plain-text export. */
-export const mathSources = (html: string): string[] => {
-  const d = document.createElement("div");
-  d.innerHTML = html;
-  return Array.from(d.querySelectorAll<HTMLElement>(MATH_SEL))
-    .map((n) => n.dataset.tex ?? "")
-    .filter(Boolean);
 };
