@@ -4,7 +4,8 @@
  * with a box diagram's lines wrapping into nonsense. It's parsed by mdlite, so
  * nothing in a note reaches the page as markup, and its maths is set by KaTeX,
  * which loads with the first answer that has any. A book passage is prose out
- * of a PDF, where a `-` or a `$` is just a character, so it stays text.
+ * of a PDF, where a `-` or a `$` is just a character, so it stays text, its
+ * paragraphs set a short gap apart rather than a blank line.
  */
 import { For, Match, Switch, createEffect, on, type Component } from "solid-js";
 import { renderMath, texToNodes } from "./mathblock";
@@ -59,7 +60,7 @@ const AnswerText: Component<{ text: string; book: boolean; class: string }> = (p
   return (
     <div ref={root} classList={{ [p.class]: true, "ans-answer": !p.book, "ans-book": p.book }}>
       {p.book ? (
-        p.text
+        <For each={p.text.split(/\n{2,}/)}>{(para) => <p>{para}</p>}</For>
       ) : (
         <For each={parseBlocks(p.text)}>
           {(b) => (

@@ -426,8 +426,9 @@ fn book_title(file: &str) -> String {
 }
 
 /// Which reading of books an index's book cards come from. Raised when the
-/// way a PDF is cut into passages changes (2: slide bullets as lists).
-const BOOK_READER: u64 = 2;
+/// way a PDF is cut into passages changes (2: slide bullets as lists; 3:
+/// footers dropped, a diagram's labels on one line).
+const BOOK_READER: u64 = 3;
 
 /// A book's recorded time: its file's, with the reader that cut it folded in.
 /// A file is re-read when its time doesn't match the one recorded, so raising
@@ -517,6 +518,73 @@ fn paragraphs(page: &str) -> Vec<String> {
     out
 }
 
+/// A diagram's leftovers: an axis tick, an address, an ellipsis, a page
+/// number. No word in it, so nothing to read or to search for.
+fn is_noise(p: &str) -> bool {
+    p.chars().count() <= 12 && p.chars().filter(|c| c.is_alphabetic()).count() <= 1
+}
+
+/// A diagram's label: a few words on a line of their own, not a sentence, a
+/// list or a line of code.
+fn is_label(p: &str) -> bool {
+    !p.contains('\n')
+        && !p.trim_start().starts_with(['•', '◦'])
+        && p.split_whitespace().count() <= 6
+        && p.chars().count() <= 48
+        && !p.ends_with(['.', ';', '{', '}'])
+}
+
+/// A page's paragraphs with its diagrams folded down. pdftotext reads a
+/// figure's labels as a column of paragraphs ("0", "VP 1 VP 2", "Address
+/// translation", "…"), each a line and a gap on the card: the numbers go, and
+/// labels in a row share a line. The first is the slide's title, kept alone.
+fn fold_figures(paras: Vec<String>) -> Vec<String> {
+    fn flush(out: &mut Vec<String>, labels: &mut Vec<String>) {
+        if !labels.is_empty() {
+            out.push(labels.join(" · "));
+            labels.clear();
+        }
+    }
+    let mut out = Vec::new();
+    let mut labels = Vec::new();
+    for p in paras {
+        if is_noise(&p) {
+            continue;
+        }
+        if is_label(&p) && !(out.is_empty() && labels.is_empty()) {
+            labels.push(p);
+            continue;
+        }
+        flush(&mut out, &mut labels);
+        out.push(p);
+    }
+    flush(&mut out, &mut labels);
+    out
+}
+
+/// Lines printed on a good share of a book's pages: a deck's footer ("Bryant
+/// and O'Hallaron, Computer Systems: …" under every slide), a running head.
+/// Once it's a citation; on every card it's noise. Only lines long enough not
+/// to be a bullet or a number, on a third of the pages and at least four.
+fn running_lines<'a>(pages: &[&'a str]) -> HashSet<&'a str> {
+    let mut seen: HashMap<&str, usize> = HashMap::new();
+    for page in pages {
+        let lines: HashSet<&str> = page
+            .lines()
+            .map(str::trim)
+            .filter(|l| l.chars().count() >= 12)
+            .collect();
+        for l in lines {
+            *seen.entry(l).or_default() += 1;
+        }
+    }
+    let at_least = (pages.len() / 3).max(4);
+    seen.into_iter()
+        .filter(|&(_, n)| n >= at_least)
+        .map(|(l, _)| l)
+        .collect()
+}
+
 /// `text` in pieces of at most `max` characters, cut after a sentence where one
 /// is within reach.
 fn split_long(text: &str, max: usize) -> Vec<String> {
@@ -554,12 +622,29 @@ fn parse_book(text: &str, rel: &str, path: &str, shelf: &str) -> Vec<Card> {
     // The passage being built and the page it started on.
     let mut chunk = String::new();
     let mut from = 1;
-    for (i, page) in text.split('\u{c}').enumerate() {
+    let pages: Vec<&str> = text.split('\u{c}').collect();
+    let running = running_lines(&pages);
+    for (i, page) in pages.iter().enumerate() {
         let n = i as u32 + 1;
         if chunk.is_empty() {
             from = n;
         }
-        let pieces: Vec<String> = paragraphs(page)
+        // A running line, or the slide's number, leaves a gap, so the lines
+        // either side of it stay apart (and the number isn't read as a point).
+        let number = n.to_string();
+        let page: String = page
+            .lines()
+            .map(|l| {
+                let t = l.trim();
+                if t == number || running.contains(t) {
+                    ""
+                } else {
+                    l
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let pieces: Vec<String> = fold_figures(paragraphs(&page))
             .iter()
             .flat_map(|p| split_long(p, BOOK_CHUNK_CHARS))
             .collect();
@@ -3350,6 +3435,40 @@ mod tests {
                 "Virtual Address",
             ]
         );
+    }
+
+    #[test]
+    fn a_diagrams_labels_share_a_line_and_its_numbers_go() {
+        // The rest of week 5, p. 23: the figure under the points.
+        let page = "VM as a Tool for Memory Management\n\nVirtual\nAddress\nSpace for\nProcess 1:\n\n0\n\nVP 1\nVP 2\n\nAddress\ntranslation\n\n0\n\nPP 2\n\n...\n\nPhysical\nAddress\nSpace\n(DRAM)\n\nN-1\n\nThe mapping is the page table.\n\nM-1\n23";
+        assert_eq!(
+            fold_figures(paragraphs(page)),
+            [
+                "VM as a Tool for Memory Management",
+                "Virtual Address Space for Process 1: · VP 1 VP 2 · Address translation · PP 2 · Physical Address Space (DRAM)",
+                "The mapping is the page table.",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_footer_on_every_slide_is_left_out() {
+        let foot = "Bryant and O'Hallaron, Computer Systems: A Programmer's Perspective";
+        let text = (1..=6)
+            .map(|n| format!("Slide {n}\n\nCaches keep recently used blocks close to the processor, slide {n}.\n{foot}\n{n}"))
+            .collect::<Vec<_>>()
+            .join("\u{c}");
+        let cards = parse_book(&text, "deck.pdf", "/c/deck.pdf", "Courses");
+        assert!(!cards.is_empty());
+        assert!(
+            cards.iter().all(|c| !c.answer.contains("Bryant")),
+            "{cards:?}"
+        );
+        assert!(cards[0].answer.contains("Caches keep"));
+        // Nor is its number, read as a point or tacked onto the text.
+        assert!(cards
+            .iter()
+            .all(|c| !c.answer.ends_with(|c: char| c.is_ascii_digit())));
     }
 
     #[test]

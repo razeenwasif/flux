@@ -77,3 +77,9 @@
 .ans-book {
   white-space: pre-wrap;
 }
+.ans-book p {
+  margin: 0 0 0.55em;
+}
+.ans-book p:last-child {
+  margin-bottom: 0;
+}
