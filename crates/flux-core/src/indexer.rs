@@ -425,17 +425,83 @@ fn book_title(file: &str) -> String {
     stem.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Which reading of books an index's book cards come from. Raised when the
+/// way a PDF is cut into passages changes (2: slide bullets as lists).
+const BOOK_READER: u64 = 2;
+
+/// A book's recorded time: its file's, with the reader that cut it folded in.
+/// A file is re-read when its time doesn't match the one recorded, so raising
+/// [`BOOK_READER`] re-reads every book once, and a build stopped halfway
+/// resumes after the last book it finished. Notes are left as they were.
+fn book_stamp(file_ms: u64) -> u64 {
+    file_ms * 16 + BOOK_READER
+}
+
+/// A slide's bullet, as pdftotext gives it: a real one, or a Wingdings glyph
+/// read as the Latin character at its code (`¢` and `§` in the CMU decks).
+/// The level is how deep it nests: 0 for a point, 1 for one under it.
+fn bullet_level(c: char) -> Option<usize> {
+    match c {
+        '¢' | '•' => Some(0),
+        '§' | '▪' | '◦' | '‣' => Some(1),
+        _ => None,
+    }
+}
+
+/// A line's bullet and the text after it: a marker, a space, then not a digit
+/// (`§ 230` is a section, `¢ 50` a price).
+fn bulleted(line: &str) -> Option<(usize, &str)> {
+    let mut chars = line.chars();
+    let level = bullet_level(chars.next()?)?;
+    let rest = chars.as_str();
+    let text = rest.trim_start();
+    (rest.len() > text.len() && !text.starts_with(|c: char| c.is_ascii_digit()))
+        .then_some((level, text))
+}
+
 /// A page's paragraphs, with pdftotext's hard line wraps (and the hyphens it
-/// leaves at them) joined back up.
+/// leaves at them) joined back up. A slide's points stay a list, one per line
+/// (`• point`, `  ◦ sub-point`): joined like prose, its bullets landed mid
+/// sentence as `¢` and `§`, and a lone `¢` (pdftotext puts a point's bullet on
+/// its own line, ahead of it) stuck to the end of the slide's title.
 fn paragraphs(page: &str) -> Vec<String> {
+    const MARK: [&str; 2] = ["• ", "  ◦ "];
     let mut out = Vec::new();
     let mut cur = String::new();
+    // A list paragraph takes its points one per line.
+    let mut list = false;
+    // A lone bullet waiting for its point.
+    let mut held: Option<usize> = None;
     for line in page.lines() {
         let t = line.trim();
         if t.is_empty() {
-            if !cur.is_empty() {
+            if !cur.is_empty() && held.is_none() {
+                out.push(std::mem::take(&mut cur));
+                list = false;
+            }
+            continue;
+        }
+        if let Some(level) = t
+            .chars()
+            .next()
+            .and_then(bullet_level)
+            .filter(|_| t.chars().count() == 1)
+        {
+            held = Some(level);
+            continue;
+        }
+        let item = bulleted(t).or_else(|| held.map(|level| (level, t)));
+        held = None;
+        if let Some((level, text)) = item {
+            if !list && !cur.is_empty() {
                 out.push(std::mem::take(&mut cur));
             }
+            if !cur.is_empty() {
+                cur.push('\n');
+            }
+            cur.push_str(MARK[level]);
+            cur.push_str(text);
+            list = true;
             continue;
         }
         if cur.ends_with('-') && t.starts_with(|c: char| c.is_lowercase()) {
@@ -1758,6 +1824,10 @@ fn walk(root: &Path, kind: Kind) -> Vec<Job> {
                 .ok()
                 .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                 .map_or(1, |d| d.as_millis().max(1) as u64);
+            let mtime = match kind {
+                Kind::Note => mtime,
+                Kind::Book => book_stamp(mtime),
+            };
             let Ok(rel) = path.strip_prefix(root) else {
                 continue;
             };
@@ -3265,6 +3335,33 @@ mod tests {
             text_key("cache management as we have noted")
         );
         assert_ne!(text_key("Cache management"), text_key("Cache placement"));
+    }
+
+    #[test]
+    fn a_slides_bullets_become_a_list() {
+        // pdftotext's output for COMP2310's week 5, p. 23: Wingdings bullets
+        // read as ¢ and §, the first on a line of its own.
+        let page = "VM as a Tool for Memory Management\n¢\n\nKey idea: each process has its own virtual address space\n§ It can view memory as a simple linear array\n§ Mapping function scatters addresses through physic-\nal memory\n§ Well-chosen mappings can improve locality\n\nVirtual\nAddress";
+        assert_eq!(
+            paragraphs(page),
+            [
+                "VM as a Tool for Memory Management",
+                "• Key idea: each process has its own virtual address space\n  ◦ It can view memory as a simple linear array\n  ◦ Mapping function scatters addresses through physical memory\n  ◦ Well-chosen mappings can improve locality",
+                "Virtual Address",
+            ]
+        );
+    }
+
+    #[test]
+    fn section_signs_and_prices_are_not_bullets() {
+        assert_eq!(
+            paragraphs("As set out in\n§ 230 of the Act, and\n¢ 50 a copy."),
+            ["As set out in § 230 of the Act, and ¢ 50 a copy."]
+        );
+        assert_eq!(
+            paragraphs("See §4.2 for the proof."),
+            ["See §4.2 for the proof."]
+        );
     }
 
     #[test]
