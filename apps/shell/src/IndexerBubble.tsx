@@ -372,7 +372,9 @@ const IndexerBubble: Component = () => {
     setBusy("searching");
     let res: IndexerResults;
     try {
-      res = await indexerSearch(q, 5, scope());
+      // Ten, the most the Indexer gives: with notes, textbooks and a course's
+      // slides all on one topic, five left the slides just off the end.
+      res = await indexerSearch(q, 10, scope());
     } catch (e) {
       if (me === asked) {
         setBusy(null);

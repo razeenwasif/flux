@@ -2520,11 +2520,18 @@ impl IndexerState {
             *n <= PER_NOTE
         });
 
-        // Only the cards shown are read back from disk.
+        // Only the cards shown are read back from disk. A passage already shown
+        // isn't shown again: the same book kept in two folders (a textbook in
+        // Books and in a course's folder, as two slightly different files)
+        // took two of the few places with one page.
+        let mut shown: HashSet<u64> = HashSet::new();
         let matches: Vec<IndexerMatch> = scored
             .iter()
             .filter_map(|&(s, i, sem, kw)| {
                 let c = idx.segs[s].card(i)?;
+                if !shown.insert(text_key(&c.answer)) {
+                    return None;
+                }
                 Some(IndexerMatch {
                     label: option_label(&c),
                     question: c.question,
@@ -2548,6 +2555,17 @@ impl IndexerState {
             matches,
         }
     }
+}
+
+/// A passage's identity for telling repeats apart: its words, case and
+/// spacing aside (two PDFs of one book differ in both).
+fn text_key(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for w in text.split_whitespace() {
+        w.to_lowercase().hash(&mut h);
+    }
+    h.finish()
 }
 
 /// A card as Laya sees it: its title and one line of what it says. Titles alone
@@ -3238,6 +3256,15 @@ mod tests {
         let calls = fake_model::CALLS.load(std::sync::atomic::Ordering::SeqCst);
         // Three tries and one per card for each of EMBED_GIVE_UP batches, then nothing.
         assert_eq!(calls, EMBED_GIVE_UP * (3 + EMBED_BATCH));
+    }
+
+    #[test]
+    fn a_passage_is_told_from_its_copy_by_its_words() {
+        assert_eq!(
+            text_key("Cache Management  As we\nhave noted"),
+            text_key("cache management as we have noted")
+        );
+        assert_ne!(text_key("Cache management"), text_key("Cache placement"));
     }
 
     #[test]

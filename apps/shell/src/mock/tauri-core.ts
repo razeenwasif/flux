@@ -2300,7 +2300,12 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
           card("Week 6 · attention", 0.77, true),
           card("Relative position", 0.69),
           card("Sequence models before attention", 0.58, true),
-        ],
+          card("Attention is all you need, p. 3", 0.57, true),
+          card("Week 7 · transformers", 0.55, true),
+          card("Layer norm", 0.54),
+          card("Encoder–decoder", 0.52, true),
+          card("Masks", 0.51),
+        ].slice(0, Number(args?.k ?? 5)),
         ambiguous: false,
         semantic: true,
       } as T);

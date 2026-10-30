@@ -76,17 +76,30 @@ const IndexerSheet: Component<IndexerSheetProps> = (p) => {
     onCleanup(() => window.removeEventListener("resize", measure));
   });
 
-  /** Every match as a station on the scale, in score order so the label rows
-   *  alternate cleanly — neighbours never share a row, so labels can't collide. */
+  /** The scale's width, for fitting labels to it. */
+  const [scaleW, setScaleW] = createSignal(0);
+  /** Every match as a station on the scale, in score order. Each label takes
+   *  the first of the two rows with room for it (measured by an estimate of
+   *  its width); one with no room shows as its dot alone, titled. Ten matches
+   *  bunch up (a topic's notes, textbooks and slides all score within .15),
+   *  and alternating rows let their labels overlap. */
   const stations = createMemo(() => {
     const r = p.results();
     if (!r) return [];
     const ord = p.order();
-    const list = ord.map((mi, pos) => ({ m: r.matches[mi]!, pos }));
-    return list
-      .slice()
+    const width = scaleW() || 800;
+    const ends = [-Infinity, -Infinity];
+    return ord
+      .map((mi, pos) => ({ m: r.matches[mi]!, pos }))
       .sort((a, b) => a.m.confidence - b.m.confidence)
-      .map((s, i) => ({ ...s, x: at(s.m.confidence), row: i % 2 }));
+      .map((s) => {
+        const x = at(s.m.confidence);
+        const label = `${short(s.m.question)} · ${score(s.m.confidence)}`;
+        const half = Math.min(220, label.length * 6.9 + 26) / 2;
+        const row = ends.findIndex((end) => x * width - half > end + 6);
+        if (row >= 0) ends[row] = x * width + half;
+        return { ...s, x, label, row: Math.max(0, row), fits: row >= 0 };
+      });
   });
   const below = (c: number) => p.floorOn() && c < p.floor();
 
@@ -354,7 +367,15 @@ const IndexerSheet: Component<IndexerSheetProps> = (p) => {
             <span>.90</span>
             <span>1.0</span>
           </div>
-          <div classList={{ "idx-sheet-scale": true, empty: !stations().length }} ref={scaleEl}>
+          <div
+            classList={{ "idx-sheet-scale": true, empty: !stations().length }}
+            ref={(el) => {
+              scaleEl = el;
+              const ro = new ResizeObserver(() => setScaleW(el.clientWidth));
+              ro.observe(el);
+              onCleanup(() => ro.disconnect());
+            }}
+          >
             <span class="idx-sheet-track" aria-hidden="true" />
             <span class="idx-sheet-ticks" aria-hidden="true" />
             <span
@@ -377,6 +398,7 @@ const IndexerSheet: Component<IndexerSheetProps> = (p) => {
                         "idx-sheet-station": true,
                         on: on(),
                         low: s.row === 1,
+                        crowded: !s.fits && !on(),
                         dim: below(s.m.confidence),
                       }}
                       style={{ left: `${(s.x * 100).toFixed(2)}%` }}
@@ -384,7 +406,7 @@ const IndexerSheet: Component<IndexerSheetProps> = (p) => {
                       aria-pressed={on()}
                       onClick={() => p.setPage(s.pos)}
                     >
-                      {short(s.m.question)} · {score(s.m.confidence)}
+                      {s.label}
                     </button>
                   </>
                 );

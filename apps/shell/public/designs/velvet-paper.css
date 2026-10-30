@@ -2720,6 +2720,10 @@
 :root[data-design="velvet-paper"] .idx-sheet-station.low {
   top: 64px;
 }
+/* No room for its label among its neighbours': its dot alone, titled. */
+:root[data-design="velvet-paper"] .idx-sheet-station.crowded {
+  display: none;
+}
 :root[data-design="velvet-paper"] .idx-sheet-station:hover {
   color: var(--flux-text);
 }
