@@ -104,7 +104,8 @@ touchscreens either way.
 Package Flux into a self-contained binary (the SolidJS frontend is embedded at
 build time) and install it so `flux` launches from any directory.
 
-**Linux / WSL** — installs to `~/.cargo/bin/flux`:
+**Linux / WSL** — installs to `~/.cargo/bin/flux`, and adds Flux to the app menu
+with its icon (`~/.local/share/applications/dev.flux.browser.desktop`):
 
 ```sh
 scripts/install-linux.sh
@@ -147,6 +148,8 @@ install node`). No WebView runtime to install — WKWebView is built into macOS.
 runs `tauri build`, which produces the `.app`/`.dmg` bundle *and* the `flux`
 binary in one pass, then copies the app to `/Applications` and the binary to
 `~/.cargo/bin`, clearing the Gatekeeper quarantine flag on the local build.
+The `flux` command there is a two-line shim that runs the binary inside
+`/Applications/Flux.app`, so an update to the app reaches the command too.
 Shields uses native `WKContentRuleList` rules on macOS. The Shields panel reports
 whether those rules attached to the selected page. WebKit does not expose the
 request counters used on Windows, and Flux's global/site request-blocking
@@ -156,6 +159,33 @@ element hiding is a separate path. Restart Flux after a filter-list update to
 apply refreshed native rules. The custom download interceptor remains unavailable
 on macOS. This describes implementation support, not verified protection parity
 with WebView2; controlled native request tests are still needed.
+
+### Updates (macOS)
+
+A release build of the Mac app updates itself from this repo's GitHub releases.
+It looks a minute after launch and every six hours after (Settings → Updates
+turns that off, or checks now), downloads a newer build in the background, and
+shows a bar: **Restart now**, or **Later**, which installs it when you quit.
+Nothing is installed unless it's signed with the updater key whose public half
+is in `crates/flux-core/tauri.conf.json`, and the signature has to name the
+version being offered, so an older build can't be passed off as a newer one.
+Debug and smoke builds don't look unless `FLUX_UPDATE_URL` points them at a
+`latest.json`.
+
+To publish one, from a clean `main`:
+
+```sh
+scripts/release.sh 0.2.0 "What changed"
+```
+
+It bumps the version, builds the app, signs it with your Apple Development
+certificate (as `install-macos.sh` does, so macOS keeps what it allowed Flux),
+packs and signs the update with `~/.tauri/flux-updater.key`, commits and tags
+`v0.2.0`, and publishes the release with its `latest.json`. **Back up that key.**
+Without it, installed copies of Flux can't take another update and would need
+reinstalling with a new key. Builds aren't notarized (that needs a Developer ID
+certificate), so they're for your own Macs. Windows and Linux builds don't
+update themselves yet.
 
 Then, on any platform:
 

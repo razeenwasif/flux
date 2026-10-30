@@ -39,6 +39,7 @@ import {
   fillRequest,
   permAsks,
   savePrompt,
+  updateReady,
   setEditorColRatio,
   setPhish,
   setOAuth,
@@ -83,6 +84,7 @@ const ConsentBanner = lazy(() => import("./ConsentBanner")); // shown only when 
 // most sessions never see: each loads with its first prompt, not at boot.
 const PermissionBar = lazy(() => import("./PermissionBar"));
 const SavePasswordBar = lazy(() => import("./SavePasswordBar"));
+const UpdateBar = lazy(() => import("./UpdateBar"));
 const VaultFillBar = lazy(() => import("./VaultFillBar"));
 const ClockAlarm = lazy(() => import("./ClockAlarm")); // mounted once App has loaded the clocks
 // Lazy like the other heavy surfaces: a session with no terminal open shouldn't
@@ -253,6 +255,12 @@ const ContentArea: Component<{
       <Show when={permAsks().length > 0}>
         <Suspense>
           <PermissionBar />
+        </Suspense>
+      </Show>
+      {/* A downloaded update (#26) asking to restart into it. */}
+      <Show when={updateReady()}>
+        <Suspense>
+          <UpdateBar />
         </Suspense>
       </Show>
       <Show when={savePrompt()}>

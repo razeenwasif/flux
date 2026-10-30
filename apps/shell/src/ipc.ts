@@ -98,6 +98,7 @@ import type {
   PermDecision as GenPermDecision,
   PermKind as GenPermKind,
   PermAsk as GenPermAsk,
+  UpdateStatus as GenUpdateStatus,
   QuickLocation as GenQuickLocation,
   ReaderBlock as GenReaderBlock,
   ShieldsStatus as GenShieldsStatus,
@@ -987,6 +988,18 @@ export const onVaultLocked = (cb: () => void): Promise<UnlistenFn> =>
   listen("flux://vault-locked", () => cb());
 /** Fires when keychain-mode vault hydration finishes after startup. */
 export const onVaultReady = (cb: () => void): Promise<UnlistenFn> => listen("flux://vault-ready", () => cb());
+// Updates (#26): Flux checks GitHub Releases by itself, downloads a newer build
+// in the background, then asks before restarting into it (update.rs).
+export type UpdateStatus = GenUpdateStatus;
+export const updateStatus = () => invoke<UpdateStatus>("update_status");
+/** Check now, whatever the automatic setting says. Rejects with why it failed. */
+export const updateCheck = () => invoke<UpdateStatus>("update_check");
+export const updateSetAuto = (on: boolean) => invoke<UpdateStatus>("update_set_auto", { on });
+/** Install the downloaded update and restart into it. */
+export const updateRestart = () => invoke<void>("update_restart");
+/** A newer Flux is downloaded and waiting for a restart. */
+export const onUpdateReady = (cb: (s: UpdateStatus) => void): Promise<UnlistenFn> =>
+  listen<UpdateStatus>("flux://update-ready", (e) => cb(e.payload));
 /** Fires when the page sentinel saved a credential (registration sign-up). */
 export const onVaultSaved = (cb: (host: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://vault-saved", (e) => cb(e.payload));

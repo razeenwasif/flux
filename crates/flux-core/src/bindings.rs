@@ -35,6 +35,7 @@ use crate::macros::{Macro, MacroStatus, Step};
 use crate::mem::MemInfo;
 use crate::netspeed::SpeedResult;
 use crate::permissions::{PermAsk, PermDecision, PermKind, SitePerm};
+use crate::update::UpdateStatus;
 use crate::places::Place;
 use crate::prefetch::PrefetchHint;
 use crate::pwa::PwaApp;
@@ -190,6 +191,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<PermDecision>(&c),
         specta::ts::export::<SitePerm>(&c),
         specta::ts::export::<PermAsk>(&c),
+        specta::ts::export::<UpdateStatus>(&c),
         specta::ts::export::<CredentialMeta>(&c),
         specta::ts::export::<VaultStatus>(&c),
         specta::ts::export::<VaultSavePrompt>(&c),

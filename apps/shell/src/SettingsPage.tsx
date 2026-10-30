@@ -17,6 +17,7 @@ import type { FormHelpPrefs, ShieldsStatus } from "./ipc";
 import { Row, Toggle } from "./SettingsControls";
 import SettingsNavigator, { Section } from "./SettingsNavigator";
 import KeyboardSettings from "./KeyboardSettings";
+import UpdateSettings from "./UpdateSettings";
 import { openWelcome } from "./welcomeOpen";
 import { visibleInterval } from "./poll";
 import { DESIGNS, design, setDesign } from "./design";
@@ -1368,6 +1369,10 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               </button>
             </div>
           </Show>
+        </Section>
+
+        <Section title="Updates">
+          <UpdateSettings />
         </Section>
 
         <Section title="Data">

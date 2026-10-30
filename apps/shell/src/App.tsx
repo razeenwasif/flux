@@ -62,6 +62,7 @@ import {
   onPermissionAsk,
   onVaultSaved,
   onVaultSavePrompt,
+  onUpdateReady,
   onVaultFillRequest,
   onSentinelInputWarning,
   onFindResult,
@@ -207,6 +208,7 @@ import {
   pageOverlayActive,
   pushPermAsk,
   setSavePrompt,
+  setUpdateReady,
   setFillRequest,
   wsPanelOpen,
 } from "./store";
@@ -539,6 +541,8 @@ const App: Component = () => {
     );
     // Sentinel captured a manually-typed login (#61) — raise the save bar.
     holdListener(onVaultSavePrompt(setSavePrompt));
+    // A newer Flux is downloaded (#26): the update bar asks to restart into it.
+    holdListener(onUpdateReady(setUpdateReady));
     // A page's fill chip asked to autofill. Confirm in the chrome first: any
     // script on the page can fake the in-page click.
     holdListener(onVaultFillRequest(setFillRequest));

@@ -899,6 +899,22 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve([false, false] as T);
     case "nav_set":
       return Promise.resolve(undefined as T);
+    // Updates (#26): the browser preview is a build that doesn't update itself.
+    case "update_status":
+    case "update_check":
+    case "update_set_auto":
+      return Promise.resolve({
+        current: "0.1.0",
+        supported: false,
+        auto: true,
+        ready: null,
+        notes: null,
+        busy: false,
+        checked_at: null,
+        error: null,
+      } as T);
+    case "update_restart":
+      return Promise.reject("no update is waiting");
     case "note_get":
       return Promise.resolve("" as T);
     case "note_set":

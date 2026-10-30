@@ -105,6 +105,8 @@ portable-pty = "0.8"
 tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 trash = "5"
+# Signed updates from GitHub Releases (update.rs, BACKLOG #26).
+tauri-plugin-updater = "2"
 
 # Mobile-only: the native android.webkit.WebView stack that renders browser tabs
 # on Android (ADR 0012, Milestone 2). Depending on it here is also what makes

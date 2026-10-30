@@ -346,6 +346,10 @@ export type SitePerm = { host: string; kind: PermKind; decision: PermDecision }
  * shell answers with `permission_answer(id, …)`.
  */
 export type PermAsk = { id: number; host: string; kind: PermKind }
+/**
+ * What the Settings page shows, and the `flux://update-ready` payload.
+ */
+export type UpdateStatus = { current: string; supported: boolean; auto: boolean; ready: string | null; notes: string | null; busy: boolean; checked_at: number | null; error: string | null }
 export type CredentialMeta = { id: string; name: string; urls: string[]; username: string; has_totp: boolean }
 export type VaultStatus = { available: boolean; locked: boolean; protection: string; source: string; count: number; autolock_minutes: number }
 /**

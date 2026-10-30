@@ -102,6 +102,7 @@ pub mod trackers;
 pub mod tracking;
 pub mod tts;
 pub mod tui_apps;
+pub mod update;
 pub mod vault;
 pub mod vecstore;
 pub mod voice;
@@ -717,6 +718,15 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             None => nav::NavState::new(),
         },
     );
+    // Updates from GitHub Releases (#26): whether to look by itself, then the
+    // looking, which waits a minute so it doesn't compete with the launch.
+    app.manage(update::Updates::restore(
+        app.path()
+            .app_data_dir()
+            .ok()
+            .map(|d| d.join("updates.txt")),
+    ));
+    update::start(app.handle());
     // Where the agent's model runs (Settings → Model server). Before anything
     // builds the agent, which reads it on first use.
     if let Ok(dir) = app.path().app_data_dir() {
@@ -1085,7 +1095,10 @@ pub fn run(intent: cli::LaunchIntent) {
             tauri_plugin_window_state::Builder::default()
                 .skip_initial_state("main")
                 .build(),
-        );
+        )
+        // Signed updates from GitHub Releases (update.rs, #26). Driven from
+        // Rust only: no updater permission is granted to the shell.
+        .plugin(tauri_plugin_updater::Builder::new().build());
     // Mobile: the native android.webkit.WebView stack that renders browser tabs
     // (ADR 0012, Milestone 2); driven by webview.rs's mobile arm.
     #[cfg(mobile)]
@@ -1268,6 +1281,10 @@ pub fn run(intent: cli::LaunchIntent) {
             darkmode::darkmode_set,
             nav::nav_status,
             nav::nav_set,
+            update::update_status,
+            update::update_check,
+            update::update_set_auto,
+            update::update_restart,
             notes::note_get,
             notes::note_set,
             notes::notes_list,
@@ -1664,6 +1681,8 @@ pub fn run(intent: cli::LaunchIntent) {
     app.run(|app, event| {
         if let tauri::RunEvent::Exit = event {
             flush_on_exit(app);
+            // After the stores are saved: a downloaded update replaces the app.
+            update::install_on_exit(app);
         }
     });
 }
