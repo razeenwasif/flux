@@ -709,8 +709,14 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             None => darkmode::DarkState::new(),
         },
     );
-    // Navigation toggles (#51/#52) — vim link-hints + mouse gestures.
-    app.manage(nav::NavState::new());
+    // Navigation toggles (#51/#52) — vim link-hints + mouse gestures. Restored
+    // from the last run for the same reason as force-dark above.
+    app.manage(
+        match app.path().app_data_dir().ok().map(|d| d.join("nav.txt")) {
+            Some(p) => nav::NavState::restore(p),
+            None => nav::NavState::new(),
+        },
+    );
     // Where the agent's model runs (Settings → Model server). Before anything
     // builds the agent, which reads it on first use.
     if let Ok(dir) = app.path().app_data_dir() {

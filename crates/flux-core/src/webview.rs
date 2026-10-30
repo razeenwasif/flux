@@ -379,6 +379,8 @@ mod real {
                 }
             }
         }
+        // A permission prompt it raised before now went unheard as well.
+        crate::permissions::replay_asks(app);
         if !page.claimed {
             if let Some(wv) = app.get_webview(&label(page.tab)) {
                 let _ = wv.hide();

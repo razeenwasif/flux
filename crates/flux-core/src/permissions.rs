@@ -203,6 +203,37 @@ impl PermState {
     }
 }
 
+/// Asks sent to the shell and not yet answered. A page setup opened (boot.rs)
+/// can ask before the shell is listening, and an event nobody hears is gone:
+/// the request then sat deferred with no bar to answer it. The shell takes the
+/// page over once it listens, and [`replay_asks`] sends these again then.
+static UNANSWERED: std::sync::Mutex<Vec<PermAsk>> = std::sync::Mutex::new(Vec::new());
+
+fn unanswered() -> std::sync::MutexGuard<'static, Vec<PermAsk>> {
+    UNANSWERED.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+// Only WebView2 defers a request to Flux's own bar; elsewhere nothing asks.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn asked(ask: &PermAsk) {
+    unanswered().push(ask.clone());
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn answered(id: u64) {
+    unanswered().retain(|a| a.id != id);
+}
+
+/// Send every unanswered Ask to the shell again. The bar's queue ignores an id
+/// it already holds, so one the shell did hear isn't shown twice.
+pub(crate) fn replay_asks(app: &AppHandle) {
+    use tauri::Emitter;
+    let asks = unanswered().clone();
+    for ask in asks {
+        let _ = app.emit("flux://permission-ask", ask);
+    }
+}
+
 /// The global block's file, next to the decisions file.
 fn block_path(decisions: &std::path::Path) -> PathBuf {
     decisions.with_file_name("permissions-block.txt")
@@ -396,8 +427,9 @@ mod win {
                                 let id = NEXT_ASK.fetch_add(1, Ordering::Relaxed);
                                 PENDING
                                     .with(|p| p.borrow_mut().insert(id, (args.clone(), deferral)));
-                                let _ =
-                                    app.emit("flux://permission-ask", PermAsk { id, host, kind });
+                                let ask = PermAsk { id, host, kind };
+                                super::asked(&ask);
+                                let _ = app.emit("flux://permission-ask", ask);
                             }
                         }
                     }
@@ -412,6 +444,7 @@ mod win {
     /// (`permission_answer` routes here via `run_on_main_thread`). Unknown ids
     /// (already answered / stale after a reload) are ignored.
     pub fn resolve_ask(id: u64, allow: bool) {
+        super::answered(id);
         PENDING.with(|p| {
             let Some((args, deferral)) = p.borrow_mut().remove(&id) else {
                 return;
@@ -432,6 +465,24 @@ mod win {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unanswered_ask_is_kept_until_answered() {
+        // Ids from far above what the Windows counter reaches in a test run.
+        let ask = |id| PermAsk {
+            id,
+            host: "a.com".into(),
+            kind: PermKind::Camera,
+        };
+        asked(&ask(9_000_001));
+        asked(&ask(9_000_002));
+        let held = |id| unanswered().iter().any(|a| a.id == id);
+        assert!(held(9_000_001) && held(9_000_002));
+        answered(9_000_001);
+        assert!(!held(9_000_001), "an answered Ask is not replayed");
+        assert!(held(9_000_002));
+        answered(9_000_002);
+    }
 
     #[test]
     fn default_is_prompt() {
