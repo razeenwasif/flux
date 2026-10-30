@@ -125,7 +125,7 @@ APP="${TARGET_DIR:-target}/release/bundle/macos/Flux.app"
 sign_app "$APP"
 # An update signed ad hoc would be a stranger to macOS, which would ask again
 # for everything it allowed Flux. Better no release than that.
-codesign -dv "$APP" 2>&1 | grep -q "^Authority=Apple Development" ||
+codesign -dvv "$APP" 2>&1 | grep -q "^Authority=Apple Development" ||
   die "Flux.app isn't signed with your certificate; not publishing it."
 
 OUT="$(mktemp -d)"
