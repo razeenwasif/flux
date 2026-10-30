@@ -1506,12 +1506,26 @@ pub async fn fs_watch(
 fn make_watcher(app: AppHandle, path: String) -> Result<notify::RecommendedWatcher, String> {
     use notify::Watcher;
     let emit_path = path.clone();
+    // A burst of changes (a copy, a build, a file being written in chunks) is
+    // one event, sent once it's been quiet for a moment: each event was a
+    // re-list. Reads aren't changes; on Linux, listing the folder raised them.
+    let pending = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        // Scope to the shell window — tab webviews never need (or, per ACL, can
-        // receive) this, and it keeps the event off remote pages entirely.
-        if res.is_ok() {
-            let _ = app.emit_to("main", "flux://fs-changed", emit_path.clone());
+        let Ok(event) = res else { return };
+        if matches!(event.kind, notify::EventKind::Access(_)) {
+            return;
         }
+        if pending.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return;
+        }
+        let (app, path, pending) = (app.clone(), emit_path.clone(), pending.clone());
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            pending.store(false, std::sync::atomic::Ordering::Release);
+            // Scope to the shell window — tab webviews never need (or, per ACL,
+            // can receive) this, and it keeps the event off remote pages.
+            let _ = app.emit_to("main", "flux://fs-changed", path);
+        });
     })
     .map_err(|e| e.to_string())?;
     watcher

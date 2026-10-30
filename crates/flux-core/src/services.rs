@@ -99,6 +99,43 @@ fn start(s: &Service) -> Result<(), String> {
         .map_err(|e| format!("couldn't start {}: {e}", s.name))
 }
 
+/// Whether a default start command's program is on this machine, found without
+/// a shell. Autostart ran a login shell per service on every boot, which on a
+/// machine without Omni or Scroll only learned `command not found` (and logged
+/// it as a start). A command set through the `FLUX_*_START` variables is
+/// trusted as it is.
+#[cfg(not(windows))]
+fn installed(cmd: &str) -> bool {
+    use std::path::{Path, PathBuf};
+    let Some(prog) = cmd.split_whitespace().next() else {
+        return false;
+    };
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    if let Some(rest) = prog.strip_prefix("~/") {
+        return home.join(rest).is_file();
+    }
+    if prog.contains('/') {
+        return Path::new(prog).is_file();
+    }
+    // A Dock-launched app has launchd's PATH, so the usual install spots too.
+    let usual = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+        .map(PathBuf::from)
+        .into_iter()
+        .chain([".cargo/bin", ".local/bin", "bin"].map(|d| home.join(d)));
+    let path: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    usual.chain(path).any(|d| d.join(prog).is_file())
+}
+
+/// Under MSYS2 the services live in its tree, which only its shell can see.
+#[cfg(windows)]
+fn installed(_cmd: &str) -> bool {
+    true
+}
+
 fn autostart_enabled() -> bool {
     !std::env::var("FLUX_NO_AUTOSTART")
         .map(|v| {
@@ -115,6 +152,11 @@ pub fn autostart_down_services() {
         return;
     }
     for s in SERVICES {
+        let custom = std::env::var(s.start_env).is_ok_and(|v| !v.trim().is_empty());
+        if !custom && !installed(s.start_default) {
+            tracing::debug!(target: "flux::services", service = s.name, "not installed; not started");
+            continue;
+        }
         if !is_up(s) {
             match start(s) {
                 Ok(()) => {
@@ -157,4 +199,17 @@ pub async fn services_start(name: String) -> Result<bool, String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(all(test, not(windows)))]
+mod tests {
+    use super::installed;
+
+    #[test]
+    fn only_a_program_on_disk_is_started() {
+        assert!(installed("sh -c true"));
+        assert!(!installed("~/flux-no-such-dir/scripts/serve.sh"));
+        assert!(!installed("flux-no-such-program serve"));
+        assert!(!installed(""));
+    }
 }

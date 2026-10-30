@@ -8,7 +8,7 @@
 //! kinds with zero Rust or bindings churn.
 //!
 //! Storage is one JSON file per notebook under `<app_data>/scribe/<id>.json`
-//! (best-effort atomic writes via `crate::persist`), so a 500 ms autosave only
+//! (best-effort atomic writes via `crate::persist`), so a 1.5 s autosave only
 //! rewrites the notebook you're editing, not the whole shelf. Publishing a page
 //! is **one-way**: Onyx is a Markdown TUI that can't render strokes, so a page
 //! becomes a `.md` holding an embedded PNG of the ink plus a text body — a
@@ -787,7 +787,7 @@ pub fn scribe_create(
     nb
 }
 
-/// Debounced from the frontend at ~500 ms, so this runs constantly while you
+/// Debounced from the frontend at ~1.5 s, so this runs constantly while you
 /// write. It only *marks* the source; the rebuild waits for the edits to stop
 /// (see `kbfresh`), and skips pages whose mtime hasn't moved.
 ///

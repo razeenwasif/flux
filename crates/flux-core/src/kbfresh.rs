@@ -8,7 +8,7 @@
 //! corpus is worse than one that says it doesn't know.
 //!
 //! **Why a debounce and not a reindex per save.** `scribe_save` fires roughly
-//! every 500 ms while you're typing or drawing. Rebuilding on each one would
+//! at each pause in your typing or drawing. Rebuilding on each one would
 //! embed the same page dozens of times. Instead a source is *marked* dirty and a
 //! background worker rebuilds it once the edits stop — and because
 //! `reindex_source` skips documents whose mtime is unchanged, the rebuild only
@@ -23,20 +23,34 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use tauri::{AppHandle, Manager};
 
 /// How long a source must be quiet before it's rebuilt. Long enough that a
 /// continuous stroke of typing is one rebuild, short enough that asking the
 /// agent right after you stop writing finds it.
 const QUIET: Duration = Duration::from_secs(3);
-/// How often the worker looks for due sources.
-const TICK: Duration = Duration::from_secs(2);
 
 /// Sources with unindexed changes, and when the most recent change landed.
+/// The worker sleeps on `wake` until there's one, then until it's quiet: it
+/// used to look every 2 s, edits or not, most of what Flux did while idle.
 #[derive(Default)]
 pub struct KbFreshness {
     dirty: Mutex<HashMap<String, Instant>>,
+    wake: Condvar,
+}
+
+/// Take the sources in `d` that have been quiet for [`QUIET`].
+fn due_in(d: &mut HashMap<String, Instant>) -> Vec<String> {
+    let due: Vec<String> = d
+        .iter()
+        .filter(|(_, at)| at.elapsed() >= QUIET)
+        .map(|(s, _)| s.clone())
+        .collect();
+    for s in &due {
+        d.remove(s);
+    }
+    due
 }
 
 impl KbFreshness {
@@ -44,23 +58,38 @@ impl KbFreshness {
     /// a save path that runs on every keystroke.
     pub fn touch(&self, source: &str) {
         self.dirty.lock().insert(source.to_string(), Instant::now());
+        self.wake.notify_one();
     }
 
     /// Take the sources that have been quiet for [`QUIET`]. Removing them here
     /// (rather than after the rebuild) means an edit *during* a rebuild re-marks
-    /// the source and gets picked up on the next tick, instead of being
+    /// the source and gets picked up on the next wait, instead of being
     /// swallowed by the rebuild that was already in flight.
+    #[cfg(test)]
     fn take_due(&self) -> Vec<String> {
+        due_in(&mut self.dirty.lock())
+    }
+
+    /// Wait for sources to come due and take them: asleep while nothing is
+    /// dirty, then until the latest edit to one has been quiet for [`QUIET`].
+    fn wait_due(&self) -> Vec<String> {
         let mut d = self.dirty.lock();
-        let due: Vec<String> = d
-            .iter()
-            .filter(|(_, at)| at.elapsed() >= QUIET)
-            .map(|(s, _)| s.clone())
-            .collect();
-        for s in &due {
-            d.remove(s);
+        loop {
+            let due = due_in(&mut d);
+            if !due.is_empty() {
+                return due;
+            }
+            match d
+                .values()
+                .map(|at| QUIET.saturating_sub(at.elapsed()))
+                .min()
+            {
+                Some(left) => {
+                    self.wake.wait_for(&mut d, left);
+                }
+                None => self.wake.wait(&mut d),
+            }
         }
-        due
     }
 
     #[cfg(test)]
@@ -135,15 +164,17 @@ pub fn start(app: &AppHandle) {
     }
 
     let handle = app.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(TICK);
-        let Some(fresh) = handle.try_state::<Arc<KbFreshness>>() else {
-            continue;
-        };
-        for source in fresh.take_due() {
-            reindex_one(&handle, &fresh, &source);
+    match app.try_state::<Arc<KbFreshness>>() {
+        Some(fresh) => {
+            let fresh = fresh.inner().clone();
+            std::thread::spawn(move || loop {
+                for source in fresh.wait_due() {
+                    reindex_one(&handle, &fresh, &source);
+                }
+            });
         }
-    });
+        None => tracing::warn!(target: "flux::kb", "no KbFreshness; edits won't reindex"),
+    }
     watch_onyx(app);
     watch_scribe(app);
 }
@@ -340,6 +371,21 @@ mod tests {
         assert_eq!(f.take_due().len(), 1);
         f.touch("scribe"); // the edit that arrived during the rebuild
         assert_eq!(f.pending(), 1);
+    }
+
+    #[test]
+    fn the_worker_sleeps_until_an_edit_goes_quiet() {
+        let f = Arc::new(KbFreshness::default());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = f.clone();
+        std::thread::spawn(move || tx.send(worker.wait_due()).unwrap());
+        // Nothing dirty: nothing comes back, however long it waits.
+        assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
+        let at = Instant::now();
+        f.touch("scribe");
+        let due = rx.recv_timeout(QUIET * 2).expect("woken by the edit");
+        assert_eq!(due, vec!["scribe".to_string()]);
+        assert!(at.elapsed() >= QUIET, "not before the edit went quiet");
     }
 
     #[test]

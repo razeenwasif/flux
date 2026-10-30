@@ -372,7 +372,9 @@ const MAX_PDF_TEXT: usize = 400_000;
 
 #[derive(Default)]
 pub struct PdfStore {
-    docs: RwLock<HashMap<String, PdfDoc>>,
+    /// Read from `path` the first time it's needed rather than at launch: the
+    /// file runs to megabytes, and setup parsed it before the window showed.
+    docs: std::sync::OnceLock<RwLock<HashMap<String, PdfDoc>>>,
     path: Option<PathBuf>,
     /// Bumped on every write, so the KB indexer can tell when to re-embed
     /// without re-reading the whole store.
@@ -384,17 +386,23 @@ pub struct PdfStore {
 
 impl PdfStore {
     pub fn restore(path: PathBuf) -> Self {
-        let docs = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<Vec<PdfDoc>>(&s).ok())
-            .map(|v| v.into_iter().map(|d| (d.src.clone(), d)).collect())
-            .unwrap_or_default();
         Self {
-            docs: RwLock::new(docs),
             path: Some(path),
-            generation: std::sync::atomic::AtomicU64::new(0),
-            persist_lock: parking_lot::Mutex::new(()),
+            ..Self::default()
         }
+    }
+
+    fn docs(&self) -> &RwLock<HashMap<String, PdfDoc>> {
+        self.docs.get_or_init(|| {
+            let docs = self
+                .path
+                .as_ref()
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .and_then(|s| serde_json::from_str::<Vec<PdfDoc>>(&s).ok())
+                .map(|v| v.into_iter().map(|d| (d.src.clone(), d)).collect())
+                .unwrap_or_default();
+            RwLock::new(docs)
+        })
     }
 
     pub fn generation(&self) -> u64 {
@@ -402,7 +410,7 @@ impl PdfStore {
     }
 
     pub fn list(&self) -> Vec<PdfDoc> {
-        self.docs.read().values().cloned().collect()
+        self.docs().read().values().cloned().collect()
     }
 
     /// Record a document in memory; persist with [`Self::persist`]. False when
@@ -411,7 +419,7 @@ impl PdfStore {
     /// whole store.
     fn put(&self, doc: PdfDoc) -> bool {
         {
-            let mut docs = self.docs.write();
+            let mut docs = self.docs().write();
             if docs
                 .get(&doc.src)
                 .is_some_and(|d| d.ocr == doc.ocr && d.title == doc.title && d.text == doc.text)
@@ -438,7 +446,7 @@ impl PdfStore {
         let Some(p) = &self.path else { return };
         let _order = self.persist_lock.lock();
         let json = {
-            let docs = self.docs.read();
+            let docs = self.docs().read();
             serde_json::to_vec(&docs.values().collect::<Vec<_>>())
         };
         if let Ok(json) = json {

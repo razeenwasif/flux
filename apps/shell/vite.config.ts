@@ -1,8 +1,20 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
 
+/** KaTeX's stylesheet offers each face as woff2, woff and ttf, and the bundler
+ *  copies all three into the app binary. WebKit and WebView2 take the woff2
+ *  every time, so the other two were 876 KB never read. */
+const katexWoff2Only = (): Plugin => ({
+  name: "flux-katex-woff2-only",
+  enforce: "pre",
+  transform(code, id) {
+    if (!/[\\/]katex[\\/]dist[\\/]katex(\.min)?\.css$/.test(id)) return null;
+    return code.replace(/,\s*url\([^)]+\.woff\)\s*format\("woff"\)\s*,\s*url\([^)]+\.ttf\)\s*format\("truetype"\)/g, "");
+  },
+});
+
 export default defineConfig({
-  plugins: [solid()],
+  plugins: [solid(), katexWoff2Only()],
   // Tauri expects a fixed dev port (tauri.conf.json devUrl).
   server: { port: 1420, strictPort: true },
   // Chrome JS budget is 50 KB gzip (ADR 0001) — keep the output inspectable.

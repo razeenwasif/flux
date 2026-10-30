@@ -39,7 +39,14 @@ pub struct DownloadItem {
 pub struct DownloadState {
     items: Mutex<Vec<DownloadItem>>,
     next_id: AtomicU64,
+    /// When the interface last heard about each download (see `update`).
+    told: Mutex<std::collections::HashMap<u64, std::time::Instant>>,
 }
+
+/// How often a running download's progress reaches the interface. The engine
+/// reports every network chunk, hundreds a second on a fast link, and each one
+/// was an event and a re-render of the downloads list.
+const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_millis(250);
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -69,14 +76,28 @@ impl DownloadState {
         id
     }
 
-    pub fn update(&self, id: u64, received: u64, total: u64, state: &str) {
-        if let Some(it) = self.items.lock().iter_mut().find(|i| i.id == id) {
-            it.received = received;
-            if total > 0 {
-                it.total = total;
-            }
-            it.state = state.to_string();
+    /// Record a download's progress; true when the interface should hear of
+    /// it: its state changed, or [`PROGRESS_EVERY`] has passed since it last did.
+    pub fn update(&self, id: u64, received: u64, total: u64, state: &str) -> bool {
+        let mut items = self.items.lock();
+        let Some(it) = items.iter_mut().find(|i| i.id == id) else {
+            return false;
+        };
+        it.received = received;
+        if total > 0 {
+            it.total = total;
         }
+        let changed = it.state != state;
+        it.state = state.to_string();
+        let mut told = self.told.lock();
+        let now = std::time::Instant::now();
+        let due = told
+            .get(&id)
+            .is_none_or(|at| now.duration_since(*at) >= PROGRESS_EVERY);
+        if changed || due {
+            told.insert(id, now);
+        }
+        changed || due
     }
 
     /// Newest first.
@@ -97,9 +118,11 @@ impl DownloadState {
 
     /// Drop everything that's no longer running.
     pub fn clear_finished(&self) {
-        self.items
+        let mut items = self.items.lock();
+        items.retain(|i| i.state == "in_progress" || i.state == "paused");
+        self.told
             .lock()
-            .retain(|i| i.state == "in_progress" || i.state == "paused");
+            .retain(|id, _| items.iter().any(|i| i.id == *id));
     }
 }
 
@@ -319,9 +342,10 @@ mod gtk {
             }
             if let Some(state) = app_p.try_state::<DownloadState>() {
                 let total = dl.response().map(|r| r.content_length()).unwrap_or(0);
-                state.update(id, dl.received_data_length(), total, "in_progress");
+                if state.update(id, dl.received_data_length(), total, "in_progress") {
+                    let _ = app_p.emit("flux://download-updated", id);
+                }
             }
-            let _ = app_p.emit("flux://download-updated", id);
         });
 
         // `failed` always precedes `finished` on error/cancel — flag it so the
@@ -398,7 +422,10 @@ mod tests {
         );
         assert_ne!(a, b);
 
-        s.update(a, 100, 100, "completed");
+        assert!(s.update(a, 100, 100, "completed"));
+        assert!(s.update(b, 50, 0, "in_progress"), "first word of it");
+        assert!(!s.update(b, 60, 0, "in_progress"), "the next chunk waits");
+        assert!(s.update(b, 70, 0, "paused"), "a new state doesn't");
         s.update(b, 50, 0, "in_progress");
         let list = s.list();
         assert_eq!(list.len(), 2);
@@ -532,10 +559,12 @@ mod win {
         } else {
             "in_progress"
         };
-        if let Some(s) = app.try_state::<DownloadState>() {
-            s.update(id, received.max(0) as u64, total.max(0) as u64, state);
+        let tell = app
+            .try_state::<DownloadState>()
+            .is_some_and(|s| s.update(id, received.max(0) as u64, total.max(0) as u64, state));
+        if tell {
+            let _ = app.emit("flux://download-updated", id);
         }
-        let _ = app.emit("flux://download-updated", id);
         if state != "in_progress" {
             OPS.with(|m| {
                 m.borrow_mut().remove(&id);

@@ -1,6 +1,6 @@
 //! Persistent reminders + a background scheduler. Reminders live in
 //! `app-data/reminders.json` so they survive restarts; a task started at app setup
-//! checks them every ~20 s while Flux runs, marks due ones fired, emits
+//! wakes when the next one is due (or a reminder is saved), marks due ones fired, emits
 //! `flux://reminder-due` to the UI (which speaks + shows them), and pops an OS
 //! notification so a due reminder surfaces even if the agent panel is closed or the
 //! window isn't focused.
@@ -30,6 +30,16 @@ pub struct Reminder {
 // Serialize file access so the scheduler and commands don't race. Also holds
 // the ids already announced this session (see `take_due`).
 static LOCK: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Rings the scheduler when the store changes, so a reminder added for a minute
+/// from now isn't left to a fixed tick. The scheduler used to re-read the file
+/// every 20 s whether or not anything was due.
+static WAKE: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// The longest the scheduler sleeps with a reminder pending. Its timer stops
+/// while the Mac sleeps, so a reminder due during a nap fires within this of
+/// waking rather than an hour late.
+const MAX_WAIT: Duration = Duration::from_secs(60);
 
 fn now_ms() -> i64 {
     SystemTime::now()
@@ -67,7 +77,9 @@ fn save(app: &AppHandle, rs: &[Reminder]) -> Result<(), String> {
     let p = store_path(app)?;
     let json = serde_json::to_string_pretty(rs).map_err(|e| e.to_string())?;
     crate::persist::write_atomic_with(&p, json.as_bytes(), crate::persist::Durability::Barrier)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    WAKE.notify_one();
+    Ok(())
 }
 
 #[tauri::command]
@@ -135,8 +147,16 @@ pub fn start_scheduler(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         // Logged once per outage, not on every tick.
         let mut failing = false;
+        // The first look waits for the interface to be listening; after that,
+        // until the next reminder is due, or for good while none is.
+        let mut wait = Some(Duration::from_secs(20));
         loop {
-            tokio::time::sleep(Duration::from_secs(20)).await;
+            match wait {
+                Some(w) => {
+                    let _ = tokio::time::timeout(w, WAKE.notified()).await;
+                }
+                None => WAKE.notified().await,
+            }
             let now = now_ms();
             let mut due: Vec<Reminder> = Vec::new();
             {
@@ -145,16 +165,21 @@ pub fn start_scheduler(app: AppHandle) {
                     if take_due(&mut rs, now, &mut announced, &mut due) {
                         save(&app, &rs)?;
                     }
-                    Ok(())
+                    Ok(next_wait(&rs, now))
                 });
-                match checked {
-                    Ok(()) => failing = false,
-                    Err(e) if !failing => {
-                        failing = true;
-                        tracing::warn!(target: "flux::reminders", error = %e, "reminder store unusable");
+                wait = match checked {
+                    Ok(next) => {
+                        failing = false;
+                        next
                     }
-                    Err(_) => {}
-                }
+                    Err(e) => {
+                        if !failing {
+                            failing = true;
+                            tracing::warn!(target: "flux::reminders", error = %e, "reminder store unusable");
+                        }
+                        Some(MAX_WAIT)
+                    }
+                };
             }
             for r in &due {
                 let _ = app.emit("flux://reminder-due", r); // UI: speak + show
@@ -167,6 +192,14 @@ pub fn start_scheduler(app: AppHandle) {
             }
         }
     });
+}
+
+/// How long until the next unfired reminder is due, at most [`MAX_WAIT`]; none
+/// when nothing is waiting (a save rings the scheduler).
+fn next_wait(rs: &[Reminder], now: i64) -> Option<Duration> {
+    let next = rs.iter().filter(|r| !r.fired).filter_map(|r| r.due).min()?;
+    let ms = (next - now).clamp(1_000, MAX_WAIT.as_millis() as i64);
+    Some(Duration::from_millis(ms as u64))
 }
 
 /// Mark due reminders fired; true if any were (so the store needs saving). Only
@@ -196,6 +229,43 @@ fn take_due(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn at(due: Option<i64>, fired: bool) -> Reminder {
+        Reminder {
+            id: format!("{due:?}"),
+            text: "x".into(),
+            due,
+            fired,
+            created: 0,
+        }
+    }
+
+    #[test]
+    fn the_scheduler_sleeps_until_the_next_reminder() {
+        let now = 1_000_000;
+        // Nothing dated or everything fired: asleep until a save.
+        assert_eq!(
+            next_wait(&[at(None, false), at(Some(now - 5), true)], now),
+            None
+        );
+        // The soonest unfired one, not before a second from now…
+        assert_eq!(
+            next_wait(
+                &[at(Some(now + 30_000), false), at(Some(now + 9_000), false)],
+                now
+            ),
+            Some(Duration::from_secs(9))
+        );
+        assert_eq!(
+            next_wait(&[at(Some(now - 1), false)], now),
+            Some(Duration::from_secs(1))
+        );
+        // …nor more than a minute, in case the Mac sleeps through it.
+        assert_eq!(
+            next_wait(&[at(Some(now + 3_600_000), false)], now),
+            Some(MAX_WAIT)
+        );
+    }
 
     #[test]
     fn an_unreadable_store_stops_writers_instead_of_reading_as_empty() {

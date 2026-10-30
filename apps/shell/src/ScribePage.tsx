@@ -94,6 +94,9 @@ const PageThumb: Component<{ content: string }> = (props) => {
   return <canvas ref={el} class="scribe-thumb-c" style={{ width: `${THUMB_W}px`, height: `${THUMB_H}px` }} />;
 };
 
+
+/** How long Scribe waits after an edit before saving it. */
+const SAVE_QUIET_MS = 1500;
 const ScribePage: Component = () => {
   const [shelf, setShelf] = createSignal<NotebookMeta[]>([]);
   const [notebook, setNotebook] = createSignal<Notebook | null>(null);
@@ -186,11 +189,14 @@ const ScribePage: Component = () => {
     }
   };
 
+  /** Write the notebook once edits pause. Each save sends the whole notebook,
+   *  ink and all, so at 500 ms a page of drawing was a multi-MB save between
+   *  most strokes; ⌘S, switching notebooks and closing still write at once. */
   const persist = (nb: Notebook) => {
     setNotebook(nb);
     setSaveState("dirty");
     window.clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(() => void flush(nb), 500);
+    saveTimer = window.setTimeout(() => void flush(nb), SAVE_QUIET_MS);
   };
 
   /** The page's content is now a document blob (html + ink objects), still
