@@ -1939,7 +1939,7 @@ dependencies = [
 
 [[package]]
 name = "flux-agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "llama-cpp-2",
  "serde",
@@ -1952,7 +1952,7 @@ dependencies = [
 
 [[package]]
 name = "flux-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2014,7 +2014,7 @@ dependencies = [
 
 [[package]]
 name = "flux-embed"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "tracing",
@@ -2022,7 +2022,7 @@ dependencies = [
 
 [[package]]
 name = "flux-filter"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "adblock",
  "serde",
@@ -2031,7 +2031,7 @@ dependencies = [
 
 [[package]]
 name = "flux-import"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2042,7 +2042,7 @@ dependencies = [
 
 [[package]]
 name = "flux-search"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "specta",
@@ -2050,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "flux-term"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytemuck",
  "thiserror 2.0.18",
@@ -2061,7 +2061,7 @@ dependencies = [
 
 [[package]]
 name = "flux-vault"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "argon2",
