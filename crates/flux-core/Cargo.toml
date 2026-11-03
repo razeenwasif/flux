@@ -107,8 +107,10 @@ tauri-plugin-window-state = "2"
 trash = "5"
 # Signed updates from GitHub Releases (update.rs, BACKLOG #26).
 tauri-plugin-updater = "2"
-# The floating answer card's system-wide hotkey (hud.rs).
-tauri-plugin-global-shortcut = "2"
+# The floating answer card's system-wide hotkey (hud.rs). Held at 2.3: 2.4 needs
+# Tauri 2.12, which would silently drop the patched Tauri in vendor/ (a test in
+# tests/vendored_tauri.rs catches that).
+tauri-plugin-global-shortcut = "~2.3.2"
 
 # Mobile-only: the native android.webkit.WebView stack that renders browser tabs
 # on Android (ADR 0012, Milestone 2). Depending on it here is also what makes

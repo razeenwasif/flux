@@ -12,7 +12,9 @@ This small framework patch is applied before document scripts run and survives
 navigation; it does not modify Proton code, subscriptions, or API responses.
 
 When upgrading Tauri, rebase this one change and test shell/tab/panel markers,
-keyboard IPC, Gmail, and Proton Mail. Cargo.lock pins the patched package.
+keyboard IPC, Gmail, and Proton Mail. Cargo.lock pins the patched package, and
+`crates/flux-core/tests/vendored_tauri.rs` fails if a dependency that needs a
+newer Tauri makes Cargo drop it. The native smoke fixture's `?nav` page reports the marker.
 
 Source diagnosis:
 - https://github.com/ProtonMail/WebClients/blob/main/packages/shared/lib/helpers/desktop.ts

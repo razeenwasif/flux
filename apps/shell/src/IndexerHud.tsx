@@ -10,7 +10,7 @@
 import { For, Show, createEffect, lazy, on, onCleanup, onMount, Suspense, type Component } from "solid-js";
 import { render } from "solid-js/web";
 import { invoke } from "@tauri-apps/api/core";
-import { emit, listen as onEvent } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 
 import { createAsking, pct, readScope } from "./indexerAsking";
 import { indexerReindex, indexerWarm, openNote, type IndexerMatch } from "./indexer";
@@ -82,7 +82,7 @@ const IndexerHud: Component = () => {
     if (card) ro.observe(card);
     onCleanup(() => ro.disconnect());
 
-    const un = onEvent<string | null>("flux://hud-again", (e) => again(e.payload));
+    const un = listen<string | null>("flux://hud-again", (e) => again(e.payload));
     onCleanup(() => void un.then((f) => f()));
 
     // A cold System 1 load takes ~20 s; start it while the question is asked.

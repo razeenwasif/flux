@@ -29,8 +29,9 @@ if(location.search.includes('auto'))probe();
 // suspended (tab sleep) and starts again from the page's restored state.
 if(location.search.includes('beat')){document.body.style.minHeight='4000px';setInterval(()=>fetch('/beat?y='+Math.round(scrollY)),500);}
 // ?nav reports the link-hint and gesture flags the page was created with, read
-// at once, before the shell's own boot can send them: the early-page check.
-if(location.search.includes('nav'))fetch('/report?nav='+encodeURIComponent(JSON.stringify(window.__FLUX_NAV__||null))+'&navjs='+typeof window.__fluxNavSet);
+// at once, before the shell's own boot can send them: the early-page check. And
+// whether the page can see Tauri's marker, which vendor/tauri keeps out of pages.
+if(location.search.includes('nav'))fetch('/report?nav='+encodeURIComponent(JSON.stringify(window.__FLUX_NAV__||null))+'&navjs='+typeof window.__fluxNavSet+'&marker='+('isTauri' in window));
 // Whether the promo box shows, once Flux has injected its cosmetic CSS: logged
 // by the server, for the Hide-an-element check.
 setTimeout(()=>fetch('/report?promo='+getComputedStyle(document.querySelector('#promo')).display),800);
@@ -112,7 +113,7 @@ const server = createServer((req, res) => {
     const promo = q.get("promo");
     requests.push({ path, promo, fh: q.get("fh"), v: q.get("v"), at: new Date().toISOString() });
     if (q.has("fh")) console.log(`Form help ${q.get("fh")}: ${q.get("v")}`);
-    else if (q.has("nav")) console.log(`Page started with nav flags ${q.get("nav")}, nav.js ${q.get("navjs")}`);
+    else if (q.has("nav")) console.log(`Page started with nav flags ${q.get("nav")}, nav.js ${q.get("navjs")}, window.isTauri present: ${q.get("marker")}`);
     else console.log(`Page reported promo display: ${promo}`);
     res.end("ok");
   } else if (path === "/results") {
