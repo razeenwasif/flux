@@ -19,3 +19,8 @@ export function listen<T>(event: string, cb: (e: { payload: T }) => void): Promi
 ) => {
   for (const cb of handlers.get(event) ?? []) cb({ payload });
 };
+
+export function emit(event: string, payload?: unknown): Promise<void> {
+  for (const h of handlers.get(event) ?? []) h({ payload });
+  return Promise.resolve();
+}

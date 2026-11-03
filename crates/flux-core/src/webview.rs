@@ -38,7 +38,7 @@ mod real {
     use crate::state::{Bounds, ContentRect, TabId};
 
     /// The chrome window's label (from tauri.conf.json).
-    const CHROME_WINDOW: &str = "main";
+    pub(crate) const CHROME_WINDOW: &str = "main";
 
     /// capture.js, injected into every tab webview (stamped with its tab id).
     const CAPTURE_JS: &str = include_str!("../assets/capture.js");
@@ -206,7 +206,7 @@ mod real {
         format!("window.__FLUX_KEYS__ = {map};\n")
     }
 
-    fn label(tab: TabId) -> String {
+    pub(crate) fn label(tab: TabId) -> String {
         format!("tab-{tab}")
     }
 
@@ -706,6 +706,8 @@ mod real {
         // Record its jar so cookie clears can reach it (#58). A private tab's
         // is in memory and goes with the webview.
         crate::cookies::note_jar(app, child.label(), if private { 0 } else { container });
+        // It landed on top, over the floating answer card if one is open.
+        crate::hud::raise(app);
         // Belt-and-suspenders: re-apply geometry + visibility explicitly — some
         // platforms ignore the add_child args, leaving the page wrong/hidden.
         let _ = child.set_position(LogicalPosition::new(x, y));
@@ -837,6 +839,7 @@ mod real {
             window_height: size.height,
         };
         if state.note_content_rect(rect) {
+            crate::hud::follow(app);
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(CONTENT_RECT_SAVE_DELAY).await;
@@ -1476,6 +1479,7 @@ mod real {
                 LogicalSize::new(width.max(0.0), height.max(0.0)),
             )
             .map_err(|e| e.to_string())?;
+        crate::hud::raise(&app);
         let _ = child.set_position(LogicalPosition::new(x, y));
         let _ = child.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)));
         let _ = child.show();

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build --config vite.hud.config.ts",
     "preview:ui": "vite build --config vite.preview.config.ts && vite preview --config vite.preview.config.ts --port 8847",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

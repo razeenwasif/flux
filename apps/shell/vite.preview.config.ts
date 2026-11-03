@@ -13,5 +13,9 @@ export default defineConfig({
       "@tauri-apps/api/event": resolve(__dirname, "src/mock/tauri-event.ts"),
     },
   },
-  build: { outDir: "dist-preview", target: "esnext" },
+  build: {
+    outDir: "dist-preview",
+    target: "esnext",
+    rollupOptions: { input: { main: "index.html", hud: "hud.html" } },
+  },
 });

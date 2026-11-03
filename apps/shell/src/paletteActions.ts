@@ -36,6 +36,7 @@ import {
   bookmarksImportGecko,
   geckoImportPreview,
   webviewReload,
+  hudToggle,
   type TabMeta,
 } from "./ipc";
 import { LAYOUT_PRESETS, type LayoutPreset, type LayoutState } from "./layout";
@@ -250,6 +251,12 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
         setOrbOn(true);
         setIndexerPanelOpen(true);
       },
+    },
+    {
+      id: "indexer-listen",
+      label: "Ask out loud (answer floats over the page)",
+      icon: "🎙",
+      run: () => void hudToggle(),
     },
     { id: "sessions", label: "Open Sessions", icon: "🗃", run: () => go(SESSIONS_URL) },
     { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },

@@ -128,6 +128,7 @@ pub const COMMANDS: &[Command] = &[
     c("mode-notes", "Show notes", "Your notes and to-dos", TAB_BAR, &["Alt+4"]),
     c("mode-context", "Show context", "Your notes, the system and the Trail", TAB_BAR, &["Alt+5"]),
     c("indexer-ask", "Ask your notes", "The Indexer answers from your notes", AGENT, &[]),
+    c("indexer-listen", "Ask out loud", "From anywhere, even in another app: the answer floats over the page", AGENT, &["Alt+Shift+Space"]),
     c("notebook", "Notebook", "Ask your knowledge base", AGENT, &[]),
     c("shell-history", "Shell history", "Search commands you've run, by meaning", AGENT, &["Shift+Mod+R"]),
     c("watches", "Watched pages", "Pages Flux checks for changes", AGENT, &[]),
@@ -464,6 +465,12 @@ impl KeyStore {
             .find(|k| k.contains("Cmd+"))
     }
 
+    /// The chords a command is bound to now.
+    pub fn keys_for(&self, id: &str) -> Vec<String> {
+        let rebound = self.rebound.lock();
+        command(id).map_or_else(Vec::new, |c| self.keys_of(&rebound, c))
+    }
+
     /// Bind `id` to `chord` alone (`None` unbinds it). The chord leaves any
     /// other command that had it: the shell has asked ("Use here").
     pub fn set(&self, id: &str, chord: Option<&str>) -> Result<(), String> {
@@ -690,6 +697,7 @@ mod menubar {
                 C("calendar"),
                 C("notebook"),
                 C("indexer-ask"),
+                C("indexer-listen"),
                 Sep,
                 C("passwords"),
                 C("archive"),
@@ -827,6 +835,8 @@ fn apply(app: &AppHandle, keys: &KeyStore) {
         }
     }
     let _ = app.emit("flux://keys", keys.info());
+    // The one command the OS holds the key for.
+    crate::hud::bind(app);
 }
 
 #[tauri::command]

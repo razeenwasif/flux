@@ -606,6 +606,8 @@ Then from any shell:
 flux                          # open Flux with the start page
 flux example.com https://b.dev   # one browser tab per URL (https:// inferred)
 flux -t                       # open with a terminal tab focused
+flux --ask                    # ask your notes out loud; the answer floats over the page
+flux --ask what is KKT        # the same, with the question typed
 flux --help | flux --version  # never spawns a window
 ```
 

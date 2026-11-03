@@ -658,7 +658,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "tab_list":
       return Promise.resolve(structuredClone(tabs) as T);
     case "launch_intent":
-      return Promise.resolve({ urls: [], terminal: false } as T);
+      return Promise.resolve({ urls: [], terminal: false, ask: null } as T);
     case "tab_create": {
       const kind = args?.kind as TabKind;
       const tab: TabMeta = {
@@ -915,6 +915,12 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       } as T);
     case "update_restart":
       return Promise.reject("no update is waiting");
+    case "hud_toggle":
+    case "hud_close":
+    case "hud_resize":
+      return Promise.resolve(undefined as T);
+    case "hud_take_question":
+      return Promise.resolve("what is the KKT condition" as T);
     case "note_get":
       return Promise.resolve("" as T);
     case "note_set":

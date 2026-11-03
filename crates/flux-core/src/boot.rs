@@ -52,6 +52,14 @@ pub async fn boot_mark(app: tauri::AppHandle, name: String) {
     #[cfg(desktop)]
     if name == "listening" {
         crate::webview::early_handoff(&app);
+        // `flux --ask` that started Flux: the page it floats over is up now.
+        use tauri::Manager;
+        if let Some(words) = app
+            .try_state::<crate::cli::LaunchIntent>()
+            .and_then(|i| i.ask.clone())
+        {
+            crate::hud::toggle(&app, crate::hud::question_of(&words));
+        }
     }
     #[cfg(mobile)]
     let _ = app;

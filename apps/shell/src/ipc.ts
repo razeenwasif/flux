@@ -988,6 +988,9 @@ export const onVaultLocked = (cb: () => void): Promise<UnlistenFn> =>
   listen("flux://vault-locked", () => cb());
 /** Fires when keychain-mode vault hydration finishes after startup. */
 export const onVaultReady = (cb: () => void): Promise<UnlistenFn> => listen("flux://vault-ready", () => cb());
+/** The floating answer card (hud.rs): open it and listen, or press its key again. */
+export const hudToggle = () => invoke<void>("hud_toggle");
+export const hudClose = () => invoke<void>("hud_close");
 // Updates (#26): Flux checks GitHub Releases by itself, downloads a newer build
 // in the background, then asks before restarting into it (update.rs).
 export type UpdateStatus = GenUpdateStatus;

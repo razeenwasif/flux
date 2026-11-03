@@ -730,6 +730,19 @@
       "fixed": null
     },
     {
+      "id": "indexer-listen",
+      "title": "Ask out loud",
+      "detail": "From anywhere, even in another app: the answer floats over the page",
+      "group": "Agent and notes",
+      "keys": [
+        "Alt+Shift+Space"
+      ],
+      "defaults": [
+        "Alt+Shift+Space"
+      ],
+      "fixed": null
+    },
+    {
       "id": "notebook",
       "title": "Notebook",
       "detail": "Ask your knowledge base",

@@ -25,33 +25,27 @@ import {
 } from "solid-js";
 
 import {
-  indexerDecide,
   indexerAddFolder,
   indexerReindex,
   indexerRemoveFolder,
-  indexerSearch,
   indexerStatus,
   indexerWarm,
   openNote,
   type IndexerMatch,
-  type IndexerPick,
-  type IndexerResults,
   type IndexerScope,
   type IndexerStatus,
 } from "./indexer";
+import { createAsking, pct, readScope, saveScope } from "./indexerAsking";
 import { design } from "./design";
 // Velvet Paper's sheet: loaded on first open, so Classic (and boot) never pay for it.
 const IndexerSheet = lazy(() => import("./IndexerSheet"));
 // Markdown and KaTeX for a note's answer: not on the boot path the orb is on.
 const AnswerText = lazy(() => import("./AnswerText"));
 import { indexerPanelOpen, setIndexerPanelOpen } from "./indexerOpen";
-import { pdfViewerUrl, voiceTranscribe } from "./ipc";
+import { pdfViewerUrl } from "./ipc";
 import { openTab } from "./store";
-import { micConstraints } from "./mic";
 
 type Pos = { x: number; y: number };
-type Busy = "listening" | "transcribing" | "searching" | "deciding" | null;
-
 const POS_KEY = "flux.indexer.pos";
 /** Where the music bubble was parked: the orb takes over its spot. */
 const OLD_POS_KEY = "flux.music.pos";
@@ -59,16 +53,6 @@ const PAD = 12;
 const ORB = 56;
 const PANEL_W = 420;
 const GAP = 10;
-
-/** Speech louder than this (RMS of a 4096-sample block) counts as talking. */
-const SPEECH_RMS = 0.02;
-/** This much quiet after speech ends the question. */
-const TRAILING_SILENCE_MS = 1200;
-/** Give up if nothing is said for this long, and stop any question at the cap. */
-const NO_SPEECH_MS = 6000;
-const MAX_LISTEN_MS = 15000;
-
-const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 /** The wave between the orb's dark top and silver bottom: one period every 100
  *  units, wide enough to sway across the sphere without showing an end. */
@@ -223,9 +207,29 @@ const IndexerBubble: Component = () => {
     };
   };
 
+  // ── asking ─────────────────────────────────────────────────────────────────
+  const [scope, setScopeRaw] = createSignal<IndexerScope>(readScope());
+  const asking = createAsking(scope);
+  const {
+    query,
+    setQuery,
+    busy,
+    note,
+    setNote,
+    results,
+    order,
+    page,
+    setPage,
+    level,
+    current,
+    pickedHere,
+    ask,
+    listen,
+    verdict,
+  } = asking;
+
   // ── the index ──────────────────────────────────────────────────────────────
   const [status, setStatus] = createSignal<IndexerStatus | null>(null);
-  const [note, setNote] = createSignal<string | null>(null);
   let statusT: number | undefined;
   let disposed = false;
   const refreshStatus = async (start: boolean) => {
@@ -269,33 +273,6 @@ const IndexerBubble: Component = () => {
     return s.pending ? `${what} · ${s.pending} waiting for ${s.embed_model}` : `${what} · ${s.embed_model}`;
   };
 
-  // ── asking ─────────────────────────────────────────────────────────────────
-  const [query, setQuery] = createSignal("");
-  const SCOPE_KEY = "flux.indexer.scope";
-  const [scope, setScopeRaw] = createSignal<IndexerScope>(
-    (() => {
-      try {
-        const v = localStorage.getItem(SCOPE_KEY);
-        return v === "notes" || v === "books" ? v : "all";
-      } catch {
-        return "all";
-      }
-    })(),
-  );
-  const [busy, setBusy] = createSignal<Busy>(null);
-  const [results, setResults] = createSignal<IndexerResults | null>(null);
-  /** Result indices in display order: Laya's decisive pick moves to the front. */
-  const [order, setOrder] = createSignal<number[]>([]);
-  const [page, setPage] = createSignal(0);
-  const [pick, setPick] = createSignal<IndexerPick | null>(null);
-  const [pickError, setPickError] = createSignal<string | null>(null);
-  /** Bumped per question: an answer that lands after a newer question is stale. */
-  let asked = 0;
-
-  const current = createMemo<IndexerMatch | undefined>(() => {
-    const i = order()[page()];
-    return i == null ? undefined : results()?.matches[i];
-  });
   // ── tuning (Velvet Paper) ──────────────────────────────────────────────────
   // A minimum match the reader drags on the sheet's Tuning scale: weaker matches
   // stay visible there, dimmed, but paging skips them. The backend has no floor
@@ -356,66 +333,9 @@ const IndexerBubble: Component = () => {
     }),
   );
 
-  /** Laya chose the card on screen, decisively. */
-  const pickedHere = () => {
-    const p = pick();
-    return !!p && p.decisive && order()[page()] === p.index;
-  };
-
-  const ask = async (text: string) => {
-    const q = text.trim();
-    if (!q) return;
-    const me = ++asked;
-    setNote(null);
-    setPick(null);
-    setPickError(null);
-    setBusy("searching");
-    let res: IndexerResults;
-    try {
-      // Ten, the most the Indexer gives: with notes, textbooks and a course's
-      // slides all on one topic, five left the slides just off the end.
-      res = await indexerSearch(q, 10, scope());
-    } catch (e) {
-      if (me === asked) {
-        setBusy(null);
-        setNote(String(e));
-      }
-      return;
-    }
-    if (me !== asked) return;
-    setResults(res);
-    setOrder(res.matches.map((_, i) => i));
-    setPage(0);
-    if (!res.ambiguous || res.matches.length < 2) {
-      setBusy(null);
-      return;
-    }
-    // Not clearly one card: the System 1 model picks among the closest few.
-    setBusy("deciding");
-    try {
-      const p = await indexerDecide(
-        q,
-        res.matches.map((m) => m.label),
-      );
-      if (me !== asked) return;
-      setPick(p);
-      if (p.decisive && p.index > 0) {
-        setOrder([p.index, ...res.matches.map((_, i) => i).filter((i) => i !== p.index)]);
-      }
-    } catch (e) {
-      if (me === asked) setPickError(String(e));
-    } finally {
-      if (me === asked) setBusy(null);
-    }
-  };
-
   const setScope = (s: IndexerScope) => {
     setScopeRaw(s);
-    try {
-      localStorage.setItem(SCOPE_KEY, s);
-    } catch {
-      /* private mode — it just won't stick */
-    }
+    saveScope(s);
     if (query().trim()) void ask(query());
   };
 
@@ -430,127 +350,12 @@ const IndexerBubble: Component = () => {
     void openNote(m.path).catch((e) => setNote(String(e)));
   };
 
-  const verdict = () => {
-    const m = current();
-    const r = results();
-    if (!m || !r) return null;
-    if (pickedHere())
-      return { kind: "picked", text: `System 1 pick · ${pct(pick()!.probabilities[pick()!.index] ?? 0)}` };
-    if (busy() === "deciding") return { kind: "deciding", text: "Not clear-cut — asking System 1…" };
-    if (r.ambiguous && page() === 0) {
-      if (pickError())
-        return { kind: "unsure", text: `Uncertain match · System 1 unavailable (${pickError()})` };
-      if (pick()) return { kind: "unsure", text: "Uncertain — System 1 couldn't separate the closest notes" };
-    }
-    if (m.confidence < 0.25) return { kind: "unsure", text: "No close match in your notes" };
-    return null;
-  };
-
-  // ── listening ──────────────────────────────────────────────────────────────
-  const [level, setLevel] = createSignal(0);
-  let stopListening: ((send: boolean) => void) | null = null;
-
-  const b64FromBytes = (bytes: Uint8Array) => {
-    let s = "";
-    const CH = 0x8000;
-    for (let i = 0; i < bytes.length; i += CH) s += String.fromCharCode(...bytes.subarray(i, i + CH));
-    return btoa(s);
-  };
-
-  /** Record one question: until a pause after speech, or the cap. Like the
-   *  original, it ends itself, so asking is one click. */
-  const listen = async () => {
-    if (stopListening) {
-      stopListening(true);
-      return;
-    }
-    if (busy()) return;
-    setNote(null);
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: false }));
-    } catch {
-      setNote("Microphone access was denied.");
-      return;
-    }
-    const ctx = new AudioContext();
-    const rate = ctx.sampleRate;
-    const src = ctx.createMediaStreamSource(stream);
-    const node = ctx.createScriptProcessor(4096, 1, 1);
-    const chunks: Float32Array[] = [];
-    const started = performance.now();
-    let spokeAt = 0;
-    let lastLoud = 0;
-    setBusy("listening");
-
-    const finish = (send: boolean) => {
-      if (!stopListening) return;
-      stopListening = null;
-      node.onaudioprocess = null;
-      try {
-        node.disconnect();
-        src.disconnect();
-      } catch {
-        /* already gone */
-      }
-      stream.getTracks().forEach((t) => t.stop());
-      void ctx.close();
-      setLevel(0);
-      setBusy(null);
-      if (send && spokeAt) void transcribe(chunks, rate);
-      else if (send) setNote("Didn't catch anything — try again, or type the question.");
-    };
-    stopListening = finish;
-    node.onaudioprocess = (e) => {
-      const data = e.inputBuffer.getChannelData(0);
-      chunks.push(new Float32Array(data));
-      let sum = 0;
-      for (let i = 0; i < data.length; i++) sum += data[i]! * data[i]!;
-      const rms = Math.sqrt(sum / data.length);
-      setLevel(Math.min(1, rms * 12));
-      const now = performance.now();
-      if (rms > SPEECH_RMS) {
-        lastLoud = now;
-        if (!spokeAt) spokeAt = now;
-      }
-      if (spokeAt && now - lastLoud > TRAILING_SILENCE_MS) finish(true);
-      else if (!spokeAt && now - started > NO_SPEECH_MS) finish(true);
-      else if (now - started > MAX_LISTEN_MS) finish(true);
-    };
-    src.connect(node);
-    node.connect(ctx.destination); // writes silence; needed for the callback to run
-  };
-
-  const transcribe = async (chunks: Float32Array[], rate: number) => {
-    const len = chunks.reduce((n, c) => n + c.length, 0);
-    const i16 = new Int16Array(len);
-    let o = 0;
-    for (const c of chunks) {
-      for (let i = 0; i < c.length; i++) {
-        const s = Math.max(-1, Math.min(1, c[i]!));
-        i16[o++] = s < 0 ? s * 0x8000 : s * 0x7fff;
-      }
-    }
-    setBusy("transcribing");
-    let text = "";
-    try {
-      text = (await voiceTranscribe(b64FromBytes(new Uint8Array(i16.buffer)), rate)).trim();
-    } catch (e) {
-      setNote(String(e));
-    } finally {
-      setBusy(null);
-    }
-    if (!text) return;
-    setQuery(text);
-    void ask(text);
-  };
-
   // ── open / close ───────────────────────────────────────────────────────────
   let input: HTMLInputElement | undefined;
   createEffect(
     on(indexerPanelOpen, (open) => {
       if (!open) {
-        stopListening?.(false);
+        asking.cancelListening();
         clearTimeout(statusT);
         return;
       }
@@ -565,8 +370,7 @@ const IndexerBubble: Component = () => {
     if (!indexerPanelOpen()) return;
     if (e.key === "Escape") {
       e.preventDefault();
-      if (stopListening) stopListening(false);
-      else setIndexerPanelOpen(false);
+      if (!asking.cancelListening()) setIndexerPanelOpen(false);
       return;
     }
     const typing = document.activeElement === input;
@@ -580,9 +384,8 @@ const IndexerBubble: Component = () => {
   });
   onCleanup(() => {
     disposed = true;
-    asked++;
+    asking.dispose();
     clearTimeout(statusT);
-    stopListening?.(false);
     setIndexerPanelOpen(false);
   });
 

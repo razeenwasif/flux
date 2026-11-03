@@ -474,7 +474,7 @@ export type ArchiveEntryWire = { id: number; url: string; title: string; saved_m
  * What the user asked for at launch. Managed into Tauri state; the shell
  * pulls it once on mount (`launch_intent` command) and materializes tabs.
  */
-export type LaunchIntent = { urls: string[]; terminal: boolean }
+export type LaunchIntent = { urls: string[]; terminal: boolean; ask: string | null }
 export type Reminder = { id: string; text: string; due: number | null; fired?: boolean; created?: number }
 export type MemInfo = { total_mb: number; available_mb: number; process_mb: number; available_pct: number }
 /**

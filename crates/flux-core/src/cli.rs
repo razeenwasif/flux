@@ -3,6 +3,7 @@
 //!   flux                          open with the start page
 //!   flux https://example.com …    open one tab per URL
 //!   flux -t / --terminal          open with a terminal tab focused
+//!   flux --ask [question…]        ask your notes; the answer floats over the page
 //!   flux --version / --help
 //!
 //! Hand-rolled parser on purpose: clap would add ~200 KB and ~3 s of compile
@@ -22,6 +23,9 @@ pub struct LaunchIntent {
     pub urls: Vec<String>,
     /// `--terminal`: also open (and focus) a Terminal tab.
     pub terminal: bool,
+    /// `--ask`: open the floating answer card. The words after it are the
+    /// question; with none, it listens.
+    pub ask: Option<String>,
 }
 
 /// Running under WSL? Then the GUI lives in the native Windows build (the
@@ -44,13 +48,19 @@ pub fn in_wsl() -> bool {
 /// caller decides the exit code, keeping this function trivially testable.
 pub fn parse(args: impl Iterator<Item = String>) -> Result<LaunchIntent, (String, i32)> {
     let mut intent = LaunchIntent::default();
-    for arg in args {
+    let mut args = args;
+    while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => return Err((HELP.into(), 0)),
             "-V" | "--version" => {
                 return Err((format!("flux {}", env!("CARGO_PKG_VERSION")), 0));
             }
             "-t" | "--terminal" => intent.terminal = true,
+            // The rest of the line is the question, so it needs no quotes.
+            "--ask" => {
+                let words: Vec<String> = args.by_ref().collect();
+                intent.ask = Some(words.join(" "));
+            }
             url if url.starts_with("http://") || url.starts_with("https://") => {
                 intent.urls.push(url.into());
             }
@@ -73,6 +83,7 @@ USAGE:
 
 FLAGS:
     -t, --terminal    open a terminal tab on launch
+    --ask [QUESTION]  ask your notes, answer over the page (no question: listen)
     -h, --help        print this help
     -V, --version     print version
 
@@ -151,6 +162,19 @@ mod tests {
             .map(|s| s.to_string())
             .collect::<Vec<_>>()
             .into_iter()
+    }
+
+    #[test]
+    fn ask_takes_the_rest_of_the_line_as_its_question() {
+        let parse_of = |a: &[&str]| parse(a.iter().map(|s| s.to_string())).unwrap();
+        assert_eq!(parse_of(&["--ask"]).ask.as_deref(), Some(""));
+        assert_eq!(
+            parse_of(&["--ask", "what", "is", "KKT?"]).ask.as_deref(),
+            Some("what is KKT?")
+        );
+        // Not a URL to open, though it has no scheme.
+        assert!(parse_of(&["--ask", "example.com"]).urls.is_empty());
+        assert_eq!(parse_of(&["example.com"]).ask, None);
     }
 
     #[test]

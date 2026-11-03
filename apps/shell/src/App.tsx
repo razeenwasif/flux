@@ -63,6 +63,7 @@ import {
   onVaultSaved,
   onVaultSavePrompt,
   onUpdateReady,
+  hudClose,
   onVaultFillRequest,
   onSentinelInputWarning,
   onFindResult,
@@ -394,6 +395,10 @@ const App: Component = () => {
   // decision reads it, never a hand-rolled boolean chain — chains drifted apart
   // and dropped newer flags (the split-view and home-widget hide bugs).
   const overlayActive = () => pageOverlayActive();
+  // The floating answer card is a webview, so it would sit above any overlay.
+  createEffect(() => {
+    if (overlayActive()) void hudClose().catch(() => {});
+  });
   const uiDragging = () => splitDragging() || panelDragging();
 
   // Resizable pane widths (px), persisted across sessions (BACKLOG #27).

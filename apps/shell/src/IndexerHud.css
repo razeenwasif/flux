@@ -1,0 +1,57 @@
+/* The floating answer card (IndexerHud.tsx), in a webview of its own over the
+   page. Everything around the card has to stay see-through, and theme.css gives
+   the chrome's window an opaque background. */
+html,
+body {
+  background: transparent !important;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+html.hud-scrolls,
+html.hud-scrolls body {
+  overflow-y: auto;
+}
+#root {
+  /* Room for the shadow inside the webview's bounds. */
+  padding: 8px;
+  height: auto;
+}
+.hud {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--flux-border);
+  background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  color: var(--flux-text);
+}
+.hud .idx-card {
+  flex: none;
+}
+.hud .idx-answer {
+  flex: none;
+  overflow: visible;
+}
+.hud-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 16px;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+}
+.hud-level {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--flux-teal);
+  transform: scale(calc(0.6 + var(--lvl, 0) * 1.4));
+}
+.hud-note {
+  font-size: 12px;
+  color: var(--flux-warn);
+}

@@ -37,6 +37,7 @@ pub mod framing;
 pub mod fsroots;
 pub mod gemini;
 pub mod hibernate;
+pub mod hud;
 pub mod history;
 pub mod import;
 pub mod https;
@@ -357,6 +358,7 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
         data_dir.as_ref().map(|d| d.join("keys.json")),
     ));
     keys::install_menu(app.handle());
+    hud::bind(app.handle());
     app.manage(formhelp::FormHelpState::load(
         app.path()
             .app_data_dir()
@@ -1079,6 +1081,10 @@ pub fn run(intent: cli::LaunchIntent) {
                 if intent.terminal {
                     let _ = app.emit("flux://shortcut", "new-terminal");
                 }
+                if let Some(words) = intent.ask {
+                    hud::toggle(app, hud::question_of(&words));
+                    return; // it takes the focus itself, over the page
+                }
             }
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.unminimize();
@@ -1098,7 +1104,9 @@ pub fn run(intent: cli::LaunchIntent) {
         )
         // Signed updates from GitHub Releases (update.rs, #26). Driven from
         // Rust only: no updater permission is granted to the shell.
-        .plugin(tauri_plugin_updater::Builder::new().build());
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // The floating answer card's system-wide hotkey (hud.rs).
+        .plugin(hud::plugin());
     // Mobile: the native android.webkit.WebView stack that renders browser tabs
     // (ADR 0012, Milestone 2); driven by webview.rs's mobile arm.
     #[cfg(mobile)]
@@ -1281,6 +1289,10 @@ pub fn run(intent: cli::LaunchIntent) {
             darkmode::darkmode_set,
             nav::nav_status,
             nav::nav_set,
+            hud::hud_toggle,
+            hud::hud_close,
+            hud::hud_resize,
+            hud::hud_take_question,
             update::update_status,
             update::update_check,
             update::update_set_auto,
