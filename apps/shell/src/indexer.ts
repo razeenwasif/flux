@@ -1,14 +1,27 @@
 // The Indexer orb's commands (indexer.rs). A module of its own rather than
 // ipc.ts: only the lazily loaded orb uses them, and ipc.ts is in the entry chunk.
 import { invoke } from "@tauri-apps/api/core";
-import type { IndexerPick, IndexerResults, IndexerStatus } from "./bindings.gen";
+import type { IndexerBooksFolder, IndexerPick, IndexerResults, IndexerStatus } from "./bindings.gen";
 
-export type { IndexerMatch, IndexerPick, IndexerResults, IndexerShelf, IndexerStatus } from "./bindings.gen";
+export type {
+  IndexerBooksFolder,
+  IndexerMatch,
+  IndexerPick,
+  IndexerResults,
+  IndexerShelf,
+  IndexerStatus,
+} from "./bindings.gen";
 
 /** State of the index; the first call of a session starts an incremental build. */
 export const indexerStatus = () => invoke<IndexerStatus>("indexer_status");
 /** Re-read changed notes in the background. */
 export const indexerReindex = () => invoke<IndexerStatus>("indexer_reindex");
+/** The main books folder, for Settings. Doesn't load the index. */
+export const indexerBooksFolder = () => invoke<IndexerBooksFolder>("indexer_books_folder");
+/** Choose the main books folder (null: back to the default); starts reading it.
+ *  Rejects with why a path won't do. */
+export const indexerSetBooksFolder = (path: string | null) =>
+  invoke<IndexerBooksFolder>("indexer_set_books_folder", { path });
 /** Read the PDFs in another folder too (lecture slides, say); starts reading. */
 export const indexerAddFolder = (path: string) => invoke<IndexerStatus>("indexer_add_folder", { path });
 /** Stop reading a folder added with `indexerAddFolder`. */

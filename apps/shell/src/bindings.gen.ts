@@ -424,6 +424,11 @@ export type IndexerMatch = { label: string; question: string; answer: string; ke
  */
 export type IndexerResults = { matches: IndexerMatch[]; ambiguous: boolean; semantic: boolean }
 /**
+ * Settings' view of the main books folder. Reading it doesn't touch the index,
+ * so opening Settings loads nothing.
+ */
+export type IndexerBooksFolder = { path: string; default_path: string; chosen: boolean; from_env: boolean; missing: boolean }
+/**
  * A folder of PDFs the Indexer reads.
  */
 export type IndexerShelf = { path: string; books: number; added: boolean }

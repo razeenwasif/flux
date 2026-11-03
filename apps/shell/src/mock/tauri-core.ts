@@ -356,6 +356,15 @@ for (let n = Number(previewParams.get("previewTabs")) || 0; n > 0; n--) {
 // IPC a UI event causes.
 const ipcLog: string[] = [];
 (window as unknown as { __fluxPreviewIpc: string[] }).__fluxPreviewIpc = ipcLog;
+// The Indexer's main books folder (indexer.rs `books-folder.txt`).
+let mockChosenBooks: string | null = null;
+const mockBooksFolder = () => ({
+  path: mockChosenBooks ?? "/Users/preview/Documents/Books",
+  default_path: "/Users/preview/Documents/Books",
+  chosen: mockChosenBooks != null,
+  from_env: false,
+  missing: false,
+});
 // The Indexer's folders of PDFs added in its panel (indexer.rs `folders.json`).
 let mockIndexerFolders: string[] = [];
 const mockIndexerStatus = () => ({
@@ -2258,6 +2267,20 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "set_window_acrylic":
       return Promise.resolve(undefined as T);
     // The Indexer, so its sheet (and the Tuning scale) has something to show.
+    case "indexer_books_folder":
+      return Promise.resolve(mockBooksFolder() as T);
+    case "indexer_set_books_folder": {
+      const path =
+        args?.path == null
+          ? null
+          : String(args.path)
+              .replace(/^~(?=\/|$)/, "/Users/preview")
+              .replace(/\/+$/, "");
+      if (path != null && !path.startsWith("/"))
+        return Promise.reject("Give the folder's full path, or one starting with ~/");
+      mockChosenBooks = path;
+      return Promise.resolve(mockBooksFolder() as T);
+    }
     case "indexer_add_folder": {
       const path = String(args?.path ?? "")
         .replace(/^~(?=\/|$)/, "/Users/preview")

@@ -28,14 +28,15 @@ use crate::files::{DirListing, FileEntry, QuickLocation};
 use crate::hibernate::{EvictionRank, HibernateCandidate};
 use crate::history::HistoryEntry;
 use crate::https::HttpsStatus;
-use crate::indexer::{IndexerMatch, IndexerPick, IndexerResults, IndexerShelf, IndexerStatus};
+use crate::indexer::{
+    IndexerBooksFolder, IndexerMatch, IndexerPick, IndexerResults, IndexerShelf, IndexerStatus,
+};
 use crate::kb::{KbCheck, KbHit, KbRecentItem, KbSourceStat, KbStatus};
 use crate::leanmode::LeanStatus;
 use crate::macros::{Macro, MacroStatus, Step};
 use crate::mem::MemInfo;
 use crate::netspeed::SpeedResult;
 use crate::permissions::{PermAsk, PermDecision, PermKind, SitePerm};
-use crate::update::UpdateStatus;
 use crate::places::Place;
 use crate::prefetch::PrefetchHint;
 use crate::pwa::PwaApp;
@@ -55,6 +56,7 @@ use crate::taskmgr::{DiskInfo, GpuInfo, NetIface, ProcInfo, SysStats};
 use crate::todos::Todo;
 use crate::trackers::{TrackerEdge, TrackerGraph, TrackerNode};
 use crate::tui_apps::TuiApp;
+use crate::update::UpdateStatus;
 use crate::vault::{
     CredentialMeta, FillChoice, VaultDiag, VaultFillRequest, VaultSavePrompt, VaultStatus,
 };
@@ -216,6 +218,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<KbStatus>(&c),
         specta::ts::export::<IndexerMatch>(&c),
         specta::ts::export::<IndexerResults>(&c),
+        specta::ts::export::<IndexerBooksFolder>(&c),
         specta::ts::export::<IndexerShelf>(&c),
         specta::ts::export::<IndexerStatus>(&c),
         specta::ts::export::<IndexerPick>(&c),

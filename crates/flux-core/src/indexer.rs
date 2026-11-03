@@ -17,8 +17,9 @@
 //! It's optional. Unreachable, the orb says the match is uncertain and shows the
 //! candidates.
 //!
-//! Books are a second source: every PDF in a books folder (`~/Documents/Books`,
-//! or `FLUX_INDEXER_BOOKS`, plus any folders added in the panel, such as a
+//! Books are a second source: every PDF in a books folder (`FLUX_INDEXER_BOOKS`,
+//! else the one chosen in Settings, else `~/Documents/Books`, plus any folders
+//! added in the panel, such as a
 //! folder of lecture slides), read with poppler's `pdftotext` and cut into
 //! passages of about a page, each a card titled by book and page. A book's
 //! first index takes a while (about a thousand passages a minute), so a build
@@ -2006,6 +2007,22 @@ pub struct IndexerResults {
     pub semantic: bool,
 }
 
+/// Settings' view of the main books folder. Reading it doesn't touch the index,
+/// so opening Settings loads nothing.
+#[derive(Serialize, Clone, Debug, PartialEq, specta::Type)]
+pub struct IndexerBooksFolder {
+    /// The folder in use, whether or not it's there right now.
+    pub path: String,
+    /// `~/Documents/Books`: what "Use the default" goes back to.
+    pub default_path: String,
+    /// Chosen in Settings, rather than the default.
+    pub chosen: bool,
+    /// `FLUX_INDEXER_BOOKS` is set, which outranks the setting.
+    pub from_env: bool,
+    /// The folder isn't there (a drive that's not plugged in, say).
+    pub missing: bool,
+}
+
 /// A folder of PDFs the Indexer reads.
 #[derive(Serialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct IndexerShelf {
@@ -2150,10 +2167,62 @@ impl IndexerState {
         std::fs::rename(&tmp, dir.join(FOLDERS_FILE)).map_err(|e| e.to_string())
     }
 
-    /// The books folders to read: the default one, then those added, each once
+    /// The books folder chosen in Settings, as saved beside the index.
+    fn chosen_books(&self) -> Option<PathBuf> {
+        let text = std::fs::read_to_string(self.dir.as_ref()?.join(BOOKS_FILE)).ok()?;
+        let path = text.trim();
+        (!path.is_empty()).then(|| PathBuf::from(path))
+    }
+
+    /// Choose the main books folder (`None`: back to the default). A folder that
+    /// was added in the panel moves here, so it isn't listed as both.
+    fn set_books_folder(&self, path: Option<&str>) -> Result<(), String> {
+        let Some(dir) = &self.dir else {
+            return Ok(());
+        };
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let file = dir.join(BOOKS_FILE);
+        let Some(path) = path else {
+            return match std::fs::remove_file(&file) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+                _ => Ok(()),
+            };
+        };
+        let full = folder_from_input(path)?;
+        let tmp = dir.join(format!("{BOOKS_FILE}.tmp"));
+        std::fs::write(&tmp, full.to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &file).map_err(|e| e.to_string())?;
+        let mut added = self.added_folders();
+        if added.contains(&full) {
+            added.retain(|f| *f != full);
+            self.save_folders(&added)?;
+        }
+        Ok(())
+    }
+
+    fn books_folder(&self) -> IndexerBooksFolder {
+        let from_env = books_env().is_some();
+        let chosen = self.chosen_books();
+        let path = main_books(chosen.clone());
+        IndexerBooksFolder {
+            missing: !path.as_ref().is_some_and(|p| p.is_dir()),
+            path: path.map_or_else(String::new, |p| p.to_string_lossy().into_owned()),
+            default_path: default_books()
+                .map_or_else(String::new, |p| p.to_string_lossy().into_owned()),
+            chosen: chosen.is_some(),
+            from_env,
+        }
+    }
+
+    /// The main books folder, if it's there right now.
+    fn books_dir(&self) -> Option<PathBuf> {
+        main_books(self.chosen_books()).filter(|p| p.is_dir())
+    }
+
+    /// The books folders to read: the main one, then those added, each once
     /// and only while it exists.
     fn book_folders(&self) -> Vec<PathBuf> {
-        let mut out: Vec<PathBuf> = books_dir().into_iter().collect();
+        let mut out: Vec<PathBuf> = self.books_dir().into_iter().collect();
         for f in self.added_folders() {
             if f.is_dir() && !out.contains(&f) {
                 out.push(f);
@@ -2165,25 +2234,9 @@ impl IndexerState {
     /// Add a books folder. `~/` is the home folder; anything else must be an
     /// absolute path to a folder.
     fn add_folder(&self, path: &str) -> Result<(), String> {
-        let path = path.trim();
-        let full = match path
-            .strip_prefix("~/")
-            .or(if path == "~" { Some("") } else { None })
-        {
-            Some(rest) => home_dir().ok_or("no home folder")?.join(rest),
-            None => PathBuf::from(path),
-        };
-        if !full.is_absolute() {
-            return Err("Give the folder's full path, or one starting with ~/".into());
-        }
-        let full = full
-            .canonicalize()
-            .map_err(|_| format!("There's no folder at {}", full.display()))?;
-        if !full.is_dir() {
-            return Err(format!("{} is a file, not a folder", full.display()));
-        }
+        let full = folder_from_input(path)?;
         let mut folders = self.added_folders();
-        if folders.contains(&full) || books_dir().as_ref() == Some(&full) {
+        if folders.contains(&full) || self.books_dir().as_ref() == Some(&full) {
             return Ok(());
         }
         folders.push(full);
@@ -2344,7 +2397,7 @@ impl IndexerState {
         if roots.is_empty() {
             return Err(
                 "No Onyx vault or books folder found. Set the vault in the Notebook \
-                 (Onyx source), add a folder here, or create ~/OnyxVault or ~/Documents/Books."
+                 (Onyx source), add a folder here, or choose a books folder in Settings."
                     .into(),
             );
         }
@@ -2821,8 +2874,8 @@ fn parse_pick(value: &serde_json::Value, n: usize) -> Result<IndexerPick, String
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
-/// The Onyx vault and the books folders (`FLUX_INDEXER_BOOKS`, else
-/// `~/Documents/Books`, then any added in the panel), whichever exist.
+/// The Onyx vault and the books folders (the main one, then any added in the
+/// panel), whichever exist.
 fn sources(kb: &crate::kb::KbStore, state: &IndexerState) -> Sources {
     Sources {
         notes: crate::kb::onyx_vault(kb.source_location("onyx").as_deref()),
@@ -2832,6 +2885,8 @@ fn sources(kb: &crate::kb::KbStore, state: &IndexerState) -> Sources {
 
 /// The books folders added in the panel, beside the index.
 const FOLDERS_FILE: &str = "folders.json";
+/// The books folder chosen in Settings, beside the index.
+const BOOKS_FILE: &str = "books-folder.txt";
 
 fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
@@ -2839,12 +2894,44 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-fn books_dir() -> Option<PathBuf> {
-    let dir = match std::env::var_os("FLUX_INDEXER_BOOKS").filter(|p| !p.is_empty()) {
-        Some(p) => PathBuf::from(p),
-        None => home_dir()?.join("Documents").join("Books"),
+fn books_env() -> Option<PathBuf> {
+    std::env::var_os("FLUX_INDEXER_BOOKS")
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+}
+
+fn default_books() -> Option<PathBuf> {
+    Some(home_dir()?.join("Documents").join("Books"))
+}
+
+/// Which folder is the main books folder: `FLUX_INDEXER_BOOKS`, then the one
+/// chosen in Settings, then the default. There or not: a chosen folder on a
+/// drive that isn't plugged in is still the choice, not a reason to read another.
+fn main_books(chosen: Option<PathBuf>) -> Option<PathBuf> {
+    books_env().or(chosen).or_else(default_books)
+}
+
+/// A folder as typed: `~/` is the home folder; anything else must be an absolute
+/// path to a folder. Canonical, so one folder has one spelling.
+fn folder_from_input(path: &str) -> Result<PathBuf, String> {
+    let path = path.trim();
+    let full = match path
+        .strip_prefix("~/")
+        .or(if path == "~" { Some("") } else { None })
+    {
+        Some(rest) => home_dir().ok_or("no home folder")?.join(rest),
+        None => PathBuf::from(path),
     };
-    dir.is_dir().then_some(dir)
+    if !full.is_absolute() {
+        return Err("Give the folder's full path, or one starting with ~/".into());
+    }
+    let full = full
+        .canonicalize()
+        .map_err(|_| format!("There's no folder at {}", full.display()))?;
+    if !full.is_dir() {
+        return Err(format!("{} is a file, not a folder", full.display()));
+    }
+    Ok(full)
 }
 
 /// The index's state. The first call of a session also starts an incremental
@@ -2877,6 +2964,30 @@ pub async fn indexer_reindex(
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// The main books folder, for Settings. Doesn't load the index.
+#[tauri::command]
+pub fn indexer_books_folder(state: State<'_, IndexerState>) -> IndexerBooksFolder {
+    state.books_folder()
+}
+
+/// Choose the main books folder (`None`: back to the default) and start reading
+/// it. Books that were only in the old folder leave the index.
+#[tauri::command]
+pub async fn indexer_set_books_folder(
+    state: State<'_, IndexerState>,
+    kb: State<'_, crate::kb::KbStore>,
+    path: Option<String>,
+) -> Result<IndexerBooksFolder, String> {
+    let (state, kb) = ((*state).clone(), (*kb).clone());
+    tauri::async_runtime::spawn_blocking(move || {
+        state.set_books_folder(path.as_deref())?;
+        state.start_build(sources(&kb, &state));
+        Ok(state.books_folder())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Read the PDFs in another folder too (a folder of lecture slides, say), and
@@ -3567,6 +3678,67 @@ mod tests {
         );
         state.remove_folder(&canonical.to_string_lossy()).unwrap();
         assert!(state.added_folders().is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_chosen_books_folder_is_kept_and_counts_once() {
+        let root = std::env::temp_dir().join(format!("flux-idx-chosen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let shelf = root.join("Shelf");
+        std::fs::create_dir_all(&shelf).unwrap();
+        let state = IndexerState::new(Some(root.join("index")));
+        assert!(
+            !state.books_folder().chosen,
+            "the default until one's chosen"
+        );
+
+        assert!(
+            state.set_books_folder(Some("Shelf")).is_err(),
+            "a relative path"
+        );
+        assert!(state
+            .set_books_folder(Some(&root.join("nowhere").to_string_lossy()))
+            .is_err());
+        assert!(
+            !state.books_folder().chosen,
+            "a refused choice changes nothing"
+        );
+
+        // It was added in the panel first: choosing it moves it, not doubles it.
+        state.add_folder(&shelf.to_string_lossy()).unwrap();
+        state
+            .set_books_folder(Some(&format!("{}/", shelf.to_string_lossy())))
+            .unwrap();
+        let canonical = shelf.canonicalize().unwrap();
+        assert!(state.added_folders().is_empty());
+        assert_eq!(
+            state
+                .book_folders()
+                .iter()
+                .filter(|f| **f == canonical)
+                .count(),
+            1
+        );
+        // Adding the main folder again is a no-op.
+        state.add_folder(&shelf.to_string_lossy()).unwrap();
+        assert!(state.added_folders().is_empty());
+
+        // Kept with the index, so it outlives the session.
+        let again = IndexerState::new(Some(root.join("index")));
+        assert_eq!(again.chosen_books(), Some(canonical.clone()));
+        assert!(again.books_folder().chosen);
+
+        // A drive that isn't plugged in: still the choice, and nothing else is
+        // read in its place.
+        std::fs::remove_dir_all(&shelf).unwrap();
+        let gone = again.books_folder();
+        assert!(gone.chosen && gone.missing);
+        assert!(!again.book_folders().contains(&canonical));
+
+        again.set_books_folder(None).unwrap();
+        assert!(!again.books_folder().chosen);
+        again.set_books_folder(None).unwrap();
         let _ = std::fs::remove_dir_all(&root);
     }
 

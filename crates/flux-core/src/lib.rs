@@ -1644,6 +1644,8 @@ pub fn run(intent: cli::LaunchIntent) {
             kb::kb_status,
             indexer::indexer_status,
             indexer::indexer_reindex,
+            indexer::indexer_books_folder,
+            indexer::indexer_set_books_folder,
             indexer::indexer_add_folder,
             indexer::indexer_remove_folder,
             indexer::indexer_search,
