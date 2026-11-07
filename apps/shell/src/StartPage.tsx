@@ -64,6 +64,8 @@ import ClockWidget from "./ClockWidget";
 import Converter from "./Converter";
 import { askConfirm } from "./ask";
 import { design } from "./design";
+import { wallpaper } from "./wallpaper";
+import { silkWaves } from "./start/silkWavesPref";
 import { focusLine } from "./focusGate";
 import SiteIcon from "./start/SiteIcon";
 // Velvet Paper's own cards (design.ts): split out so Classic never loads them and
@@ -73,6 +75,7 @@ const TodayStrip = lazy(() => import("./start/TodayStrip"));
 const VpMailCard = lazy(() => import("./start/VpMailCard"));
 const VpTodayCard = lazy(() => import("./start/VpTodayCard"));
 const SilkDock = lazy(() => import("./start/SilkDock"));
+const SilkWaves = lazy(() => import("./start/SilkWaves"));
 
 /** A shortcut's name for a pill: the site's own name where we know it, else
  *  its hostname. */
@@ -1931,6 +1934,12 @@ const StartPage: Component<{
       <Suspense>
         <SilkDock />
       </Suspense>
+      {/* Opal in motion: the wallpaper moves in slow waves while home shows. */}
+      <Show when={wallpaper() === "opal" && silkWaves()}>
+        <Suspense>
+          <SilkWaves />
+        </Suspense>
+      </Show>
     </div>
   );
 

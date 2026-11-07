@@ -233,6 +233,12 @@
 :root[data-design][data-silk][data-silk-drift]:not([data-reading]) body::before {
   animation: silk-drift 70s ease-in-out infinite alternate;
 }
+/* Opal in motion (SilkWaves.tsx): a canvas under this layer draws the moving
+   silk, so this keeps only the scrim. Off again while reading, so the still,
+   dimmed image takes over. */
+:root[data-design][data-silk][data-silk-waves]:not([data-reading]) body::before {
+  background-image: var(--silk-scrim);
+}
 @keyframes silk-drift {
   from {
     transform: scale(1) translate(0, 0);

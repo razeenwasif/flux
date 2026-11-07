@@ -38,6 +38,7 @@ import {
   stepBack,
   wallpaper,
 } from "./wallpaper";
+import { setSilkWaves, silkWaves } from "./start/silkWavesPref";
 import {
   ARCHIVE_URL,
   BOOKMARKS_URL,
@@ -1029,6 +1030,14 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             <Row label="Step back while reading" hint="Dim and soften the wallpaper behind an open web page.">
               <Toggle on={stepBack()} onClick={() => setStepBack(!stepBack())} />
             </Row>
+            <Show when={wallpaper() === "opal"}>
+              <Row
+                label="Opal waves"
+                hint="Opal moves in slow waves on the home page. Pauses when Flux isn't in front, and stays still when Reduce Motion is on."
+              >
+                <Toggle on={silkWaves()} onClick={() => setSilkWaves(!silkWaves())} />
+              </Row>
+            </Show>
             <Row
               label="Slow drift"
               hint="The home wallpaper moves very slowly. Stays still when Reduce Motion is on."
