@@ -121,7 +121,7 @@ const RestyleCard = lazy(() => import("./RestyleCard"));
 const CITE_MARK = /\[P\d+(?:\s*,\s*P\d+)*\]/gi;
 import { looksLikeNoteWrite } from "./noteintent";
 import { isCaptureRequest, isOnyxSave, savesLastAnswer } from "./onyxintent";
-import { DAY_MONTH, MONTH_DAY, looksLikeCalendarQuery } from "./calendarintent";
+import { looksLikeCalendarQuery } from "./calendarintent";
 import { looksAgentic } from "./agentintent";
 import { joinPath, resolveAgentPath } from "./agentpaths";
 import { parseSummarise, summariseRequest } from "./agentsteps";
@@ -2066,139 +2066,12 @@ const AgentPanel: Component = () => {
   };
 
   // ── Calendar (#114): Gemma reads + writes the home calendar (local events) ───
-  const pad2c = (n: number) => String(n).padStart(2, "0");
-  const isoOf = (d: Date) => `${d.getFullYear()}-${pad2c(d.getMonth() + 1)}-${pad2c(d.getDate())}`;
-  const hmOf = (d: Date) => `${pad2c(d.getHours())}:${pad2c(d.getMinutes())}`;
-  const WEEKDAYS_L = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-  const MONTHS_L = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-  const dayLabelOf = (iso: string) => {
-    const d = new Date(`${iso}T00:00`);
-    const t = isoOf(new Date());
-    if (iso === t) return "Today";
-    if (iso === isoOf(new Date(Date.now() + 864e5))) return "Tomorrow";
-    return d.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
-  };
-
-  /** Parse a date/time/duration out of a scheduling phrase. Returns the matched
-   *  date/start/end plus the remaining text (the event title); `dated` says
-   *  whether the phrase named a day, before the today/tomorrow default. */
-  const parseEventSpec = (
-    input: string,
-  ): { date: string; start: string; end: string; title: string; dated: boolean } => {
-    let rest = input;
-    const now = new Date();
-    let date: Date | null = null;
-    let start: string = "";
-    let durMin = 60;
-    const cut = (re: RegExp) => {
-      const m = rest.match(re);
-      if (m) {
-        rest = (rest.slice(0, m.index) + rest.slice(m.index! + m[0].length)).replace(/\s{2,}/g, " ").trim();
-      }
-      return m;
-    };
-
-    // Duration — "for 90 min" / "for 2 hours".
-    {
-      const m = cut(/\bfor\s+(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b/i);
-      if (m) {
-        const n = Number(m[1]);
-        durMin = /^h/i.test(m[2]!) ? Math.round(n * 60) : Math.round(n);
-      }
-    }
-
-    // Date — today / tomorrow / weekday / "next week" / month-day.
-    if (cut(/\btoday\b/i)) date = new Date(now);
-    else if (cut(/\btomorrow\b/i)) date = new Date(now.getTime() + 864e5);
-    else {
-      const wd = cut(new RegExp(`\\b(next\\s+|this\\s+|on\\s+)?(${WEEKDAYS_L.join("|")})\\b`, "i"));
-      if (wd) {
-        const target = WEEKDAYS_L.indexOf(wd[2]!.toLowerCase());
-        let delta = (target - now.getDay() + 7) % 7;
-        if (/next/i.test(wd[1] ?? "")) delta += 7;
-        date = new Date(now.getTime() + delta * 864e5);
-      } else if (cut(/\bnext\s+week\b/i)) {
-        date = new Date(now.getTime() + 7 * 864e5);
-      } else {
-        const mo = cut(MONTH_DAY) || cut(DAY_MONTH);
-        if (mo) {
-          const firstIsMonth = MONTHS_L.includes(mo[1]!.slice(0, 3).toLowerCase());
-          const monIdx = MONTHS_L.indexOf((firstIsMonth ? mo[1]! : mo[2]!).slice(0, 3).toLowerCase());
-          const dayNum = Number(firstIsMonth ? mo[2]! : mo[1]!);
-          let y = now.getFullYear();
-          if (new Date(y, monIdx, dayNum).getTime() < now.getTime() - 864e5) y += 1; // already passed → next year
-          date = new Date(y, monIdx, dayNum);
-        }
-      }
-    }
-
-    // Time — "at 3[:30] pm" / "3pm" / "noon" / "midnight".
-    if (cut(/\b(?:at\s+)?noon\b/i)) start = "12:00";
-    else if (cut(/\b(?:at\s+)?midnight\b/i)) start = "00:00";
-    else {
-      const tm =
-        cut(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i) || cut(/\bat\s+(\d{1,2})(?::(\d{2}))?\b/i);
-      if (tm) {
-        let h = Number(tm[1]);
-        const mi = tm[2] ? Number(tm[2]) : 0;
-        const ap = (tm[3] ?? "").toLowerCase();
-        if (ap === "pm" && h < 12) h += 12;
-        if (ap === "am" && h === 12) h = 0;
-        start = `${pad2c(h)}:${pad2c(mi)}`;
-      }
-    }
-
-    const dated = date !== null;
-    if (!date) {
-      // No explicit date: if a time was given and it's already past today, use tomorrow.
-      date = new Date(now);
-      if (start) {
-        const [h, m] = start.split(":").map(Number);
-        const cand = new Date(now);
-        cand.setHours(h!, m!, 0, 0);
-        if (cand.getTime() <= now.getTime()) date = new Date(now.getTime() + 864e5);
-      }
-    }
-    let end = "";
-    if (start) {
-      const [h, m] = start.split(":").map(Number);
-      const e = new Date(0);
-      e.setHours(h!, (m ?? 0) + durMin, 0, 0);
-      end = hmOf(e);
-    }
-    // Clean leftover connective words from the title.
-    const title = rest
-      .replace(/^(?:to|for|about|:|-|–)\s+/i, "")
-      .replace(/\b(?:on|in|to)\s+(?:my\s+)?calendar\b/gi, "")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-    return { date: isoOf(date), start, end, title, dated };
-  };
-
-  const calRange = (text: string): { lo: string; hi: string; label: string } => {
-    const today = new Date();
-    const t = isoOf(today);
-    if (/\btomorrow\b/i.test(text)) {
-      const d = isoOf(new Date(Date.now() + 864e5));
-      return { lo: d, hi: d, label: "tomorrow" };
-    }
-    if (/\b(this\s+)?week\b|\bnext\s+7\b|\bcoming\s+up\b|\bupcoming\b/i.test(text))
-      return { lo: t, hi: isoOf(new Date(Date.now() + 7 * 864e5)), label: "this week" };
-    for (let i = 0; i < 7; i++) {
-      if (new RegExp(`\\b${WEEKDAYS_L[i]}\\b`, "i").test(text)) {
-        const delta = (i - today.getDay() + 7) % 7;
-        const d = isoOf(new Date(Date.now() + delta * 864e5));
-        return { lo: d, hi: d, label: dayLabelOf(d) };
-      }
-    }
-    if (/\btoday\b|\bright now\b/i.test(text)) return { lo: t, hi: t, label: "today" };
-    return { lo: t, hi: isoOf(new Date(Date.now() + 7 * 864e5)), label: "the next 7 days" };
-  };
 
   /** Read the calendar — "what's on my calendar today / this week / friday". */
   const tryCalendarQuery = async (text: string): Promise<boolean> => {
     if (!looksLikeCalendarQuery(text)) return false;
-    const { lo, hi, label } = calRange(text);
+    const dates = await import("./agentdates");
+    const { lo, hi, label } = dates.calRange(text);
     setFeed((f) => [...f, { role: "task", text: "📅 Checking your calendar…" }]);
     let evs;
     try {
@@ -2221,7 +2094,7 @@ const AgentPanel: Component = () => {
     const body = groups
       .map(
         (g) =>
-          `**${dayLabelOf(g.date)}**\n` +
+          `**${dates.dayLabelOf(g.date)}**\n` +
           g.items
             .map(
               (e) =>
@@ -2240,7 +2113,8 @@ const AgentPanel: Component = () => {
       /^(?:schedule|book|plan|add|create|put|set\s*up|new)\b\s*(?:an?\s+)?(?:event|meeting|appointment|call)?\s*[:\-]?\s*([\s\S]+)/i,
     );
     if (!m?.[1]) return false;
-    const spec = parseEventSpec(m[1]);
+    const dates = await import("./agentdates");
+    const spec = dates.parseEventSpec(m[1]);
     // Only a parsed time, a parsed day, or an explicit calendar word. Bare "on" /
     // "next" let "add error handling on the parser" through as an all-day event.
     if (!spec.start && !spec.dated && !/\b(?:calendar|event|meeting|appointment|all[\s-]?day)\b/i.test(text))
@@ -2253,8 +2127,8 @@ const AgentPanel: Component = () => {
     try {
       const ev = await calEventAdd({ title: spec.title, date: spec.date, start: spec.start, end: spec.end });
       const when = spec.start
-        ? `${dayLabelOf(spec.date)} at ${spec.start}${spec.end ? `–${spec.end}` : ""}`
-        : `${dayLabelOf(spec.date)} (all day)`;
+        ? `${dates.dayLabelOf(spec.date)} at ${spec.start}${spec.end ? `–${spec.end}` : ""}`
+        : `${dates.dayLabelOf(spec.date)} (all day)`;
       setFeed((f) => [...f, { role: "action", text: `✓ Added "${ev.title}" — ${when}` }]);
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
@@ -2276,6 +2150,7 @@ const AgentPanel: Component = () => {
       /^(?:delete|cancel|remove|clear)\s+(?:the\s+|my\s+)?(?:event\s+|meeting\s+|appointment\s+)?(.+?)(?:\s+(?:event|meeting|appointment))?(?:\s+(?:from|on|in|off)\s+(?:my\s+)?calendar)?\s*$/i,
     );
     if (!m?.[1]) return false;
+    const dates = await import("./agentdates");
     const q = m[1].replace(/\b(?:event|meeting|appointment)\b/gi, "").trim();
     if (!q) return false;
     const hits = await findLocalByTitle(q);
@@ -2294,7 +2169,7 @@ const AgentPanel: Component = () => {
         ...f,
         {
           role: "assistant",
-          text: `I found ${hits.length} matching events:\n${hits.map((e) => `• ${e.title} — ${dayLabelOf(e.date)}${e.start ? ` ${e.start}` : ""}`).join("\n")}\nWhich one? Be more specific.`,
+          text: `I found ${hits.length} matching events:\n${hits.map((e) => `• ${e.title} — ${dates.dayLabelOf(e.date)}${e.start ? ` ${e.start}` : ""}`).join("\n")}\nWhich one? Be more specific.`,
         },
       ]);
       return true;
@@ -2302,7 +2177,10 @@ const AgentPanel: Component = () => {
     const ev = hits[0]!;
     try {
       await calEventDelete(ev.id);
-      setFeed((f) => [...f, { role: "action", text: `✓ Deleted "${ev.title}" (${dayLabelOf(ev.date)}).` }]);
+      setFeed((f) => [
+        ...f,
+        { role: "action", text: `✓ Deleted "${ev.title}" (${dates.dayLabelOf(ev.date)}).` },
+      ]);
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
     }
@@ -2315,7 +2193,9 @@ const AgentPanel: Component = () => {
       /^(?:move|reschedule|shift|push|change)\s+(?:the\s+|my\s+)?(.+?)\s+to\s+([\s\S]+)$/i,
     );
     if (!m?.[1] || !m[2]) return false;
-    if (!/\b(calendar|event|meeting|appointment)\b/i.test(text) && !parseEventSpec(m[2]).start) return false;
+    const dates = await import("./agentdates");
+    if (!/\b(calendar|event|meeting|appointment)\b/i.test(text) && !dates.parseEventSpec(m[2]).start)
+      return false;
     const q = m[1].replace(/\b(?:event|meeting|appointment)\b/gi, "").trim();
     const hits = await findLocalByTitle(q);
     if (!hits.length) {
@@ -2339,7 +2219,7 @@ const AgentPanel: Component = () => {
       return true;
     }
     const ev = hits[0]!;
-    const spec = parseEventSpec(`x ${m[2]}`); // prefix so leftover title is ignored
+    const spec = dates.parseEventSpec(`x ${m[2]}`); // prefix so leftover title is ignored
     const patch: { date: string; start?: string; end?: string } = { date: spec.date };
     if (spec.start) {
       // Preserve the original duration if known.
@@ -2353,7 +2233,7 @@ const AgentPanel: Component = () => {
       const [h, mm] = spec.start.split(":").map(Number);
       const e = new Date(0);
       e.setHours(h!, (mm ?? 0) + origDur, 0, 0);
-      patch.end = hmOf(e);
+      patch.end = dates.hmOf(e);
     }
     try {
       await calEventUpdate(ev.id, patch);
@@ -2361,7 +2241,7 @@ const AgentPanel: Component = () => {
         ...f,
         {
           role: "action",
-          text: `✓ Moved "${ev.title}" to ${dayLabelOf(spec.date)}${spec.start ? ` at ${spec.start}` : ""}.`,
+          text: `✓ Moved "${ev.title}" to ${dates.dayLabelOf(spec.date)}${spec.start ? ` at ${spec.start}` : ""}.`,
         },
       ]);
     } catch (e) {

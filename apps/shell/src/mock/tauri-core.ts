@@ -2066,6 +2066,18 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       } as T);
     case "cal_remove":
       return Promise.resolve(undefined as T);
+    // The event as saved, like the real command returns it.
+    case "cal_event_add":
+      return Promise.resolve({
+        id: 900,
+        title: String(args?.title ?? ""),
+        date: String(args?.date ?? ""),
+        start: (args?.start as string | null) ?? "",
+        end: (args?.end as string | null) ?? "",
+        location: (args?.location as string | null) ?? "",
+        notes: (args?.notes as string | null) ?? "",
+        rrule: (args?.rrule as string | null) ?? "",
+      } as T);
     case "cal_events": {
       const d = new Date(mockNow());
       const iso = (off: number) => {

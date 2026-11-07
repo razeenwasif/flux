@@ -9,17 +9,6 @@
  * become an all-day event.
  */
 
-/** A real month name or abbreviation. A bare prefix ("dec…") read "2 decimals"
- *  as 2 December, which matters now that a parsed date alone admits an add. */
-const MONTH =
-  "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
-
-/** "march 5", "on sept. 3rd": the month in group 1, the day in group 2. */
-export const MONTH_DAY = new RegExp(`\\b(?:on\\s+)?(${MONTH})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, "i");
-
-/** "5 june", "the 5th of december": the day in group 1, the month in group 2. */
-export const DAY_MONTH = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH})\\b`, "i");
-
 const DAY =
   "(?:today|tonight|tomorrow|this\\s+(?:morning|afternoon|evening|week(?:end)?)|next\\s+week|(?:on\\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day)";
 
@@ -35,6 +24,13 @@ const CAL_NOUN = /\b(?:calendar|schedule|agenda|events?|meetings?|appointments?|
 const MINE =
   /\b(?:my|do i have|today|tomorrow|this week|next week|upcoming|coming up)\b|\b(?:show|list|view)\s+(?:the\s+)?(?:calendar|agenda|schedule)\b|\bwhat'?s\s+on\s+the\s+(?:calendar|agenda|schedule)\b/i;
 
+/** An instruction to add something: "schedule dentist tomorrow at 3pm". The verb
+ *  read as the noun "schedule", and "tomorrow" as asking about the user's time, so
+ *  it listed tomorrow's events instead. Not "schedule for tomorrow" or "schedule
+ *  today?", which ask to see it. */
+const ADDS =
+  /^\s*(?:please\s+)?(?:schedule|book|plan|add|create|put|set\s*up|new)\b(?!\s*(?:for\b|today\b|tonight\b|tomorrow\b|this\s+week\b|next\s+week\b|\?|$))/i;
+
 /** "what's on my calendar today", "am I free friday", "do I have any meetings". */
 export const looksLikeCalendarQuery = (text: string): boolean =>
-  MY_TIME.test(text) || (CAL_NOUN.test(text) && MINE.test(text));
+  !ADDS.test(text) && (MY_TIME.test(text) || (CAL_NOUN.test(text) && MINE.test(text)));

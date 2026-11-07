@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { DAY_MONTH, MONTH_DAY, looksLikeCalendarQuery } from "./calendarintent";
+import { DAY_MONTH, MONTH_DAY } from "./agentdates";
+import { looksLikeCalendarQuery } from "./calendarintent";
 
 describe("calendar query detection", () => {
   it("catches questions about the user's own time", () => {
@@ -25,6 +26,31 @@ describe("calendar query detection", () => {
       "show my calendar",
       "show the calendar",
       "what's on the agenda",
+    ]) {
+      expect(looksLikeCalendarQuery(t), t).toBe(true);
+    }
+  });
+
+  it("leaves an instruction to add an event to the add path", () => {
+    for (const t of [
+      "schedule dentist tomorrow at 3pm",
+      "Schedule a meeting with Sam tomorrow",
+      "book an appointment for my car today at 2",
+      "add lunch to my calendar tomorrow",
+      "please schedule standup this week on friday at 9",
+      "set up a call with the team tomorrow",
+    ]) {
+      expect(looksLikeCalendarQuery(t), t).toBe(false);
+    }
+  });
+
+  it("still reads the schedule when that's what's asked", () => {
+    for (const t of [
+      "what's on my schedule tomorrow",
+      "show my schedule",
+      "schedule for tomorrow",
+      "schedule today?",
+      "my schedule this week",
     ]) {
       expect(looksLikeCalendarQuery(t), t).toBe(true);
     }
