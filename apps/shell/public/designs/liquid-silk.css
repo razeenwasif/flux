@@ -136,6 +136,10 @@
 :root[data-design][data-silk] {
   --silk-fill: rgba(var(--silk-tint), var(--silk-glass));
   --silk-blur: blur(30px) saturate(150%);
+  /* Home floats on the wallpaper itself, so its glass is clear: no tint at
+     all, only the blur (and a soft text shadow, below) to keep text legible. */
+  --silk-home-fill: rgba(var(--silk-tint), 0);
+  --silk-home-blur: blur(36px) saturate(160%);
   --silk-edge: rgba(var(--rim-rgb), 0.16);
   --silk-lift: 0 30px 60px -30px rgba(0, 0, 8, 0.85);
   --silk-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.1);
@@ -377,6 +381,15 @@
 .silk-home > * {
   min-width: 0;
 }
+/* With no tint behind them, a soft shadow keeps the words on home's clear
+   glass readable over the light parts of the wallpaper. */
+.silk-home .start-search,
+.silk-pill,
+.silk-cards,
+.silk-greet-line,
+.silk-date {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
 .silk-cards > * {
   min-width: 0;
 }
@@ -418,9 +431,9 @@
   max-width: 700px;
   border-radius: 20px;
   border: 1px solid var(--silk-edge);
-  background: var(--silk-fill);
-  backdrop-filter: var(--silk-blur);
-  -webkit-backdrop-filter: var(--silk-blur);
+  background: var(--silk-home-fill);
+  backdrop-filter: var(--silk-home-blur);
+  -webkit-backdrop-filter: var(--silk-home-blur);
   box-shadow: var(--silk-lift), var(--silk-sheen);
 }
 
@@ -436,9 +449,9 @@
   padding: 0 15px 0 6px;
   border-radius: 999px;
   border: 1px solid var(--silk-edge);
-  background: var(--silk-fill);
-  backdrop-filter: var(--silk-blur);
-  -webkit-backdrop-filter: var(--silk-blur);
+  background: var(--silk-home-fill);
+  backdrop-filter: var(--silk-home-blur);
+  -webkit-backdrop-filter: var(--silk-home-blur);
   display: inline-flex;
   align-items: center;
   gap: 9px;
@@ -451,7 +464,7 @@
     border-color 0.15s ease;
 }
 .silk-pill:hover {
-  background: rgba(var(--silk-tint), 0.78);
+  background: rgba(var(--silk-tint), calc(var(--silk-glass) * 0.85));
   border-color: rgba(var(--accent-rgb), 0.4);
 }
 .silk-pill:focus-visible {
@@ -484,11 +497,14 @@
 }
 
 /* The three cards: in-card titles instead of edge tabs. */
+/* The cards sit at the foot of home, just above the dock: the free space goes
+   above them, between the shortcuts and the cards. */
 .silk-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
   gap: 16px;
   max-width: 1180px;
+  margin-top: auto;
 }
 :root[data-design][data-silk] .silk-cards .start-card {
   order: 0;
@@ -497,10 +513,10 @@
   padding: 18px 20px 20px;
   border-radius: 24px;
   border: 1px solid var(--silk-edge);
-  background: var(--silk-fill);
+  background: var(--silk-home-fill);
   box-shadow: var(--silk-lift), var(--silk-sheen);
-  backdrop-filter: var(--silk-blur);
-  -webkit-backdrop-filter: var(--silk-blur);
+  backdrop-filter: var(--silk-home-blur);
+  -webkit-backdrop-filter: var(--silk-home-blur);
 }
 /* The title sits inside the card (the legend, on ::before) with its icon on
    ::after; Velvet Paper's title row keeps only its controls, top-right. */
@@ -607,8 +623,40 @@
   color: var(--flux-text-mute);
 }
 
-/* The window-controls column and the pages bar: glass too. */
-:root[data-design][data-silk] .pages-bar,
+/* The window controls sit straight on the wallpaper, without their dark box.
+   (The acrylic-window rule marks its box !important, so this one has to too.) */
+:root[data-design][data-silk] .rail-traffic,
+:root[data-design][data-silk] .shell.window-acrylic .rail-traffic {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none;
+}
+
+/* The pages rail beside the window controls: no panel at all, its icons
+   straight on the wallpaper (a soft shadow keeps them legible over the light
+   parts of it). Hovered and current icons still get a frosted chip. */
+:root[data-design][data-silk] .pages-bar {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  /* With no panel behind it, the scrollbar would be a stray line down the
+     wallpaper; the rail still scrolls with the wheel or trackpad. */
+  scrollbar-width: none;
+}
+:root[data-design][data-silk] .pages-bar::-webkit-scrollbar {
+  display: none;
+}
+:root[data-design][data-silk] .pages-bar .pages-chip {
+  color: var(--flux-text);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+:root[data-design][data-silk] .pages-bar .pages-chip:hover {
+  background: rgba(var(--silk-tint), 0.55);
+  backdrop-filter: var(--silk-blur);
+  -webkit-backdrop-filter: var(--silk-blur);
+}
 :root[data-design][data-silk] .tui-bar {
   border-color: var(--silk-edge);
   backdrop-filter: var(--silk-blur);
@@ -724,12 +772,12 @@
   z-index: 5;
   flex: none;
   align-self: center;
-  margin-top: auto;
   padding: 7px;
   border-radius: 22px;
   border: 1px solid var(--silk-edge);
-  /* Denser than the cards: they scroll underneath it. */
-  background: rgba(var(--silk-tint), 0.94);
+  /* Clear like the rest of home; the blur still softens a card scrolling
+     underneath it on a short window. */
+  background: var(--silk-home-fill);
   backdrop-filter: var(--silk-blur);
   -webkit-backdrop-filter: var(--silk-blur);
   box-shadow: var(--silk-lift), var(--silk-sheen);
