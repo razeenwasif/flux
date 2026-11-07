@@ -6,7 +6,7 @@
  */
 import { hibernateRank, memStatus, prefetchSetPressure, tabSleepCheck, webviewSuspend } from "./ipc";
 import { isMac } from "./platform";
-import { dueForCheck, planSleep, type Pressure, type SleepOptions } from "./sleepPolicy";
+import { dueForCheck, planSleep, savedMaxLive, type Pressure, type SleepOptions } from "./sleepPolicy";
 
 export interface SleepPassInput {
   /** Live background tabs, with how long each has been idle. */
@@ -14,7 +14,7 @@ export interface SleepPassInput {
   activeUrl: string;
   /** What the system reported (macOS); elsewhere free memory is read here. */
   pressure: Pressure;
-  settings: Omit<SleepOptions, "pressure">;
+  settings: Omit<SleepOptions, "pressure" | "maxLive">;
   /** Still in the background once the checks are back. */
   stillBackground: () => Set<number>;
   unload: (id: number) => void;
@@ -28,7 +28,7 @@ export async function sleepPass(input: SleepPassInput): Promise<void> {
   }
   // Gate predictive prefetch (#103) on real memory pressure.
   void prefetchSetPressure(level !== "normal").catch(() => {});
-  const opts: SleepOptions = { ...input.settings, pressure: level };
+  const opts: SleepOptions = { ...input.settings, pressure: level, maxLive: savedMaxLive() };
   const due = dueForCheck(input.tabs, opts);
   if (due.length === 0) return;
   const checks = await tabSleepCheck(due).catch(() => []);

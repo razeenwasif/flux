@@ -1023,7 +1023,9 @@ export function setLiquidBg(on: boolean): void {
 // Acrylic / frosted translucent window backdrop. Persisted, default OFF.
 // When enabled, the window shell/decorations become translucent and frosted (via DWM acrylic on Win11),
 // while the main page / web area card remains completely opaque.
-const [windowAcrylic, setWindowAcrylicRaw] = createSignal(localStorage.getItem("flux.window.acrylic") === "1");
+const [windowAcrylic, setWindowAcrylicRaw] = createSignal(
+  localStorage.getItem("flux.window.acrylic") === "1",
+);
 export { windowAcrylic };
 export function setWindowAcrylic(on: boolean): void {
   setWindowAcrylicRaw(on);

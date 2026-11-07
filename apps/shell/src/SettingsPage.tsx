@@ -222,6 +222,20 @@ function parseElevenLabsVoiceRef(input: string): ElevenLabsVoiceRef {
   return { voiceId, publicOwnerId };
 }
 
+/** Settings → Memory → Keep at most. The sleep pass reads the same key
+ *  (`savedMaxLive` in sleepPolicy.ts); importing it from there would add a module
+ *  to the startup bundle's preload map. */
+const MAX_LIVE_KEY = "flux.hibernate.cap";
+const [maxLiveTabs, setMaxLiveRaw] = createSignal(Number(localStorage.getItem(MAX_LIVE_KEY)) || 8);
+const setMaxLiveTabs = (n: number) => {
+  setMaxLiveRaw(n);
+  try {
+    localStorage.setItem(MAX_LIVE_KEY, String(n));
+  } catch {
+    /* quota: the choice holds for this session */
+  }
+};
+
 const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   const writer = settingsWriter();
   const [coreReady, setCoreReady] = createSignal(false);
@@ -1447,11 +1461,23 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
         <Section title="Memory">
           <Row
             label="Sleep inactive tabs"
-            hint="A background tab pauses after 5 minutes idle. Beyond the 4 most recent, or past 256 MB, it unloads, and comes back from a snapshot of where you left it. Tabs playing sound, using the camera or holding unsaved edits stay loaded."
+            hint="A background tab pauses after 5 minutes idle. Beyond the 4 most recent, or past 256 MB, it unloads, and comes back from a snapshot of where you left it. However many you open, no more than the number below stay loaded. Tabs playing sound, using the camera or holding unsaved edits stay loaded."
           >
             <Toggle on={hibernateEnabled()} onClick={() => setHibernateEnabled(!hibernateEnabled())} />
           </Row>
           <Show when={hibernateEnabled()}>
+            <Row
+              label="Keep at most"
+              hint="Background tabs loaded at once. Open more and the least recently used unload after half a minute, whatever the time below."
+            >
+              <select
+                class="shields-select"
+                value={String(maxLiveTabs())}
+                onChange={(e) => setMaxLiveTabs(Number(e.currentTarget.value))}
+              >
+                <For each={[4, 6, 8, 12, 16, 24]}>{(n) => <option value={String(n)}>{n} tabs</option>}</For>
+              </select>
+            </Row>
             <Row label="Unload after" hint="Also unload any background tab idle this long.">
               <select
                 class="shields-select"

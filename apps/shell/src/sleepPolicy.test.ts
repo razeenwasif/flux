@@ -9,6 +9,7 @@ const on: SleepOptions = {
   discardAfterMs: 60 * MIN,
   pressure: "normal",
   pressureEvicts: true,
+  maxLive: 8,
 };
 const check = (tab_id: number, more: Partial<SleepCheck> = {}): SleepCheck => ({
   tab_id,
@@ -118,5 +119,65 @@ describe("dueForCheck", () => {
     expect(dueForCheck(tabs, on)).toEqual([2, 3]);
     expect(dueForCheck(tabs, { ...on, pressure: "critical" })).toEqual([1, 2, 3]);
     expect(dueForCheck(tabs, { ...on, enabled: false })).toEqual([]);
+  });
+});
+
+describe("the cap on loaded tabs", () => {
+  const SEC = 1000;
+  const burst = (n: number, idleMs: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: i + 1, idleMs: idleMs + i }));
+
+  it("unloads past the cap whatever the idle time, least recently used first", () => {
+    const tabs = burst(20, 45 * SEC); // opened together, under a minute ago
+    const plan = planSleep(
+      tabs,
+      tabs.map((t) => check(t.id)),
+      on,
+    );
+    expect(plan.discard).toEqual(tabs.slice(8).map((t) => t.id));
+    expect(plan.suspend).toEqual([]);
+    expect(dueForCheck(tabs, on)).toEqual(tabs.slice(8).map((t) => t.id));
+  });
+
+  it("gives a tab half a minute to load first", () => {
+    const tabs = burst(12, 10 * SEC);
+    expect(
+      planSleep(
+        tabs,
+        tabs.map((t) => check(t.id)),
+        on,
+      ).discard,
+    ).toEqual([]);
+    expect(dueForCheck(tabs, on)).toEqual([]);
+  });
+
+  it("keeps what's playing or holding unsaved edits", () => {
+    const tabs = burst(10, 45 * SEC);
+    const checks = tabs.map((t) =>
+      t.id === 9
+        ? check(9, { keep_awake: "playing audio" })
+        : t.id === 10
+          ? check(10, { keep_loaded: "unsaved edits" })
+          : check(t.id),
+    );
+    expect(planSleep(tabs, checks, on).discard).toEqual([]);
+  });
+
+  it("follows the setting, and is off with sleeping off", () => {
+    const tabs = burst(6, 45 * SEC);
+    expect(
+      planSleep(
+        tabs,
+        tabs.map((t) => check(t.id)),
+        { ...on, maxLive: 4 },
+      ).discard,
+    ).toEqual([5, 6]);
+    expect(
+      planSleep(
+        tabs,
+        tabs.map((t) => check(t.id)),
+        { ...on, maxLive: 4, enabled: false },
+      ).discard,
+    ).toEqual([]);
   });
 });

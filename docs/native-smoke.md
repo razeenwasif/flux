@@ -17,6 +17,8 @@ The build uses `native-smoke` and the `dev.flux.smoke` identifier. Its session, 
 
 ## Repeatable checks
 
+*Closed and unloaded tabs, without touching the window:* open a page that pings the server every half second (any local page with `setInterval(() => fetch(...), 500)`), as the only tab in an empty session, then run Flux Smoke's binary with `--smoke-shortcut close-tab` (any keyboard command by name works). The pings must stop at once; `flux::tab` logs "closing the tab's page". For the cap, open 20 heavy pages (`flux <url>` per tab) and sum `ps -axo rss,comm` over `WebKit.WebContent`: within a minute and a half, past Settings' cap, tabs log "unloading the tab's page" and the process count and memory fall.
+
 *Terminal images, without touching the window:* set `FLUX_SHELL` to a script that prints an image and reads the cursor back (`printf '\033[6n'`), then launch Flux Smoke (`-t` from a second launch opens a terminal if none is showing). `printf '\033[c'` must answer with a `4` in its list (Sixel), and the cursor must land several rows lower after each image, for Sixel and for iTerm's `File=inline=1;size=<bytes>:<base64>`. That shows the addon loaded on demand and its WebAssembly ran under the app's real content security policy.
 
 1. **Title and navigation.** Page A should show the same title in the tab strip. Click **Change title after load**, then **Go to page B**, Back, and Forward. Compare the rendered page, address, and tab title each time. The delayed title must update without navigating.

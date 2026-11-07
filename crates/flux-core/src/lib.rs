@@ -1087,6 +1087,13 @@ pub fn run(intent: cli::LaunchIntent) {
                     let _ = app.emit("flux://smoke-task", String::new());
                     return;
                 }
+                // A keyboard command by name (keys.rs), as if pressed: "close-tab".
+                Some("--smoke-shortcut") => {
+                    if let Some(name) = argv.get(2) {
+                        let _ = app.emit("flux://shortcut", name.clone());
+                    }
+                    return;
+                }
                 _ => {}
             }
             // Reuse the same argv parser as cold launch; skip argv[0] (the exe path).

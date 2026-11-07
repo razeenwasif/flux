@@ -1260,6 +1260,10 @@ mod real {
         }
         crate::cookies::forget_jar(&app, &label(tab_id));
         if let Some(wv) = app.get_webview(&label(tab_id)) {
+            tracing::info!(target: "flux::tab", tab_id, "unloading the tab's page");
+            // Its record and snapshot are saved above; without the teardown, a
+            // closed view kept its page, and so all the memory this was for.
+            stop_page(&wv);
             wv.close().map_err(|e| e.to_string())?;
         }
         Ok(())
@@ -1361,6 +1365,45 @@ mod real {
         Ok(())
     }
 
+    /// End what a closing tab's page is doing before its view goes: a closed
+    /// YouTube tab went on playing. A closed tab's page went on running (its
+    /// timers, its sound) because the view outlived the close, and closing a
+    /// view doesn't stop its media on its own. So its media is paused,
+    /// picture-in-picture (which `pip.js` starts as the tab is hidden on its way
+    /// out) and fullscreen are closed, and on macOS WebKit tears the page down.
+    fn stop_page(wv: &tauri::Webview) {
+        let _ = wv.eval(
+            "try{document.querySelectorAll('video,audio').forEach(function(m){try{m.pause()}catch(_){}});\
+             if(document.pictureInPictureElement)document.exitPictureInPicture().catch(function(){});}catch(_){}",
+        );
+        #[cfg(target_os = "macos")]
+        {
+            use objc::runtime::{Object, BOOL, NO};
+            use objc::{msg_send, sel, sel_impl};
+            let _ = wv.with_webview(|pw| unsafe {
+                let wk = pw.inner() as *mut Object;
+                if wk.is_null() {
+                    return;
+                }
+                let none: *mut Object = std::ptr::null_mut();
+                let can: BOOL = msg_send![wk, respondsToSelector: sel!(closeAllMediaPresentationsWithCompletionHandler:)];
+                if can != NO {
+                    let _: () = msg_send![wk, closeAllMediaPresentationsWithCompletionHandler: none];
+                }
+                let can: BOOL = msg_send![wk, respondsToSelector: sel!(pauseAllMediaPlaybackWithCompletionHandler:)];
+                if can != NO {
+                    let _: () = msg_send![wk, pauseAllMediaPlaybackWithCompletionHandler: none];
+                }
+                // WebKit's own teardown (what Safari calls when a tab closes):
+                // the page and its process go now, whoever still holds the view.
+                let can: BOOL = msg_send![wk, respondsToSelector: sel!(_close)];
+                if can != NO {
+                    let _: () = msg_send![wk, _close];
+                }
+            });
+        }
+    }
+
     #[tauri::command]
     pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> {
         crate::netfilter::forget(tab_id);
@@ -1390,7 +1433,11 @@ mod real {
         // another webview on the jar: the main one, another tab or peek in the
         // container, or a hidden one built for the clear.
         let closed = match app.get_webview(&label) {
-            Some(wv) => wv.close().map_err(|e| e.to_string()),
+            Some(wv) => {
+                tracing::info!(target: "flux::tab", tab_id, "closing the tab's page");
+                stop_page(&wv);
+                wv.close().map_err(|e| e.to_string())
+            }
             None => Ok(()),
         };
         crate::cookies::forget_jar(&app, &label);

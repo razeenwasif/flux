@@ -7,7 +7,11 @@
  *   but it stays in memory, so coming back is instant;
  * - **discard** (unload, waking from a snapshot) beyond a warm set of the four
  *   most recent background tabs, when its page uses more than 256 MB, or past
- *   the idle time set in Settings.
+ *   the idle time set in Settings;
+ * - and never more than Settings' cap of loaded background tabs (8 unless
+ *   changed), whatever their idle time: past it, the least recently used unload
+ *   once they've had half a minute to finish loading. Opening twenty tabs at
+ *   once doesn't hold twenty pages in memory for five minutes.
  *
  * A tab playing sound or using the camera, microphone or screen is left alone.
  * One with unsaved edits or a leave-page prompt is suspended but not unloaded,
@@ -24,6 +28,21 @@ export type Pressure = "normal" | "warn" | "critical";
 export const SUSPEND_AFTER_MS = 5 * 60_000;
 export const WARM_SET = 4;
 export const HEAVY_MB = 256;
+export const DEFAULT_MAX_LIVE = 8;
+/** Where Settings → Memory → Keep at most is saved. */
+export const MAX_LIVE_KEY = "flux.hibernate.cap";
+
+/** The saved cap, read when the pass runs. Settings writes it; neither imports
+ *  the other, so it adds no module to the startup bundle's preload map. */
+export function savedMaxLive(): number {
+  try {
+    return Math.min(40, Math.max(2, Number(localStorage.getItem(MAX_LIVE_KEY)) || DEFAULT_MAX_LIVE));
+  } catch {
+    return DEFAULT_MAX_LIVE;
+  }
+}
+/** How long a tab over the cap is left to load before it may unload. */
+export const CAP_GRACE_MS = 30_000;
 /** How long a tab must be idle before pressure may unload it. */
 const PRESSURE_IDLE_MS: Record<Pressure, number> = { normal: SUSPEND_AFTER_MS, warn: 60_000, critical: 0 };
 const WARM: Record<Pressure, number> = { normal: WARM_SET, warn: 2, critical: 0 };
@@ -43,6 +62,24 @@ export interface SleepOptions {
   pressure: Pressure;
   /** Settings' "Sleep under memory pressure". */
   pressureEvicts: boolean;
+  /** Settings' "Keep at most": loaded background tabs, whatever their idle time. */
+  maxLive: number;
+}
+
+/** The background tabs most worth keeping first: the likely-next, then the most
+ *  recently used. */
+const byKeep = (tabs: SleepCandidate[]) =>
+  [...tabs].sort((a, b) => Number(!!b.protect) - Number(!!a.protect) || a.idleMs - b.idleMs);
+
+/** Tabs past the cap that have had their grace. */
+function overCap(tabs: SleepCandidate[], opts: SleepOptions): Set<number> {
+  if (!opts.enabled) return new Set();
+  return new Set(
+    byKeep(tabs)
+      .slice(Math.max(0, opts.maxLive))
+      .filter((t) => t.idleMs >= CAP_GRACE_MS)
+      .map((t) => t.id),
+  );
 }
 
 export interface SleepPlan {
@@ -56,7 +93,10 @@ export function dueForCheck(tabs: SleepCandidate[], opts: SleepOptions): number[
   const underPressure = opts.pressureEvicts && opts.pressure !== "normal";
   if (!opts.enabled && !underPressure) return [];
   const wait = underPressure ? PRESSURE_IDLE_MS[opts.pressure] : SUSPEND_AFTER_MS;
-  return tabs.filter((t) => t.idleMs >= Math.min(wait, SUSPEND_AFTER_MS)).map((t) => t.id);
+  const capped = overCap(tabs, opts);
+  return tabs
+    .filter((t) => t.idleMs >= Math.min(wait, SUSPEND_AFTER_MS) || capped.has(t.id))
+    .map((t) => t.id);
 }
 
 export function planSleep(tabs: SleepCandidate[], checks: SleepCheck[], opts: SleepOptions): SleepPlan {
@@ -68,8 +108,9 @@ export function planSleep(tabs: SleepCandidate[], checks: SleepCheck[], opts: Sl
   const pressure = underPressure ? opts.pressure : "normal";
   // The warm set is the background tabs most worth keeping (the likely-next
   // ones, then the most recently used), checked or not.
-  const order = [...tabs].sort((a, b) => Number(!!b.protect) - Number(!!a.protect) || a.idleMs - b.idleMs);
+  const order = byKeep(tabs);
   const warm = new Set(order.slice(0, WARM[pressure]).map((t) => t.id));
+  const capped = overCap(tabs, opts);
 
   for (const t of order) {
     // Only tabs the engine checked: an unchecked one may be playing something.
@@ -84,6 +125,7 @@ export function planSleep(tabs: SleepCandidate[], checks: SleepCheck[], opts: Sl
         discard ||= t.idleMs >= opts.discardAfterMs;
       }
       if (pressure !== "normal" && t.idleMs >= PRESSURE_IDLE_MS[pressure]) discard ||= !warm.has(t.id);
+      discard ||= capped.has(t.id);
     }
     if (discard) plan.discard.push(t.id);
     else if (opts.enabled && !c.suspended && t.idleMs >= SUSPEND_AFTER_MS) plan.suspend.push(t.id);
