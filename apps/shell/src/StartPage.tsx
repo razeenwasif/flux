@@ -1320,6 +1320,546 @@ const StartPage: Component<{
     return m ? [m[1]!, m[2]!] : [clock(), ""];
   };
 
+  /** The home's cards (Open tabs, Tasks, Scratchpad and the rest), each shown
+   *  or hidden from Customize home: Classic and Velvet Paper lay them out as a
+   *  grid, Liquid Silk as one row in its carousel. */
+  const cardGrid = () => (
+    <section class="start-cards">
+      <Show when={vp()}>
+        <Suspense>
+          <VpTodayCard
+            order={-3}
+            events={events}
+            now={now}
+            todayStr={todayStr}
+            onOpenCalendar={() => setExpandedWidget("calendar")}
+          />
+          <VpMailCard order={-1} />
+        </Suspense>
+      </Show>
+      {/* Recent tabs */}
+      <div
+        class="glass start-card"
+        data-legend="Open tabs"
+        style={{ display: widgetOn("recent") ? undefined : "none", order: orderOf("recent") }}
+      >
+        <div class="start-card-title">
+          Open tabs
+          <button
+            class="start-card-link"
+            title="Expand recent tabs"
+            onClick={() => setExpandedWidget("recent")}
+          >
+            ⤢ Expand
+          </button>
+        </div>
+        <Show
+          when={recent().length > 0}
+          fallback={<div class="start-empty">Open a few tabs and they'll show up here.</div>}
+        >
+          <div class="start-list start-card-body">
+            <For each={recent().slice(0, 6)}>
+              {(t) => (
+                <button class="start-row" onClick={() => focusTab(t.id)} title={t.url}>
+                  <span class="start-fav">{favicon(t.url)}</span>
+                  <span class="start-row-label">{t.title || t.url}</span>
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
+
+      {/* Editable speed dial (in the hero row under Velvet Paper) */}
+      {/* (Liquid Silk shows the shortcuts as pills above its carousel.) */}
+      <Show when={!vp() && !silk()}>{shortcutsCard()}</Show>
+
+      {/* Top sites */}
+      <Show when={widgetOn("topsites") && topSites().length > 0}>
+        <div class="glass start-card" data-legend="Top sites" style={{ order: orderOf("topsites") }}>
+          <div class="start-card-title">
+            Top sites
+            <button
+              class="start-card-link"
+              title="Expand top sites"
+              onClick={() => setExpandedWidget("topSites")}
+            >
+              ⤢ Expand
+            </button>
+          </div>
+          <div class="start-dial start-card-body">
+            <For each={topSites().slice(0, 10)}>
+              {(s, i) => (
+                <div class="start-tile-wrap">
+                  <button
+                    class="start-tile"
+                    style={{ "--tint": TINTS[i() % TINTS.length] }}
+                    onClick={() => props.onNavigate(s.url)}
+                    title={s.title}
+                    aria-label={s.host}
+                  >
+                    <SiteIcon url={s.url} letters={(s.host[0] ?? "?").toUpperCase()} />
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+        </div>
+      </Show>
+
+      {/* Feed headlines (#72) */}
+      <div
+        class="glass start-card"
+        data-legend="Headlines"
+        style={{ display: widgetOn("headlines") ? undefined : "none", order: orderOf("headlines") }}
+      >
+        <div class="start-card-title">
+          Headlines
+          <span class="start-card-actions">
+            <button
+              class="start-card-link"
+              title="Expand headlines"
+              onClick={() => setExpandedWidget("headlines")}
+            >
+              ⤢ Expand
+            </button>
+            <button class="start-card-link" onClick={() => props.onNavigate(FEEDS_URL)}>
+              Feeds →
+            </button>
+          </span>
+        </div>
+        <Show
+          when={headlines().length > 0}
+          fallback={
+            <div class="start-empty">
+              Subscribe to feeds in <b>Feeds</b> and the latest items show here.
+            </div>
+          }
+        >
+          <div class="start-list start-card-body">
+            <For each={headlines().slice(0, 6)}>
+              {(it) => (
+                <button
+                  class="start-row"
+                  onClick={() => props.onNavigate(it.link)}
+                  title={`${it.feed_title} — ${it.title}`}
+                >
+                  <span class="start-fav">📰</span>
+                  <span class="start-row-label">{it.title}</span>
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
+
+      {/* Daily briefing (#71) — local agent summary of the headlines */}
+      <div
+        class="glass start-card"
+        data-legend="Daily briefing"
+        style={{ display: widgetOn("briefing") ? undefined : "none", order: orderOf("briefing") }}
+      >
+        <div class="start-card-title">
+          Daily briefing
+          <Show when={briefing().state === "ok"}>
+            <button
+              class="start-card-link"
+              title="Regenerate from the latest headlines"
+              onClick={generateBriefing}
+            >
+              ↻ Refresh
+            </button>
+          </Show>
+        </div>
+        <div class="start-card-body">
+          <Switch>
+            <Match when={headlines().length === 0}>
+              <div class="start-empty">
+                Subscribe to feeds and Gemma will brief you on the day's headlines — privately, on-device.
+              </div>
+            </Match>
+            <Match when={briefing().state === "loading"}>
+              <div class="start-empty">Gemma is reading the headlines…</div>
+            </Match>
+            <Match when={briefing().state === "error"}>
+              <div class="start-empty">
+                Couldn't reach the local model.{" "}
+                <button class="start-card-link" onClick={generateBriefing}>
+                  Retry
+                </button>
+              </div>
+            </Match>
+            <Match when={briefing().state === "ok"}>
+              <div class="start-briefing">{briefing().text}</div>
+            </Match>
+            <Match when={briefing().state === "idle"}>
+              <button class="start-brief-btn" onClick={generateBriefing}>
+                ✦ Brief me on today
+              </button>
+            </Match>
+          </Switch>
+        </div>
+      </div>
+
+      {/* Scratchpad */}
+      <div
+        class="glass start-card"
+        data-legend="Scratchpad"
+        style={{ display: widgetOn("scratchpad") ? undefined : "none", order: orderOf("scratchpad") }}
+      >
+        <div class="start-card-title">
+          Scratchpad
+          <button
+            class="start-card-link"
+            title="Expand scratchpad"
+            onClick={() => setExpandedWidget("scratch")}
+          >
+            ⤢ Expand
+          </button>
+        </div>
+        <textarea
+          class="start-scratch"
+          readOnly={!scratchReady()}
+          value={scratch()}
+          onInput={(e) => onScratch(e.currentTarget.value)}
+          placeholder="Jot a quick note, todo, or link… saved automatically."
+          spellcheck={false}
+        />
+      </div>
+
+      {/* Calendar (Google via ICS, #114) + world clocks */}
+      <div
+        class="glass start-card"
+        data-legend={monthLabel()}
+        style={{ display: widgetOn("calendar") ? undefined : "none", order: orderOf("calendar") }}
+      >
+        <div class="start-card-title">
+          {monthLabel()}
+          <span class="start-card-actions">
+            <Show when={homeCalendars().length > 1}>
+              <select
+                class="cal-filter"
+                title="Show one calendar, or all of them"
+                value={activeHomeCal()}
+                onChange={(e) => pickHomeCal(e.currentTarget.value)}
+              >
+                <option value="">All calendars</option>
+                <For each={homeCalendars()}>{(c) => <option value={c}>{c}</option>}</For>
+              </select>
+            </Show>
+            <Show when={events().length > 0}>
+              <button
+                class="start-card-link"
+                title="Expand — see all events"
+                onClick={() => setExpandedWidget("calendar")}
+              >
+                ⤢ Expand
+              </button>
+            </Show>
+            <button
+              class="start-card-link"
+              title="Subscribe to a calendar's secret ICS URL"
+              onClick={() => setAddingCal((v) => !v)}
+            >
+              ＋ Calendar
+            </button>
+          </span>
+        </div>
+        <Show when={addingCal()}>
+          <form class="start-add" onSubmit={addCalendar}>
+            <input
+              value={newCalUrl()}
+              onInput={(e) => setNewCalUrl(e.currentTarget.value)}
+              placeholder="Paste your calendar's secret .ics URL"
+              spellcheck={false}
+              autofocus
+            />
+            <button type="submit">Add</button>
+          </form>
+          <Show when={calFeeds().length > 0}>
+            <div class="start-callist">
+              <For each={calFeeds()}>
+                {(f) => (
+                  <div class="start-calrow">
+                    <span class="start-calname" title={f.url}>
+                      {f.name}
+                    </span>
+                    <button
+                      class="start-card-link"
+                      title="Copy this calendar's events into Flux as editable events. Recurring events stay one series; safe to run twice."
+                      disabled={calBusy() === f.id}
+                      onClick={() => void makeEditable(f)}
+                    >
+                      {calBusy() === f.id ? "Importing…" : "Make editable"}
+                    </button>
+                    <button class="start-card-link" title="Unsubscribe" onClick={() => dropFeed(f)}>
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+          <Show when={calMsg()}>
+            <div class="start-calmsg">{calMsg()}</div>
+          </Show>
+        </Show>
+        <CalendarGrid />
+        <Show when={visibleCardEvents().length > 0}>
+          <div class="start-events">
+            <div class="start-event-list-title">{eventListTitle()}</div>
+            <For each={visibleCardEvents().slice(0, 2)}>
+              {(e) => (
+                <div class="start-event" title={e.location ? `${e.summary} · ${e.location}` : e.summary}>
+                  <span class="start-event-when">{whenLabel(e)}</span>
+                  <span class="start-event-title">{e.summary}</span>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+        <Show when={selectedCalDate() && visibleCardEvents().length === 0}>
+          <div class="start-events">
+            <div class="start-event-list-title">{eventListTitle()}</div>
+            <div class="start-empty">No events for this day.</div>
+          </div>
+        </Show>
+        <div class="start-zones">
+          <For each={WORLD_ZONES}>
+            {(z) => (
+              <div class="start-zone">
+                <span class="start-zone-label">{z.label}</span>
+                <span class="start-zone-time">{zoneTime(z.tz)}</span>
+              </div>
+            )}
+          </For>
+        </div>
+      </div>
+
+      {/* Tasks (#114) — local, on-device */}
+      <div
+        class="glass start-card"
+        data-legend="Tasks"
+        data-row={vp() ? "lead" : undefined}
+        style={{ display: widgetOn("tasks") ? undefined : "none", order: orderOf("tasks") }}
+      >
+        <div class="start-card-title">
+          Tasks
+          <span class="start-card-actions">
+            <button class="start-card-link" title="Expand tasks" onClick={() => setExpandedWidget("tasks")}>
+              ⤢ Expand
+            </button>
+            <Show when={todos().some((t) => t.done)}>
+              <button class="start-card-link" onClick={clearDoneTodos}>
+                Clear done
+              </button>
+            </Show>
+          </span>
+        </div>
+        <form class="start-todo-add" onSubmit={addTodo}>
+          <input
+            value={newTodo()}
+            onInput={(e) => setNewTodo(e.currentTarget.value)}
+            placeholder="Add a task…"
+            spellcheck={false}
+          />
+        </form>
+        <Show
+          when={todos().length > 0}
+          fallback={<div class="start-empty">Nothing yet — add a task above. Stored on your device.</div>}
+        >
+          <div class="start-todos start-card-body">
+            <For each={sortedTodos().slice(0, 5)}>
+              {(t) => (
+                <div classList={{ "start-todo": true, done: t.done }}>
+                  <button
+                    class="start-todo-check"
+                    title={t.done ? "Mark not done" : "Mark done"}
+                    onClick={() => toggleTodo(t.id)}
+                  >
+                    {t.done ? "☑" : "☐"}
+                  </button>
+                  <span class="start-todo-title">{t.title}</span>
+                  <Show when={t.due}>
+                    <span class="start-todo-due">{t.due}</span>
+                  </Show>
+                  <button class="start-todo-x" title="Remove" onClick={() => removeTodo(t.id)}>
+                    ×
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+        <Show when={openTodos() > 0}>
+          <div class="start-todo-count">{openTodos()} open</div>
+        </Show>
+      </div>
+
+      {/* Calculator (#130) — compact; expands to a scientific calculator. */}
+      {/* Timers, stopwatch & alarms (#134) — state lives in clocks.ts, so a
+            running timer / your alarms persist after you leave the start page. */}
+      <div
+        class="glass start-card"
+        data-legend="Time"
+        style={{ display: widgetOn("clocks") ? undefined : "none", order: orderOf("clocks") }}
+      >
+        <div class="start-card-title">Time</div>
+        <div class="start-card-body">
+          <ClockWidget />
+        </div>
+      </div>
+
+      <div
+        class="glass start-card"
+        data-legend="Calculator"
+        style={{ display: widgetOn("calc") ? undefined : "none", order: orderOf("calc") }}
+      >
+        <div class="start-card-title">
+          Calculator
+          <button
+            class="start-card-link"
+            title="Scientific calculator"
+            onClick={() => setExpandedWidget("calc")}
+          >
+            ⤢ Scientific
+          </button>
+        </div>
+        <div class="start-card-body">
+          <Calculator />
+        </div>
+      </div>
+
+      {/* Unit converter (#130) — length/mass/temp/…; expands with currency. */}
+      <div
+        class="glass start-card"
+        data-legend="Unit converter"
+        style={{ display: widgetOn("convert") ? undefined : "none", order: orderOf("convert") }}
+      >
+        <div class="start-card-title">
+          Unit converter
+          <button
+            class="start-card-link"
+            title="All categories + currency"
+            onClick={() => setExpandedWidget("convert")}
+          >
+            ⤢ Expand
+          </button>
+        </div>
+        <div class="start-card-body">
+          <Converter />
+        </div>
+      </div>
+
+      {/* Maps (#130) — Australia cover; opens the full map panel. */}
+      <div
+        class="glass start-card start-map-card"
+        style={{ display: widgetOn("map") ? undefined : "none", order: orderOf("map") }}
+      >
+        <div class="start-card-title">
+          Maps
+          <button class="start-card-link" title="Open maps" onClick={() => props.onOpenMap()}>
+            ⤢ Open
+          </button>
+        </div>
+        <button class="start-map-cover" title="Open Maps" onClick={() => props.onOpenMap()}>
+          <iframe
+            class="start-map-frame"
+            src="https://www.google.com/maps?q=Australia&z=3&output=embed"
+            title="Australia"
+            loading="lazy"
+            tabindex={-1}
+            aria-hidden="true"
+          />
+          <span class="start-map-label">🗺 Open Maps</span>
+        </button>
+      </div>
+
+      {/* Omni index glance (#97) */}
+      <div
+        class="glass start-card"
+        data-legend="Omni index"
+        style={{ display: widgetOn("omni") ? undefined : "none", order: orderOf("omni") }}
+      >
+        <div class="start-card-title">
+          Omni index
+          <button
+            class="start-card-link"
+            title="Open the Omni dashboard"
+            onClick={() => props.onNavigate(OMNI_URL)}
+          >
+            ⤢ Dashboard
+          </button>
+        </div>
+        <Show
+          when={omni()}
+          fallback={
+            <div class="start-empty">
+              Your local search index — save pages with ⌘⇧O and they're searchable here.
+            </div>
+          }
+        >
+          {(s) => (
+            <div class="start-card-body start-omni">
+              <div class="start-omni-row">
+                <div class="start-omni-stat">
+                  <span class="start-omni-num">{s().live_docs.toLocaleString()}</span>
+                  <span class="start-omni-lbl">pages</span>
+                </div>
+                <div class="start-omni-stat">
+                  <span class="start-omni-num">{s().ann_vectors.toLocaleString()}</span>
+                  <span class="start-omni-lbl">vectors</span>
+                </div>
+              </div>
+              <div class="start-omni-meta">
+                {s().embedder_kind}
+                {s().embedded ? ` · ${s().embedder_dim}-dim` : " · hashing (offline)"}
+              </div>
+            </div>
+          )}
+        </Show>
+      </div>
+
+      {/* Quick actions */}
+      <div
+        class="glass start-card"
+        data-legend="Quick actions"
+        style={{ display: widgetOn("actions") ? undefined : "none", order: orderOf("actions") }}
+      >
+        <div class="start-card-title">
+          Quick actions
+          <button
+            class="start-card-link"
+            title="Expand quick actions"
+            onClick={() => setExpandedWidget("actions")}
+          >
+            ⤢ Expand
+          </button>
+        </div>
+        <div class="start-actions">
+          <button class="start-action" onClick={props.onNewTerminal}>
+            <span class="start-action-icon">⌨</span> New terminal
+          </button>
+          <button class="start-action" onClick={props.onToggleAgent}>
+            <span class="start-action-icon" style={{ color: "var(--flux-violet)" }}>
+              ✦
+            </span>{" "}
+            Ask Flux Agent
+          </button>
+          <button class="start-action" onClick={() => props.onNavigate(OMNI_URL)}>
+            <span class="start-action-icon" style={{ color: "var(--flux-teal)" }}>
+              ✦
+            </span>{" "}
+            Omni index
+          </button>
+          <button class="start-action" onClick={() => props.onNavigate(HISTORY_URL)}>
+            <span class="start-action-icon">🕘</span> History
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+
   /** Liquid Silk's home (design.ts): the clock and search straight on the
    *  wallpaper, the shortcuts as small pills, the Today · Focus · Inbox cards,
    *  and the dock. The other widgets stay reachable from Customize home. */
@@ -1371,18 +1911,21 @@ const StartPage: Component<{
         </button>
       </div>
 
-      <div class="silk-cards">
+      {/* Every card in one row that scrolls sideways: Today, Focus and Inbox
+          first, then the rest of the grid in their Customize home order. */}
+      <div class="silk-cards" role="region" aria-label="Home cards" tabindex="0">
         <Suspense>
           <VpTodayCard
-            order={0}
+            order={-3}
             events={events}
             now={now}
             todayStr={todayStr}
             onOpenCalendar={() => setExpandedWidget("calendar")}
           />
           <VpFocusCard />
-          <VpMailCard order={0} />
+          <VpMailCard order={-1} />
         </Suspense>
+        {cardGrid()}
       </div>
 
       <Suspense>
@@ -1480,617 +2023,79 @@ const StartPage: Component<{
       {/* Liquid Silk has its own, quieter home (silkHome below); the rest is
           Classic and Velvet Paper. */}
       <Show when={!silk()} fallback={silkHome()}>
-      <Show
-        when={vp()}
-        fallback={
-          <header class="start-hero">
-            <div class="start-brand">
-              <span class="start-spark">✦</span> Flux
-            </div>
-            <div class="start-greeting">{greeting()}</div>
-
-            {searchBox()}
-            <div class="start-date-strip">
-              <div class="start-date-time">{clock()}</div>
-              <div class="start-date-label">{dateStr()}</div>
-              <Suspense>
-                <TodayStrip />
-              </Suspense>
-              <Show when={weather()}>
-                {(w) => (
-                  <div class="start-weather">
-                    {weatherInfo(w().code)[0]} {w().temp}° · {weatherInfo(w().code)[1]}
-                    <span class="start-weather-city">{w().city}</span>
-                  </div>
-                )}
-              </Show>
-            </div>
-          </header>
-        }
-      >
-        {/* Velvet Paper: the clock and Focus cards, then the search pill. */}
-        <header class="start-hero vp-hero">
-          <div class="vp-hero-row">
-            <section class="glass start-card vp-clock-card" data-legend={vpDateLegend()} aria-label="Clock">
-              <div class="vp-clock-main">
-                <span class="vp-clock">{clock()}</span>
-                <span class="vp-clock-rule" aria-hidden="true" />
+        <Show
+          when={vp()}
+          fallback={
+            <header class="start-hero">
+              <div class="start-brand">
+                <span class="start-spark">✦</span> Flux
               </div>
-              <div class="vp-clock-side">
-                <span class="vp-clock-greet">
-                  {greeting()}
-                  {userName ? `, ${userName}` : ""}
-                </span>
-                <Show when={nextEvent()}>
-                  {(e) => (
-                    <span class="vp-clock-line">
-                      Next · {whenLabel(e())} {e().summary}
-                    </span>
-                  )}
-                </Show>
-                <Show when={focusLine()}>
-                  <span class="vp-clock-line">{focusLine()}</span>
-                </Show>
+              <div class="start-greeting">{greeting()}</div>
+
+              {searchBox()}
+              <div class="start-date-strip">
+                <div class="start-date-time">{clock()}</div>
+                <div class="start-date-label">{dateStr()}</div>
+                <Suspense>
+                  <TodayStrip />
+                </Suspense>
                 <Show when={weather()}>
                   {(w) => (
-                    <span class="vp-clock-line">
-                      {weatherInfo(w().code)[1]} · {w().temp}° · {w().city}
-                    </span>
-                  )}
-                </Show>
-              </div>
-            </section>
-            <Suspense>
-              <VpFocusCard />
-            </Suspense>
-            {shortcutsCard()}
-          </div>
-          <Suspense>
-            <TodayStrip />
-          </Suspense>
-          {searchBox()}
-        </header>
-      </Show>
-
-      <div class="start-scroll">
-        <section class="start-cards">
-          <Show when={vp()}>
-            <Suspense>
-              <VpTodayCard
-                order={-3}
-                events={events}
-                now={now}
-                todayStr={todayStr}
-                onOpenCalendar={() => setExpandedWidget("calendar")}
-              />
-              <VpMailCard order={-1} />
-            </Suspense>
-          </Show>
-          {/* Recent tabs */}
-          <div
-            class="glass start-card"
-            data-legend="Open tabs"
-            style={{ display: widgetOn("recent") ? undefined : "none", order: orderOf("recent") }}
-          >
-            <div class="start-card-title">
-              Open tabs
-              <button
-                class="start-card-link"
-                title="Expand recent tabs"
-                onClick={() => setExpandedWidget("recent")}
-              >
-                ⤢ Expand
-              </button>
-            </div>
-            <Show
-              when={recent().length > 0}
-              fallback={<div class="start-empty">Open a few tabs and they'll show up here.</div>}
-            >
-              <div class="start-list start-card-body">
-                <For each={recent().slice(0, 6)}>
-                  {(t) => (
-                    <button class="start-row" onClick={() => focusTab(t.id)} title={t.url}>
-                      <span class="start-fav">{favicon(t.url)}</span>
-                      <span class="start-row-label">{t.title || t.url}</span>
-                    </button>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
-
-          {/* Editable speed dial (in the hero row under Velvet Paper) */}
-          <Show when={!vp()}>{shortcutsCard()}</Show>
-
-          {/* Top sites */}
-          <Show when={widgetOn("topsites") && topSites().length > 0}>
-            <div class="glass start-card" data-legend="Top sites" style={{ order: orderOf("topsites") }}>
-              <div class="start-card-title">
-                Top sites
-                <button
-                  class="start-card-link"
-                  title="Expand top sites"
-                  onClick={() => setExpandedWidget("topSites")}
-                >
-                  ⤢ Expand
-                </button>
-              </div>
-              <div class="start-dial start-card-body">
-                <For each={topSites().slice(0, 10)}>
-                  {(s, i) => (
-                    <div class="start-tile-wrap">
-                      <button
-                        class="start-tile"
-                        style={{ "--tint": TINTS[i() % TINTS.length] }}
-                        onClick={() => props.onNavigate(s.url)}
-                        title={s.title}
-                        aria-label={s.host}
-                      >
-                        <SiteIcon url={s.url} letters={(s.host[0] ?? "?").toUpperCase()} />
-                      </button>
+                    <div class="start-weather">
+                      {weatherInfo(w().code)[0]} {w().temp}° · {weatherInfo(w().code)[1]}
+                      <span class="start-weather-city">{w().city}</span>
                     </div>
                   )}
-                </For>
+                </Show>
               </div>
-            </div>
-          </Show>
-
-          {/* Feed headlines (#72) */}
-          <div
-            class="glass start-card"
-            data-legend="Headlines"
-            style={{ display: widgetOn("headlines") ? undefined : "none", order: orderOf("headlines") }}
-          >
-            <div class="start-card-title">
-              Headlines
-              <span class="start-card-actions">
-                <button
-                  class="start-card-link"
-                  title="Expand headlines"
-                  onClick={() => setExpandedWidget("headlines")}
-                >
-                  ⤢ Expand
-                </button>
-                <button class="start-card-link" onClick={() => props.onNavigate(FEEDS_URL)}>
-                  Feeds →
-                </button>
-              </span>
-            </div>
-            <Show
-              when={headlines().length > 0}
-              fallback={
-                <div class="start-empty">
-                  Subscribe to feeds in <b>Feeds</b> and the latest items show here.
+            </header>
+          }
+        >
+          {/* Velvet Paper: the clock and Focus cards, then the search pill. */}
+          <header class="start-hero vp-hero">
+            <div class="vp-hero-row">
+              <section class="glass start-card vp-clock-card" data-legend={vpDateLegend()} aria-label="Clock">
+                <div class="vp-clock-main">
+                  <span class="vp-clock">{clock()}</span>
+                  <span class="vp-clock-rule" aria-hidden="true" />
                 </div>
-              }
-            >
-              <div class="start-list start-card-body">
-                <For each={headlines().slice(0, 6)}>
-                  {(it) => (
-                    <button
-                      class="start-row"
-                      onClick={() => props.onNavigate(it.link)}
-                      title={`${it.feed_title} — ${it.title}`}
-                    >
-                      <span class="start-fav">📰</span>
-                      <span class="start-row-label">{it.title}</span>
-                    </button>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
-
-          {/* Daily briefing (#71) — local agent summary of the headlines */}
-          <div
-            class="glass start-card"
-            data-legend="Daily briefing"
-            style={{ display: widgetOn("briefing") ? undefined : "none", order: orderOf("briefing") }}
-          >
-            <div class="start-card-title">
-              Daily briefing
-              <Show when={briefing().state === "ok"}>
-                <button
-                  class="start-card-link"
-                  title="Regenerate from the latest headlines"
-                  onClick={generateBriefing}
-                >
-                  ↻ Refresh
-                </button>
-              </Show>
-            </div>
-            <div class="start-card-body">
-              <Switch>
-                <Match when={headlines().length === 0}>
-                  <div class="start-empty">
-                    Subscribe to feeds and Gemma will brief you on the day's headlines — privately, on-device.
-                  </div>
-                </Match>
-                <Match when={briefing().state === "loading"}>
-                  <div class="start-empty">Gemma is reading the headlines…</div>
-                </Match>
-                <Match when={briefing().state === "error"}>
-                  <div class="start-empty">
-                    Couldn't reach the local model.{" "}
-                    <button class="start-card-link" onClick={generateBriefing}>
-                      Retry
-                    </button>
-                  </div>
-                </Match>
-                <Match when={briefing().state === "ok"}>
-                  <div class="start-briefing">{briefing().text}</div>
-                </Match>
-                <Match when={briefing().state === "idle"}>
-                  <button class="start-brief-btn" onClick={generateBriefing}>
-                    ✦ Brief me on today
-                  </button>
-                </Match>
-              </Switch>
-            </div>
-          </div>
-
-          {/* Scratchpad */}
-          <div
-            class="glass start-card"
-            data-legend="Scratchpad"
-            style={{ display: widgetOn("scratchpad") ? undefined : "none", order: orderOf("scratchpad") }}
-          >
-            <div class="start-card-title">
-              Scratchpad
-              <button
-                class="start-card-link"
-                title="Expand scratchpad"
-                onClick={() => setExpandedWidget("scratch")}
-              >
-                ⤢ Expand
-              </button>
-            </div>
-            <textarea
-              class="start-scratch"
-              readOnly={!scratchReady()}
-              value={scratch()}
-              onInput={(e) => onScratch(e.currentTarget.value)}
-              placeholder="Jot a quick note, todo, or link… saved automatically."
-              spellcheck={false}
-            />
-          </div>
-
-          {/* Calendar (Google via ICS, #114) + world clocks */}
-          <div
-            class="glass start-card"
-            data-legend={monthLabel()}
-            style={{ display: widgetOn("calendar") ? undefined : "none", order: orderOf("calendar") }}
-          >
-            <div class="start-card-title">
-              {monthLabel()}
-              <span class="start-card-actions">
-                <Show when={homeCalendars().length > 1}>
-                  <select
-                    class="cal-filter"
-                    title="Show one calendar, or all of them"
-                    value={activeHomeCal()}
-                    onChange={(e) => pickHomeCal(e.currentTarget.value)}
-                  >
-                    <option value="">All calendars</option>
-                    <For each={homeCalendars()}>{(c) => <option value={c}>{c}</option>}</For>
-                  </select>
-                </Show>
-                <Show when={events().length > 0}>
-                  <button
-                    class="start-card-link"
-                    title="Expand — see all events"
-                    onClick={() => setExpandedWidget("calendar")}
-                  >
-                    ⤢ Expand
-                  </button>
-                </Show>
-                <button
-                  class="start-card-link"
-                  title="Subscribe to a calendar's secret ICS URL"
-                  onClick={() => setAddingCal((v) => !v)}
-                >
-                  ＋ Calendar
-                </button>
-              </span>
-            </div>
-            <Show when={addingCal()}>
-              <form class="start-add" onSubmit={addCalendar}>
-                <input
-                  value={newCalUrl()}
-                  onInput={(e) => setNewCalUrl(e.currentTarget.value)}
-                  placeholder="Paste your calendar's secret .ics URL"
-                  spellcheck={false}
-                  autofocus
-                />
-                <button type="submit">Add</button>
-              </form>
-              <Show when={calFeeds().length > 0}>
-                <div class="start-callist">
-                  <For each={calFeeds()}>
-                    {(f) => (
-                      <div class="start-calrow">
-                        <span class="start-calname" title={f.url}>
-                          {f.name}
-                        </span>
-                        <button
-                          class="start-card-link"
-                          title="Copy this calendar's events into Flux as editable events. Recurring events stay one series; safe to run twice."
-                          disabled={calBusy() === f.id}
-                          onClick={() => void makeEditable(f)}
-                        >
-                          {calBusy() === f.id ? "Importing…" : "Make editable"}
-                        </button>
-                        <button class="start-card-link" title="Unsubscribe" onClick={() => dropFeed(f)}>
-                          ✕
-                        </button>
-                      </div>
+                <div class="vp-clock-side">
+                  <span class="vp-clock-greet">
+                    {greeting()}
+                    {userName ? `, ${userName}` : ""}
+                  </span>
+                  <Show when={nextEvent()}>
+                    {(e) => (
+                      <span class="vp-clock-line">
+                        Next · {whenLabel(e())} {e().summary}
+                      </span>
                     )}
-                  </For>
+                  </Show>
+                  <Show when={focusLine()}>
+                    <span class="vp-clock-line">{focusLine()}</span>
+                  </Show>
+                  <Show when={weather()}>
+                    {(w) => (
+                      <span class="vp-clock-line">
+                        {weatherInfo(w().code)[1]} · {w().temp}° · {w().city}
+                      </span>
+                    )}
+                  </Show>
                 </div>
-              </Show>
-              <Show when={calMsg()}>
-                <div class="start-calmsg">{calMsg()}</div>
-              </Show>
-            </Show>
-            <CalendarGrid />
-            <Show when={visibleCardEvents().length > 0}>
-              <div class="start-events">
-                <div class="start-event-list-title">{eventListTitle()}</div>
-                <For each={visibleCardEvents().slice(0, 2)}>
-                  {(e) => (
-                    <div class="start-event" title={e.location ? `${e.summary} · ${e.location}` : e.summary}>
-                      <span class="start-event-when">{whenLabel(e)}</span>
-                      <span class="start-event-title">{e.summary}</span>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-            <Show when={selectedCalDate() && visibleCardEvents().length === 0}>
-              <div class="start-events">
-                <div class="start-event-list-title">{eventListTitle()}</div>
-                <div class="start-empty">No events for this day.</div>
-              </div>
-            </Show>
-            <div class="start-zones">
-              <For each={WORLD_ZONES}>
-                {(z) => (
-                  <div class="start-zone">
-                    <span class="start-zone-label">{z.label}</span>
-                    <span class="start-zone-time">{zoneTime(z.tz)}</span>
-                  </div>
-                )}
-              </For>
+              </section>
+              <Suspense>
+                <VpFocusCard />
+              </Suspense>
+              {shortcutsCard()}
             </div>
-          </div>
+            <Suspense>
+              <TodayStrip />
+            </Suspense>
+            {searchBox()}
+          </header>
+        </Show>
 
-          {/* Tasks (#114) — local, on-device */}
-          <div
-            class="glass start-card"
-            data-legend="Tasks"
-            data-row={vp() ? "lead" : undefined}
-            style={{ display: widgetOn("tasks") ? undefined : "none", order: orderOf("tasks") }}
-          >
-            <div class="start-card-title">
-              Tasks
-              <span class="start-card-actions">
-                <button
-                  class="start-card-link"
-                  title="Expand tasks"
-                  onClick={() => setExpandedWidget("tasks")}
-                >
-                  ⤢ Expand
-                </button>
-                <Show when={todos().some((t) => t.done)}>
-                  <button class="start-card-link" onClick={clearDoneTodos}>
-                    Clear done
-                  </button>
-                </Show>
-              </span>
-            </div>
-            <form class="start-todo-add" onSubmit={addTodo}>
-              <input
-                value={newTodo()}
-                onInput={(e) => setNewTodo(e.currentTarget.value)}
-                placeholder="Add a task…"
-                spellcheck={false}
-              />
-            </form>
-            <Show
-              when={todos().length > 0}
-              fallback={<div class="start-empty">Nothing yet — add a task above. Stored on your device.</div>}
-            >
-              <div class="start-todos start-card-body">
-                <For each={sortedTodos().slice(0, 5)}>
-                  {(t) => (
-                    <div classList={{ "start-todo": true, done: t.done }}>
-                      <button
-                        class="start-todo-check"
-                        title={t.done ? "Mark not done" : "Mark done"}
-                        onClick={() => toggleTodo(t.id)}
-                      >
-                        {t.done ? "☑" : "☐"}
-                      </button>
-                      <span class="start-todo-title">{t.title}</span>
-                      <Show when={t.due}>
-                        <span class="start-todo-due">{t.due}</span>
-                      </Show>
-                      <button class="start-todo-x" title="Remove" onClick={() => removeTodo(t.id)}>
-                        ×
-                      </button>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-            <Show when={openTodos() > 0}>
-              <div class="start-todo-count">{openTodos()} open</div>
-            </Show>
-          </div>
-
-          {/* Calculator (#130) — compact; expands to a scientific calculator. */}
-          {/* Timers, stopwatch & alarms (#134) — state lives in clocks.ts, so a
-            running timer / your alarms persist after you leave the start page. */}
-          <div
-            class="glass start-card"
-            data-legend="Time"
-            style={{ display: widgetOn("clocks") ? undefined : "none", order: orderOf("clocks") }}
-          >
-            <div class="start-card-title">Time</div>
-            <div class="start-card-body">
-              <ClockWidget />
-            </div>
-          </div>
-
-          <div
-            class="glass start-card"
-            data-legend="Calculator"
-            style={{ display: widgetOn("calc") ? undefined : "none", order: orderOf("calc") }}
-          >
-            <div class="start-card-title">
-              Calculator
-              <button
-                class="start-card-link"
-                title="Scientific calculator"
-                onClick={() => setExpandedWidget("calc")}
-              >
-                ⤢ Scientific
-              </button>
-            </div>
-            <div class="start-card-body">
-              <Calculator />
-            </div>
-          </div>
-
-          {/* Unit converter (#130) — length/mass/temp/…; expands with currency. */}
-          <div
-            class="glass start-card"
-            data-legend="Unit converter"
-            style={{ display: widgetOn("convert") ? undefined : "none", order: orderOf("convert") }}
-          >
-            <div class="start-card-title">
-              Unit converter
-              <button
-                class="start-card-link"
-                title="All categories + currency"
-                onClick={() => setExpandedWidget("convert")}
-              >
-                ⤢ Expand
-              </button>
-            </div>
-            <div class="start-card-body">
-              <Converter />
-            </div>
-          </div>
-
-          {/* Maps (#130) — Australia cover; opens the full map panel. */}
-          <div
-            class="glass start-card start-map-card"
-            style={{ display: widgetOn("map") ? undefined : "none", order: orderOf("map") }}
-          >
-            <div class="start-card-title">
-              Maps
-              <button class="start-card-link" title="Open maps" onClick={() => props.onOpenMap()}>
-                ⤢ Open
-              </button>
-            </div>
-            <button class="start-map-cover" title="Open Maps" onClick={() => props.onOpenMap()}>
-              <iframe
-                class="start-map-frame"
-                src="https://www.google.com/maps?q=Australia&z=3&output=embed"
-                title="Australia"
-                loading="lazy"
-                tabindex={-1}
-                aria-hidden="true"
-              />
-              <span class="start-map-label">🗺 Open Maps</span>
-            </button>
-          </div>
-
-          {/* Omni index glance (#97) */}
-          <div
-            class="glass start-card"
-            data-legend="Omni index"
-            style={{ display: widgetOn("omni") ? undefined : "none", order: orderOf("omni") }}
-          >
-            <div class="start-card-title">
-              Omni index
-              <button
-                class="start-card-link"
-                title="Open the Omni dashboard"
-                onClick={() => props.onNavigate(OMNI_URL)}
-              >
-                ⤢ Dashboard
-              </button>
-            </div>
-            <Show
-              when={omni()}
-              fallback={
-                <div class="start-empty">
-                  Your local search index — save pages with ⌘⇧O and they're searchable here.
-                </div>
-              }
-            >
-              {(s) => (
-                <div class="start-card-body start-omni">
-                  <div class="start-omni-row">
-                    <div class="start-omni-stat">
-                      <span class="start-omni-num">{s().live_docs.toLocaleString()}</span>
-                      <span class="start-omni-lbl">pages</span>
-                    </div>
-                    <div class="start-omni-stat">
-                      <span class="start-omni-num">{s().ann_vectors.toLocaleString()}</span>
-                      <span class="start-omni-lbl">vectors</span>
-                    </div>
-                  </div>
-                  <div class="start-omni-meta">
-                    {s().embedder_kind}
-                    {s().embedded ? ` · ${s().embedder_dim}-dim` : " · hashing (offline)"}
-                  </div>
-                </div>
-              )}
-            </Show>
-          </div>
-
-          {/* Quick actions */}
-          <div
-            class="glass start-card"
-            data-legend="Quick actions"
-            style={{ display: widgetOn("actions") ? undefined : "none", order: orderOf("actions") }}
-          >
-            <div class="start-card-title">
-              Quick actions
-              <button
-                class="start-card-link"
-                title="Expand quick actions"
-                onClick={() => setExpandedWidget("actions")}
-              >
-                ⤢ Expand
-              </button>
-            </div>
-            <div class="start-actions">
-              <button class="start-action" onClick={props.onNewTerminal}>
-                <span class="start-action-icon">⌨</span> New terminal
-              </button>
-              <button class="start-action" onClick={props.onToggleAgent}>
-                <span class="start-action-icon" style={{ color: "var(--flux-violet)" }}>
-                  ✦
-                </span>{" "}
-                Ask Flux Agent
-              </button>
-              <button class="start-action" onClick={() => props.onNavigate(OMNI_URL)}>
-                <span class="start-action-icon" style={{ color: "var(--flux-teal)" }}>
-                  ✦
-                </span>{" "}
-                Omni index
-              </button>
-              <button class="start-action" onClick={() => props.onNavigate(HISTORY_URL)}>
-                <span class="start-action-icon">🕘</span> History
-              </button>
-            </div>
-          </div>
-        </section>
-      </div>
+        <div class="start-scroll">{cardGrid()}</div>
       </Show>
 
       {/* Expanded widgets — dashboard cards keep a fixed footprint; dense content

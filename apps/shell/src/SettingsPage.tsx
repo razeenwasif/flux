@@ -27,8 +27,11 @@ import {
   DEFAULT_WALLPAPER,
   WALLPAPERS,
   accentFollows,
+  clearCustomWallpaper,
+  customImage,
   drift,
   setAccentFollows,
+  setCustomWallpaper,
   setDrift,
   setStepBack,
   setWallpaper,
@@ -223,6 +226,8 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const [coreReady, setCoreReady] = createSignal(false);
   const [loadError, setLoadError] = createSignal(false);
   const controlsDisabled = () => writer.pending() || !coreReady();
+  /** Why the chosen custom wallpaper couldn't be used, if it couldn't. */
+  const [wallpaperError, setWallpaperError] = createSignal<string | null>(null);
   // Gemma's voice (TTS engine) + "Hey Gemma" always-on listening.
   const [ttsEngineSel, setTtsEngineSel] = createSignal<TtsEngine>(ttsEngine());
   const pickTts = (e: TtsEngine) => {
@@ -961,7 +966,59 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                     </button>
                   )}
                 </For>
+                {/* The user's own image, once picked: selectable, and removable. */}
+                <Show when={customImage()}>
+                  {(img) => (
+                    <div class="silk-wall-custom">
+                      <button
+                        class="silk-wall"
+                        classList={{ on: wallpaper() === "custom" }}
+                        role="radio"
+                        aria-checked={wallpaper() === "custom"}
+                        onClick={() => setWallpaper("custom")}
+                      >
+                        <span
+                          class="silk-wall-thumb"
+                          style={{ "background-image": `url("${img()}")` }}
+                          aria-hidden="true"
+                        />
+                        <span class="silk-wall-name">Your image</span>
+                      </button>
+                      <button
+                        class="silk-wall-remove"
+                        title="Remove your image"
+                        aria-label="Remove your image"
+                        onClick={() => clearCustomWallpaper()}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )}
+                </Show>
+                <label class="silk-wall silk-wall-pick">
+                  <span class="silk-wall-thumb silk-wall-add" aria-hidden="true">
+                    +
+                  </span>
+                  <span class="silk-wall-name">{customImage() ? "Another image…" : "Your own image…"}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    class="silk-wall-file"
+                    onChange={(e) => {
+                      const file = e.currentTarget.files?.[0];
+                      e.currentTarget.value = "";
+                      if (!file) return;
+                      setWallpaperError(null);
+                      setCustomWallpaper(file).catch((err: Error) => setWallpaperError(err.message));
+                    }}
+                  />
+                </label>
               </div>
+              <Show when={wallpaperError()}>
+                <p class="silk-wall-error" role="alert">
+                  {wallpaperError()}
+                </p>
+              </Show>
             </Row>
             <Row
               label="Accent follows the wallpaper"

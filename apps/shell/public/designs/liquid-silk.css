@@ -23,6 +23,17 @@
    the agent's colour, the glass tint — so everything downstream recolours.
    ════════════════════════════════════════════════════════════════════════ */
 
+/* Sora (OFL, public/fonts/OFL-Sora.txt) for the display type: the clock, the
+   greeting and headings. Latin only and variable, 34 KB; only fetched when
+   something set in it is drawn. */
+@font-face {
+  font-family: "Sora";
+  src: url("/fonts/Sora-Variable.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ── Palette per wallpaper ─────────────────────────────────────────────── */
 :root[data-design][data-silk] {
   /* Opal: mint for actions, lilac for focus and the agent. The default, and
@@ -123,6 +134,12 @@
   --silk-image: url("/wallpapers/aurora.webp");
   --silk-scrim: linear-gradient(90deg, rgba(0, 0, 6, 0.55), rgba(0, 0, 6, 0) 50%);
 }
+/* The user's own image (wallpaper.ts sets --silk-custom-image inline): Opal's
+   palette, and an even scrim since we can't know where its quiet side is. */
+:root[data-design][data-silk][data-wallpaper="custom"] {
+  --silk-image: var(--silk-custom-image, url("/wallpapers/opal.webp"));
+  --silk-scrim: linear-gradient(90deg, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.12) 62%);
+}
 /* Accent pinned to Opal's whatever the wallpaper ("accent follows" off). */
 :root[data-design][data-silk][data-silk-accent="fixed"] {
   --accent-rgb: 147, 232, 216;
@@ -152,7 +169,7 @@
   --vp-edge: rgba(var(--rim-rgb), 0.12);
   --vp-shadow: var(--silk-lift);
   --vp-r: 22px;
-  --vp-display: "Figtree", "Inter", system-ui, sans-serif;
+  --vp-display: "Sora", "Figtree", "Inter", system-ui, sans-serif;
   --vp-foil: linear-gradient(180deg, rgba(var(--rim-rgb), 0.22), rgba(var(--rim-rgb), 0.08));
   --vp-foil-line: linear-gradient(90deg, rgba(var(--rim-rgb), 0.18), rgba(var(--rim-rgb), 0.06));
   --vp-wash: linear-gradient(100deg, rgba(var(--accent-rgb), 0.18), rgba(var(--accent-rgb), 0.08));
@@ -285,6 +302,28 @@
   --vp-card: rgba(255, 255, 255, 0.045);
 }
 
+/* Floating panels (Files, Notebook, Playground, the map, and the calendar
+   when it floats): frosted glass. The blur goes on each panel's full-window
+   backdrop, so everything behind the panel is softened (the panel's tint then
+   reads as frosted glass), and menus inside the panel keep their positions:
+   the backdrop covers the whole window, so it's a containing block in the
+   same place as the viewport. */
+:root[data-design][data-silk] .files-panel-backdrop,
+:root[data-design][data-silk] .map-panel-backdrop,
+:root[data-design][data-silk] .cal-pane-backdrop {
+  background: rgba(0, 0, 0, 0.22);
+  backdrop-filter: var(--silk-blur);
+  -webkit-backdrop-filter: var(--silk-blur);
+}
+:root[data-design][data-silk] .files-panel,
+:root[data-design][data-silk] .kb-panel,
+:root[data-design][data-silk] .playground-panel,
+:root[data-design][data-silk] .glass.cal-pane:not(.docked) {
+  background: rgba(var(--silk-tint), 0.72);
+  border: 1px solid var(--silk-edge);
+  box-shadow: var(--silk-lift), var(--silk-sheen);
+}
+
 /* Velvet Paper's plum leftovers on the pages: segmented controls' selected
    segment, Settings' toggle knob, Tasks' own accents, Omni's site rows. */
 :root[data-design][data-silk] .tab-modes-thumb,
@@ -401,7 +440,7 @@
 }
 .silk-clock {
   margin-top: 6px;
-  font-family: "Figtree", "Inter", system-ui, sans-serif;
+  font-family: "Sora", "Figtree", "Inter", system-ui, sans-serif;
   font-weight: 300;
   font-size: clamp(72px, 11vw, 124px);
   line-height: 0.9;
@@ -419,6 +458,7 @@
 }
 .silk-greet {
   margin-top: 12px;
+  font-family: "Sora", "Figtree", "Inter", system-ui, sans-serif;
   font-size: 24px;
   font-weight: 300;
 }
@@ -500,10 +540,6 @@
 /* The cards sit at the foot of home, just above the dock: the free space goes
    above them, between the shortcuts and the cards. */
 .silk-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
-  gap: 16px;
-  max-width: 1180px;
   margin-top: auto;
 }
 :root[data-design][data-silk] .silk-cards .start-card {
@@ -514,7 +550,10 @@
   border-radius: 24px;
   border: 1px solid var(--silk-edge);
   background: var(--silk-home-fill);
-  box-shadow: var(--silk-lift), var(--silk-sheen);
+  /* No drop shadow: the carousel scrolls, so it would clip a shadow to its
+     own rectangle (square corners, a flat edge). The rim and the top sheen
+     are enough on clear glass. */
+  box-shadow: var(--silk-sheen);
   backdrop-filter: var(--silk-home-blur);
   -webkit-backdrop-filter: var(--silk-home-blur);
 }
@@ -553,6 +592,10 @@
   -webkit-mask: var(--silk-card-icon) center / contain no-repeat;
   mask: var(--silk-card-icon) center / contain no-repeat;
 }
+/* Cards without an icon of their own (the grid's) get a plain card glyph. */
+.silk-cards .start-card {
+  --silk-card-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round'><rect x='4' y='5' width='16' height='14' rx='3'/><path d='M4 10h16'/></svg>");
+}
 .silk-cards .vp-today-card {
   --silk-card-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'><rect x='3.5' y='5' width='17' height='15' rx='3'/><path d='M3.5 10h17M8 3v4M16 3v4'/></svg>");
 }
@@ -582,6 +625,7 @@
     "ring note"
     "ring actions";
   align-items: center;
+  align-content: start;
   justify-items: start;
   column-gap: 18px;
   row-gap: 10px;
@@ -663,15 +707,54 @@
   -webkit-backdrop-filter: var(--silk-blur);
 }
 
-/* Compact cards: three to a row, each a glance rather than a list. */
+/* The carousel: every home card in one row that scrolls sideways, three in
+   view, snapping card by card; a trackpad swipe or Shift-scroll moves it,
+   and the thin scrollbar is there for a mouse. The grid's own wrapper (cardGrid) dissolves into the row. */
 .silk-cards {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  margin-inline: -4px;
+  padding: 4px 4px 10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  /* No mask or filter here: either makes this row a backdrop root, and the
+     cards' blur would sample an empty layer (a dark slab the row's shape)
+     instead of the wallpaper. */
+}
+.silk-cards::-webkit-scrollbar {
+  height: 6px;
+}
+.silk-cards::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.22);
+}
+.silk-cards:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 2px;
+}
+.silk-cards .start-cards {
+  display: contents;
+}
+:root[data-design][data-silk] .silk-cards .start-card {
+  flex: 0 0 clamp(250px, calc((100% - 32px) / 3), 360px);
+  width: auto;
+  scroll-snap-align: start;
+}
+/* Today, Focus and Inbox lead, ahead of the grid's cards. */
+:root[data-design][data-silk] .silk-cards .vp-focus-card {
+  order: -2;
 }
 :root[data-design][data-silk] .silk-cards .start-card {
   padding: 16px 18px 16px;
   gap: 10px;
   max-height: 236px;
-  overflow: hidden;
+  overflow: hidden auto;
+  scrollbar-width: none;
 }
 :root[data-design][data-silk] .silk-cards .start-card::before {
   margin-bottom: 2px;
@@ -758,6 +841,18 @@
   grid-area: time;
 }
 
+/* While home shows its dock, the sidebar footer leaves out the five tools the
+   dock already offers (Terminal, Editor, Agent, Files, Notebook); on every
+   other page, where there's no dock, they're in the footer as usual. Matched
+   by title, which is how the footer names them (Sidebar.tsx). */
+:root[data-design][data-silk] body:has(.silk-home) .sidebar-footer button[title^="Terminal"],
+:root[data-design][data-silk] body:has(.silk-home) .sidebar-footer button[title^="Editor / Nvim"],
+:root[data-design][data-silk] body:has(.silk-home) .sidebar-footer button[title^="Flux Agent"],
+:root[data-design][data-silk] body:has(.silk-home) .sidebar-footer button[title="File explorer"],
+:root[data-design][data-silk] body:has(.silk-home) .sidebar-footer button[title^="Notebook —"] {
+  display: none;
+}
+
 /* Home has its own dock; the corner app dock would crowd it. */
 :root[data-design][data-silk] body:has(.silk-home) .appdock {
   display: none;
@@ -775,12 +870,12 @@
   padding: 7px;
   border-radius: 22px;
   border: 1px solid var(--silk-edge);
-  /* Clear like the rest of home; the blur still softens a card scrolling
-     underneath it on a short window. */
-  background: var(--silk-home-fill);
-  backdrop-filter: var(--silk-blur);
-  -webkit-backdrop-filter: var(--silk-blur);
-  box-shadow: var(--silk-lift), var(--silk-sheen);
+  /* Fully clear: no tint and no blur, only its rim, with the icons' own
+     shadow (below) to keep them legible on the wallpaper. */
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -830,6 +925,9 @@
   border-radius: 50%;
   background: rgb(var(--accent-rgb));
 }
+.silk-dock-btn svg {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
 .silk-dock-btn.agent {
   color: rgb(var(--accent-ai-rgb));
 }
@@ -849,68 +947,53 @@
 }
 
 /* ── The agent: silk folds in place of the aurora shader ──────────────── */
-.silk-fold {
+/* Drawn on the agent's effects layer (.agent-fx, which is .busy while the
+   agent works; AgentAurora mounts no shader under Silk): the ribbons, two
+   soft bands in the wallpaper's accents, on ::before, and the crease of light
+   on ::after, both faded out below the panel's top. */
+:root[data-design][data-silk] .agent-fx::before,
+:root[data-design][data-silk] .agent-fx::after,
+:root[data-design][data-silk] .agent-fx.busy::before {
+  content: "";
   position: absolute;
-  inset: 0 0 auto;
-  height: 150px;
-  overflow: hidden;
-  border-radius: inherit;
-  pointer-events: none;
-  -webkit-mask-image: linear-gradient(#000 55%, transparent);
-  mask-image: linear-gradient(#000 55%, transparent);
-}
-.silk-ribbon {
-  position: absolute;
+  inset: auto;
   left: -30%;
   width: 160%;
-  height: 110px;
-  border-radius: 50%;
-  filter: blur(20px);
-  opacity: 0.22;
+  padding: 0;
+  border-radius: 0;
+  pointer-events: none;
   transition: opacity 1.2s ease;
+  -webkit-mask: linear-gradient(#000 40%, transparent 75%);
+  mask: linear-gradient(#000 40%, transparent 75%);
+  /* The base theme's busy ring masks this layer with an XOR composite. */
+  -webkit-mask-composite: source-over;
+  mask-composite: add;
 }
-.silk-ribbon.r1 {
-  top: -36px;
-  background: linear-gradient(90deg, transparent 5%, rgb(var(--accent-rgb)) 42%, transparent 82%);
+:root[data-design][data-silk] .agent-fx::before,
+:root[data-design][data-silk] .agent-fx.busy::before {
+  top: -40px;
+  height: 200px;
+  background:
+    radial-gradient(45% 30% at 45% 25%, rgb(var(--accent-rgb)), transparent 70%),
+    radial-gradient(45% 28% at 58% 70%, rgb(var(--accent-ai-rgb)), transparent 70%);
+  filter: blur(18px);
+  opacity: 0.22;
 }
-.silk-ribbon.r2 {
-  top: 40px;
-  background: linear-gradient(90deg, transparent 12%, rgb(var(--accent-ai-rgb)) 58%, transparent 96%);
-}
-.silk-crease {
-  position: absolute;
-  left: -20%;
-  width: 140%;
+:root[data-design][data-silk] .agent-fx::after {
+  top: 34px;
   height: 220px;
-  top: 30px;
   border-radius: 50%;
   border-top: 1.5px solid rgba(255, 255, 255, 0.8);
   filter: drop-shadow(0 0 6px rgb(var(--accent-rgb)));
   opacity: 0.18;
-  transition: opacity 1.2s ease;
 }
-.silk-crease.c2 {
-  top: 62px;
-  border-top-color: rgba(255, 255, 255, 0.35);
-  filter: none;
-}
-.silk-fold.busy .silk-ribbon {
+:root[data-design][data-silk] .agent-fx.busy::before {
   opacity: 0.6;
-}
-.silk-fold.busy .silk-crease {
-  opacity: 0.85;
-}
-.silk-fold.busy .r1 {
   animation: silk-fold-a 9s ease-in-out infinite alternate;
 }
-.silk-fold.busy .r2 {
-  animation: silk-fold-b 11s ease-in-out infinite alternate;
-}
-.silk-fold.busy .silk-crease {
+:root[data-design][data-silk] .agent-fx.busy::after {
+  opacity: 0.85;
   animation: silk-crease 6s ease-in-out infinite;
-}
-.silk-fold.busy .c2 {
-  animation: silk-crease 8s ease-in-out -3s infinite reverse;
 }
 @keyframes silk-fold-a {
   from {
@@ -918,14 +1001,6 @@
   }
   to {
     transform: translateX(8%) rotate(3deg);
-  }
-}
-@keyframes silk-fold-b {
-  from {
-    transform: translateX(10%) rotate(5deg);
-  }
-  to {
-    transform: translateX(-6%) rotate(-3deg);
   }
 }
 @keyframes silk-crease {
@@ -942,8 +1017,8 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .silk-fold .silk-ribbon,
-  .silk-fold .silk-crease {
+  :root[data-design][data-silk] .agent-fx::before,
+  :root[data-design][data-silk] .agent-fx::after {
     animation: none !important;
   }
 }
@@ -1002,6 +1077,59 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+/* The user's own image: its tile with a remove button, and the picker tile
+   (a label around a hidden file input, so it's a real control). */
+.silk-wall-custom {
+  position: relative;
+  display: flex;
+}
+.silk-wall-custom > .silk-wall {
+  flex: 1;
+  min-width: 0;
+}
+.silk-wall-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.silk-wall-remove:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+.silk-wall-pick {
+  position: relative;
+}
+.silk-wall-add {
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  color: var(--flux-text-dim);
+  outline: 1px dashed rgba(255, 255, 255, 0.3);
+}
+.silk-wall-file {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.silk-wall-pick:focus-within .silk-wall-thumb {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 3px;
+}
+.silk-wall-error {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--flux-warn);
 }
 .silk-wall-dot {
   width: 9px;

@@ -140,7 +140,7 @@ const TuiPane = lazy(() => import("./TuiPane"));
 import { fitLayout, LAYOUT_PRESETS, parseLayout, type LayoutPreset, type LayoutState } from "./layout";
 import { tileRects } from "./tiles";
 import { cardLayout, design } from "./design";
-import { registerShellActions } from "./shellActions";
+import { registerShellActions, type ShellAction } from "./shellActions";
 import type { PaletteContext } from "./paletteActions";
 import { LinkMenu } from "./linkMenu";
 // Lazy-loaded: not shown on a fresh window, so they stay out of the boot bundle
@@ -290,8 +290,12 @@ const App: Component = () => {
   installDwellCapture();
   const [agentOpen, setAgentOpen] = createSignal(!narrow && (savedLayout?.agent ?? true));
   // Ambient connections rail (#123) — on by default; toggled via the palette.
+  // Liquid Silk keeps its contents in the sidebar's Context panel, so a fresh
+  // install in that design (the default) starts with the rail closed.
   const [connectOpen, setConnectOpen] = createSignal(
-    !narrow && (savedLayout?.connect ?? localStorage.getItem("flux.connect.open") !== "0"),
+    !narrow &&
+      (savedLayout?.connect ??
+        (localStorage.getItem("flux.connect.open") ?? (design() === "liquid-silk" ? "0" : "1")) !== "0"),
   );
   let connPersist = false;
   createEffect(() => {
@@ -1633,30 +1637,20 @@ const App: Component = () => {
     }
   };
   // Liquid Silk's home dock (StartPage) reaches these through the bridge.
+  const panelToggles: Partial<Record<ShellAction, () => void>> = {
+    "toggle-files": () => (filesPanelOpen() ? closeFilesPanel() : openFilesPanel()),
+    "toggle-notebook": () => (kbPanelOpen() ? closeKbPanel() : openKbPanel()),
+  };
+  const panelOpen: Record<ShellAction, () => boolean> = {
+    "toggle-terminal": terminalOpen,
+    "toggle-agent": agentOpen,
+    "toggle-editor": editorColOpen,
+    "toggle-files": filesPanelOpen,
+    "toggle-notebook": kbPanelOpen,
+  };
   registerShellActions({
-    run: (action) => {
-      if (action === "toggle-files") {
-        if (filesPanelOpen()) closeFilesPanel();
-        else openFilesPanel();
-        return true;
-      }
-      if (action === "toggle-notebook") {
-        if (kbPanelOpen()) closeKbPanel();
-        else openKbPanel();
-        return true;
-      }
-      return dispatch(action);
-    },
-    isOpen: (action) =>
-      action === "toggle-terminal"
-        ? terminalOpen()
-        : action === "toggle-agent"
-          ? agentOpen()
-          : action === "toggle-editor"
-            ? editorColOpen()
-            : action === "toggle-files"
-              ? filesPanelOpen()
-              : kbPanelOpen(),
+    run: (action) => (panelToggles[action] ? (panelToggles[action]!(), true) : dispatch(action)),
+    isOpen: (action) => panelOpen[action](),
   });
   // Silk steps its wallpaper back while a web page is the active tab.
   createEffect(() => {

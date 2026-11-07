@@ -4,7 +4,7 @@
  * A theme (`themes.ts`) recolours Flux; a design re-lays and re-materials it:
  * spacing, card shapes, type, which surfaces float and how titles sit on them.
  * "Classic" is Flux as it looked before the redesign and needs no attribute.
- * Velvet Paper is the default; every design but Classic is a stylesheet in
+ * Liquid Silk is the default; every design but Classic is a stylesheet in
  * `public/designs/`,
  * keyed on `<html data-design="…">`, so the Classic boot path never downloads it
  * and it stays out of the entry CSS budget (`npm run perf`).
@@ -52,9 +52,9 @@ const SILK_LINK_ID = "flux-silk-css";
 const isDesign = (v: string | null): v is DesignId => DESIGNS.some((d) => d.id === v);
 
 /** The design a fresh install (or an unreadable store) gets. */
-export const DEFAULT_DESIGN: DesignId = "velvet-paper";
+export const DEFAULT_DESIGN: DesignId = "liquid-silk";
 
-/** What's stored, defaulting to Velvet Paper for anything unrecognised. Keep in
+/** What's stored, defaulting to Liquid Silk for anything unrecognised. Keep in
  *  step with the pre-paint script in index.html. */
 export const storedDesign = (): DesignId => {
   try {

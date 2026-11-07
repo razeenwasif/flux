@@ -60,10 +60,14 @@ afterEach(() => {
 });
 
 describe("stored design", () => {
-  it("is Velvet Paper when nothing (or nonsense) is stored", async () => {
-    expect((await import("./design")).storedDesign()).toBe("velvet-paper");
+  it("is Liquid Silk when nothing (or nonsense) is stored", async () => {
+    expect((await import("./design")).storedDesign()).toBe("liquid-silk");
     stored["flux.design"] = "art-deco";
     vi.resetModules();
+    expect((await import("./design")).storedDesign()).toBe("liquid-silk");
+  });
+  it("keeps Velvet Paper when that was picked", async () => {
+    stored["flux.design"] = "velvet-paper";
     expect((await import("./design")).storedDesign()).toBe("velvet-paper");
   });
   it("keeps Classic when that was picked", async () => {
@@ -112,6 +116,7 @@ describe("the Liquid Silk sheet", () => {
   it("scopes every page-level rule to Silk, one attribute above Velvet Paper", () => {
     const css = liquidSilkCss
       .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/@font-face\s*\{[^}]*\}/g, "")
       .replace(/@keyframes[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, "");
     const selectors = [...css.matchAll(/(^|\})\s*([^{}@]+?)\s*\{/g)].flatMap((m) =>
       m[2]!.split(",").map((s) => s.trim()),
