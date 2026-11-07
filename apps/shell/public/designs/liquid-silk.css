@@ -388,9 +388,14 @@
 }
 
 /* Popovers over the page keep an opaque fill (the native page can't be
-   sampled), but take the glass's edge and corner. */
+   sampled), but take the glass's edge and corner. The fill is set here too:
+   most popovers are also .glass, and Velvet Paper's .glass rule outranks
+   theme.css's opaque one, so they came out as see-through as Silk's glass. */
 :root[data-design][data-silk] .popover,
 :root[data-design][data-silk] .footer-pop {
+  background: var(--flux-popover-fill);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border-color: var(--silk-edge);
 }
 

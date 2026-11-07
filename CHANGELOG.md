@@ -80,6 +80,7 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - "Clear cookies for this site" and "Clear all cookies" also clear containers' own cookie jars, and clear-on-close clears the jar the closing tab used: its container's, or the default one. On Windows and Linux these clears never reached a container's cookies, and closing a container tab cleared its site from the default jar instead. Closing a private tab no longer clears that site's cookies outside it.
 
 ### Fixed
+- In Liquid Silk, the sidebar's popovers (Shields, Settings, passwords, downloads, macros, Boosts and the new-tab menu) were see-through, with the sidebar showing through their rows. They have their opaque fill back; Velvet Paper's glass rule was overriding it.
 - A closed tab could keep playing: closing a YouTube tab with the video running carried on in the background. On macOS a closed tab's page lived on behind its view, timers and sound included; it's now torn down when the tab closes, after its media is paused and picture-in-picture closed.
 - Unloading a sleeping tab now frees its memory on macOS. The same fault kept every unloaded tab's page alive, so tab sleep's unload step closed the view and freed nothing.
 - Inline images show through tmux (which Flux's terminal uses to keep sessions). The terminal now tells the shell its size in pixels, as other terminals do; without it tmux drew a "SIXEL IMAGE" placeholder of plus signs. Output also never waits more than 1.5 s for the image support to load, since output that waits holds up the shell, keystrokes included.
