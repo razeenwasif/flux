@@ -1,20 +1,16 @@
 /**
- * Liquid Silk's home dock (design.ts) — the tools and the user's apps in one
- * frosted strip at the bottom centre of the home page.
+ * Liquid Silk's home dock (design.ts) — Flux's tools in one frosted strip at
+ * the bottom centre of the home page: the same toggles as the sidebar footer,
+ * reached through the shell bridge (shellActions.ts). A dot under a tool marks
+ * its panel as open.
  *
- * The tools are the same toggles as the sidebar footer, reached through the
- * shell bridge (shellActions.ts); the apps open exactly as from the app dock
- * (appOpen.ts), which Silk hides while home is showing so they aren't offered
- * twice. A dot under a tool marks its panel as open.
+ * The user's web apps (apps.ts) aren't here: they run as native Mac apps, and
+ * the app dock still offers them on every other page.
  */
 import { For, type Component } from "solid-js";
 
-import { FLUX_APPS } from "../apps";
-import { AppIcon } from "../appIcon";
-import { openFluxApp } from "../appOpen";
 import Icon, { type IconName } from "../Icon";
 import { runShellAction, shellActionOpen, type ShellAction } from "../shellActions";
-import { openAppIds, openTimetable } from "../store";
 
 const TOOLS: { action: ShellAction; icon: IconName; label: string; agent?: boolean }[] = [
   { action: "toggle-terminal", icon: "terminal", label: "Terminal" },
@@ -37,23 +33,6 @@ const SilkDock: Component = () => (
           onClick={() => runShellAction(t.action)}
         >
           <Icon name={t.icon} size={20} />
-        </button>
-      )}
-    </For>
-    <span class="silk-dock-sep" aria-hidden="true" />
-    <button class="silk-dock-btn app" title="Timetable — your week at a glance" aria-label="Timetable" onClick={() => openTimetable()}>
-      <Icon name="calendar" size={20} />
-    </button>
-    <For each={FLUX_APPS}>
-      {(app) => (
-        <button
-          class="silk-dock-btn app"
-          classList={{ on: openAppIds().includes(app.id) }}
-          title={`${app.name} — ${app.tagline}`}
-          aria-label={app.name}
-          onClick={() => openFluxApp(app)}
-        >
-          <AppIcon app={app} size={22} />
         </button>
       )}
     </For>

@@ -270,6 +270,46 @@
   -webkit-backdrop-filter: var(--silk-blur);
   pointer-events: none;
 }
+/* Flux's own pages (Settings, History, Notebook, …) paint an opaque page
+   colour of their own; on Silk they sit on the card's glass instead. */
+:root[data-design][data-silk] .internal-page > :not(.start) {
+  background-color: transparent;
+  background-image: none;
+}
+/* Settings' cards sit on that glass: a light frost, not another dark slab. */
+:root[data-design][data-silk] .set-page {
+  --vp-card: rgba(255, 255, 255, 0.045);
+}
+
+/* Velvet Paper's plum leftovers on the pages: segmented controls' selected
+   segment, Settings' toggle knob, Tasks' own accents, Omni's site rows. */
+:root[data-design][data-silk] .tab-modes-thumb,
+:root[data-design][data-silk] .set-seg button.on,
+:root[data-design][data-silk] .mail-filter button.on {
+  background: var(--vp-wash), rgba(255, 255, 255, 0.12);
+}
+:root[data-design][data-silk] .set-page .shields-toggle::before {
+  background: rgba(255, 255, 255, 0.78);
+}
+:root[data-design][data-silk] .set-page .shields-toggle.on::before {
+  background: #ffffff;
+}
+:root[data-design][data-silk] .td-page {
+  --td-pink: rgb(var(--accent-rgb));
+  --td-lilac: rgb(var(--accent-ai-rgb));
+}
+/* History's sticky day headers: frosted, so rows scrolling under them blur
+   instead of showing through, without a solid bar across the glass. */
+:root[data-design][data-silk] .hist-day {
+  background: rgba(var(--silk-tint), 0.7);
+  backdrop-filter: var(--silk-blur);
+  -webkit-backdrop-filter: var(--silk-blur);
+  border-radius: 8px;
+}
+:root[data-design][data-silk] .omni-site {
+  background: rgba(255, 255, 255, 0.05);
+}
+
 /* Home sits straight on the wallpaper: no card, no ring, no shadow. */
 :root[data-design][data-silk] .card:has(.start) {
   background: transparent;
@@ -575,7 +615,102 @@
   -webkit-backdrop-filter: var(--silk-blur);
 }
 
-/* Home has its own dock with the apps in it; the corner one would repeat them. */
+/* Compact cards: three to a row, each a glance rather than a list. */
+.silk-cards {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+:root[data-design][data-silk] .silk-cards .start-card {
+  padding: 16px 18px 16px;
+  gap: 10px;
+  max-height: 236px;
+  overflow: hidden;
+}
+:root[data-design][data-silk] .silk-cards .start-card::before {
+  margin-bottom: 2px;
+}
+:root[data-design][data-silk] .silk-cards .start-card::after {
+  top: 17px;
+  left: 18px;
+}
+/* Today: a slim track for the strip, then at most three events. */
+:root[data-design][data-silk] .silk-cards .vp-day-strip {
+  gap: 1px;
+}
+:root[data-design][data-silk] .silk-cards .vp-hour {
+  height: 8px;
+  border-radius: 2px;
+}
+:root[data-design][data-silk] .silk-cards .vp-day-scale {
+  margin-top: -2px;
+  font-size: 9.5px;
+}
+:root[data-design][data-silk] .silk-cards .vp-day-events {
+  gap: 4px;
+}
+:root[data-design][data-silk] .silk-cards .vp-day-event {
+  row-gap: 0;
+  grid-template-columns: 46px minmax(0, 1fr);
+}
+:root[data-design][data-silk] .silk-cards .vp-day-event:nth-child(n + 4) {
+  display: none;
+}
+:root[data-design][data-silk] .silk-cards .vp-day-title {
+  font-weight: 500;
+}
+/* Focus: a smaller ring. */
+:root[data-design][data-silk] .silk-cards .vp-focus-ring {
+  width: 84px;
+  height: 84px;
+}
+/* Inbox: three one-line rows (sender · subject · time), no avatar, no button;
+   a row still opens the message. */
+:root[data-design][data-silk] .silk-cards .vp-mail-list {
+  gap: 2px;
+}
+:root[data-design][data-silk] .silk-cards .vp-mail-row {
+  align-items: center;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  border-radius: 10px;
+}
+:root[data-design][data-silk] .silk-cards .vp-mail-row:nth-child(n + 4),
+:root[data-design][data-silk] .silk-cards .vp-mail-chip,
+:root[data-design][data-silk] .silk-cards .vp-mail-open {
+  display: none;
+}
+:root[data-design][data-silk] .silk-cards .vp-mail-text {
+  display: grid;
+  grid-template-columns: minmax(0, 7.5em) minmax(0, 1fr) auto;
+  grid-template-areas: "from subject time";
+  align-items: baseline;
+  column-gap: 10px;
+}
+:root[data-design][data-silk] .silk-cards .vp-mail-top {
+  display: contents;
+}
+:root[data-design][data-silk] .silk-cards .vp-mail-from {
+  grid-area: from;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--flux-text);
+}
+:root[data-design][data-silk] .silk-cards .vp-mail-subject {
+  grid-area: subject;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+  color: var(--flux-text-dim);
+}
+:root[data-design][data-silk] .silk-cards .vp-mail-row.unread .vp-mail-subject {
+  color: var(--flux-text);
+}
+:root[data-design][data-silk] .silk-cards .vp-mail-time {
+  grid-area: time;
+}
+
+/* Home has its own dock; the corner app dock would crowd it. */
 :root[data-design][data-silk] body:has(.silk-home) .appdock {
   display: none;
 }
@@ -766,6 +901,16 @@
 }
 
 /* ── Settings: the wallpaper picker ───────────────────────────────────── */
+/* Like Velvet Paper's design and theme pickers: the label above, the tiles
+   full width (a side-by-side row squeezes them into one column). */
+:root[data-design][data-silk] .set-row:has(.silk-walls) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+:root[data-design][data-silk] .set-row:has(.silk-walls) .set-row-control {
+  max-width: none;
+}
 .silk-walls {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));

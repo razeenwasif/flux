@@ -17,10 +17,9 @@
  *     nothing re-tiles: unlike the bookmark bar or the editor column, there is
  *     no card to grow into the space.
  */
-import { For, Show, type Component } from "solid-js";
+import { For, Show, createSignal, type Component } from "solid-js";
 
 import { FLUX_APPS, type FluxApp } from "./apps";
-import { AppIcon } from "./appIcon";
 import {
   appDockOpen,
   openAppIds,
@@ -31,12 +30,33 @@ import {
   setFocusedAppId,
 } from "./store";
 
-export { AppIcon } from "./appIcon";
+/** Favicon with a tinted-monogram fallback (shared with the pane title bar). */
+export const AppIcon: Component<{ app: FluxApp; size?: number }> = (props) => {
+  const [failed, setFailed] = createSignal(false);
+  const px = `${props.size ?? 22}px`;
+  // Prefer a bundled icon (the user's own app art); else the live favicon; else a monogram.
+  const src = () => props.app.iconAsset ?? `https://${props.app.host}/favicon.ico`;
+  return (
+    <Show
+      when={!failed()}
+      fallback={
+        <span class="appdock-mono" style={{ background: props.app.tint, width: px, height: px }}>
+          {props.app.name[0]}
+        </span>
+      }
+    >
+      <img
+        class="appdock-fav"
+        style={{ width: px, height: px }}
+        src={src()}
+        alt=""
+        onError={() => setFailed(true)}
+      />
+    </Show>
+  );
+};
 
 const AppDock: Component = () => {
-  // Kept in step with appOpen.ts (Liquid Silk's home dock). Not imported from
-  // there: this dock is on the startup path and a shared chunk for eight lines
-  // costs more than it saves (`npm run perf`).
   const open = (app: FluxApp) => {
     // Sites that refuse cross-origin framing can't live in the pane's iframe.
     // The web panel (#48) is a real OS webview, so they load there — and it

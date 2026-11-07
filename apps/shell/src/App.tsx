@@ -307,13 +307,15 @@ const App: Component = () => {
     }),
   );
   // Velvet Paper's right-hand column is this rail (system, your notes, the
-  // Trail), so picking that design brings it up. Only on the switch: closing it
-  // afterwards sticks.
+  // Trail), so picking that design brings it up. Liquid Silk keeps them in the
+  // sidebar's Context panel instead, so picking it puts them back there. Only
+  // on the switch: changing it afterwards sticks.
   createEffect(
     on(
       design,
       (d) => {
-        if (d !== "classic") setConnectOpen(true);
+        if (d === "velvet-paper") setConnectOpen(true);
+        else if (d === "liquid-silk") setConnectOpen(false);
       },
       { defer: true },
     ),
