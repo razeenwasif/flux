@@ -36,7 +36,7 @@ import {
   type IndexerStatus,
 } from "./indexer";
 import { createAsking, pct, readScope, saveScope } from "./indexerAsking";
-import { design } from "./design";
+import { cardLayout } from "./design";
 // Velvet Paper's sheet: loaded on first open, so Classic (and boot) never pay for it.
 const IndexerSheet = lazy(() => import("./IndexerSheet"));
 // Markdown and KaTeX for a note's answer: not on the boot path the orb is on.
@@ -301,7 +301,7 @@ const IndexerBubble: Component = () => {
       /* private mode — it just won't stick */
     }
   };
-  const floorOn = () => design() === "velvet-paper" && floor() > FLOOR_OFF;
+  const floorOn = () => cardLayout() && floor() > FLOOR_OFF;
   /** Display positions (indices into `order`) whose match clears the floor. */
   const shown = createMemo(() => {
     const r = results();
@@ -413,7 +413,7 @@ const IndexerBubble: Component = () => {
     <>
       {/* Velvet Paper (design.ts) has no orb: "Ask your notes" in the right-hand
           column opens the panel, which App keeps mounted for that design. */}
-      <Show when={design() !== "velvet-paper"}>
+      <Show when={!cardLayout()}>
         <button
           classList={{
             "idx-orb": true,
@@ -437,7 +437,7 @@ const IndexerBubble: Component = () => {
         </button>
       </Show>
 
-      <Show when={indexerPanelOpen() && design() === "velvet-paper"}>
+      <Show when={indexerPanelOpen() && cardLayout()}>
         <Suspense>
           <IndexerSheet
             query={query}
@@ -473,7 +473,7 @@ const IndexerBubble: Component = () => {
           />
         </Suspense>
       </Show>
-      <Show when={indexerPanelOpen() && design() !== "velvet-paper"}>
+      <Show when={indexerPanelOpen() && !cardLayout()}>
         <section class="idx-panel glass" style={panelStyle()} role="dialog" aria-label="Indexer">
           <form
             class="idx-ask"

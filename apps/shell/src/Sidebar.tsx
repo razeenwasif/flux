@@ -108,7 +108,7 @@ import {
   zoomFor,
 } from "./store";
 import Icon from "./Icon";
-import { design } from "./design";
+import { cardLayout } from "./design";
 import { mailUnread, setTabMode, tabMode, TAB_MODES, type TabMode } from "./tabMode";
 import { visibleInterval } from "./poll";
 import { attachHScroll } from "./hscroll";
@@ -290,7 +290,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // Velvet Paper lays the pane out as its boards draw it: modes at the top, the
   // site's tools in the address field, find inside it, workspace chips and
   // two-line rows. Classic keeps the layout it always had.
-  const vp = () => design() === "velvet-paper";
+  const vp = () => cardLayout();
   /** Just the site, for the address field at rest. */
   const siteOf = (u: string) => {
     if (!/^https?:\/\//.test(u)) return u;

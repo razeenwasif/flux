@@ -21,7 +21,16 @@
         // Velvet Paper unless Classic was picked (DEFAULT_DESIGN in design.ts).
         // Its stylesheet is linked from <body> below, not here.
         var d = localStorage.getItem("flux.design") || "velvet-paper";
-        if (d === "velvet-paper") document.documentElement.setAttribute("data-design", d);
+        var root = document.documentElement;
+        // Liquid Silk is Velvet Paper's layout plus its own material (design.ts).
+        if (d === "velvet-paper" || d === "liquid-silk") root.setAttribute("data-design", "velvet-paper");
+        if (d === "liquid-silk") root.setAttribute("data-silk", "");
+        // Silk's wallpaper and its options (wallpaper.ts).
+        var w = localStorage.getItem("flux.wallpaper");
+        root.setAttribute("data-wallpaper", /^(opal|abyss|ember|aurora)$/.test(w || "") ? w : "opal");
+        if (localStorage.getItem("flux.wallpaper.accent") === "fixed") root.setAttribute("data-silk-accent", "fixed");
+        if (localStorage.getItem("flux.wallpaper.still") === "1") root.setAttribute("data-silk-still", "");
+        if (localStorage.getItem("flux.wallpaper.drift") === "1") root.setAttribute("data-silk-drift", "");
         if (localStorage.getItem("flux.window.acrylic") === "1") document.documentElement.classList.add("window-acrylic");
       } catch (e) {}
     </script>
@@ -36,6 +45,8 @@
         var dd = document.documentElement.getAttribute("data-design");
         if (dd)
           document.write('<link id="flux-design-css" rel="stylesheet" href="/designs/' + dd + '.css" />');
+        if (document.documentElement.hasAttribute("data-silk"))
+          document.write('<link id="flux-silk-css" rel="stylesheet" href="/designs/liquid-silk.css" />');
       } catch (e) {}
     </script>
     <div id="root"></div>

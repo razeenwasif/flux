@@ -8,6 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import liquidSilkCss from "../public/designs/liquid-silk.css?raw";
 import velvetPaperCss from "../public/designs/velvet-paper.css?raw";
 
 let attrs: Record<string, string>;
@@ -87,6 +88,41 @@ describe("applying a design", () => {
     await setDesign("classic");
     expect(attrs["data-design"]).toBeUndefined();
     expect(stored["flux.design"]).toBe("classic");
+  });
+
+  it("lays Liquid Silk out as Velvet Paper and adds its own sheet and flag", async () => {
+    const { setDesign, design, cardLayout } = await import("./design");
+    await setDesign("liquid-silk");
+    expect(head.map((l) => l.href)).toEqual(["/designs/velvet-paper.css", "/designs/liquid-silk.css"]);
+    expect(attrs["data-design"]).toBe("velvet-paper");
+    expect(attrs["data-silk"]).toBe("");
+    expect(design()).toBe("liquid-silk");
+    expect(cardLayout()).toBe(true);
+
+    // Back to Velvet Paper: same layout sheet, the Silk flag goes.
+    await setDesign("velvet-paper");
+    expect(attrs["data-design"]).toBe("velvet-paper");
+    expect(attrs["data-silk"]).toBeUndefined();
+    await setDesign("classic");
+    expect(cardLayout()).toBe(false);
+  });
+});
+
+describe("the Liquid Silk sheet", () => {
+  it("scopes every page-level rule to Silk, one attribute above Velvet Paper", () => {
+    const css = liquidSilkCss
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/@keyframes[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, "");
+    const selectors = [...css.matchAll(/(^|\})\s*([^{}@]+?)\s*\{/g)].flatMap((m) =>
+      m[2]!.split(",").map((s) => s.trim()),
+    );
+    expect(selectors.length).toBeGreaterThan(20);
+    // Silk's own components (.silk-*) only exist in Silk's markup; anything
+    // else must be scoped so the sheet is inert once Silk is switched off.
+    const unscoped = selectors.filter(
+      (s) => !s.startsWith(":root[data-design][data-silk]") && !/^\.silk-/.test(s),
+    );
+    expect(unscoped).toEqual([]);
   });
 });
 

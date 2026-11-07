@@ -21,8 +21,20 @@ import UpdateSettings from "./UpdateSettings";
 import IndexerSettings from "./IndexerSettings";
 import { openWelcome } from "./welcomeOpen";
 import { visibleInterval } from "./poll";
-import { DESIGNS, design, setDesign } from "./design";
+import { DESIGNS, cardLayout, design, setDesign } from "./design";
 import { THEMES, setTheme, theme } from "./themes";
+import {
+  DEFAULT_WALLPAPER,
+  WALLPAPERS,
+  accentFollows,
+  drift,
+  setAccentFollows,
+  setDrift,
+  setStepBack,
+  setWallpaper,
+  stepBack,
+  wallpaper,
+} from "./wallpaper";
 import {
   ARCHIVE_URL,
   BOOKMARKS_URL,
@@ -923,6 +935,50 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               </For>
             </div>
           </Row>
+          {/* Liquid Silk's wallpaper (wallpaper.ts) — its palette comes with it. */}
+          <Show when={design() === "liquid-silk"}>
+            <Row label="Wallpaper" hint="The silk behind the glass. Its colours become Flux's accent.">
+              <div class="silk-walls" role="radiogroup" aria-label="Wallpaper">
+                <For each={WALLPAPERS}>
+                  {(w) => (
+                    <button
+                      class="silk-wall"
+                      classList={{ on: wallpaper() === w.id }}
+                      role="radio"
+                      aria-checked={wallpaper() === w.id}
+                      onClick={() => setWallpaper(w.id)}
+                    >
+                      <span
+                        class="silk-wall-thumb"
+                        style={{ "background-image": `url("/wallpapers/${w.id}.jpg")` }}
+                        aria-hidden="true"
+                      />
+                      <span class="silk-wall-name">
+                        <span class="silk-wall-dot" style={{ background: w.accent }} aria-hidden="true" />
+                        {w.name}
+                        {w.id === DEFAULT_WALLPAPER ? " · default" : ""}
+                      </span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Row>
+            <Row
+              label="Accent follows the wallpaper"
+              hint="Off keeps Opal's mint and lilac whatever the wallpaper."
+            >
+              <Toggle on={accentFollows()} onClick={() => setAccentFollows(!accentFollows())} />
+            </Row>
+            <Row label="Step back while reading" hint="Dim and soften the wallpaper behind an open web page.">
+              <Toggle on={stepBack()} onClick={() => setStepBack(!stepBack())} />
+            </Row>
+            <Row
+              label="Slow drift"
+              hint="The home wallpaper moves very slowly. Stays still when Reduce Motion is on."
+            >
+              <Toggle on={drift()} onClick={() => setDrift(!drift())} />
+            </Row>
+          </Show>
           {/* Swatches rather than a dropdown: a colour theme is the one setting
               you can't evaluate from its name. */}
           <Row
@@ -930,7 +986,9 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             hint={
               design() === "classic"
                 ? "Colours the whole of Flux. Applies immediately."
-                : "This design brings its own colours; the theme applies to the Classic design."
+                : design() === "liquid-silk"
+                  ? "Liquid Silk takes its colours from the wallpaper; the theme applies to the Classic design."
+                  : "This design brings its own colours; the theme applies to the Classic design."
             }
           >
             <div class="theme-picker">
@@ -959,7 +1017,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           <Row
             label="Bookmark bar"
             hint={
-              design() === "velvet-paper"
+              cardLayout()
                 ? "A row of bookmarks and folders in the tabs pane, under the pinned tiles."
                 : "A chip row docked under the page for one-click bookmarks."
             }

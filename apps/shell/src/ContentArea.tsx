@@ -93,7 +93,7 @@ const ClockAlarm = lazy(() => import("./ClockAlarm")); // mounted once App has l
 const TerminalView = lazy(() => import("./TerminalView"));
 const EditorColumn = lazy(() => import("./EditorColumn")); // the permanent nvim split (#174)
 import InternalPage from "./InternalPage";
-import { design } from "./design";
+import { cardLayout, design } from "./design";
 const ReaderView = lazy(() => import("./ReaderView"));
 const BookmarkBar = lazy(() => import("./BookmarkBar"));
 // ─── Content card ─────────────────────────────────────────────────────────
@@ -483,7 +483,7 @@ const ContentArea: Component<{
       {/* Bookmark bar (#22): docked under the card. A sibling (not an overlay), so
         the card shrinks and the native webview relayout follows it. Velvet Paper
         keeps it in the tabs pane instead, and gives the card the full height. */}
-      <Show when={bookmarkBarOpen() && design() !== "velvet-paper"}>
+      <Show when={bookmarkBarOpen() && !cardLayout()}>
         <Suspense>
           <BookmarkBar onNavigate={props.onNavigate} />
         </Suspense>

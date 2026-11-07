@@ -72,6 +72,25 @@ const VpFocusCard = lazy(() => import("./start/VpFocusCard"));
 const TodayStrip = lazy(() => import("./start/TodayStrip"));
 const VpMailCard = lazy(() => import("./start/VpMailCard"));
 const VpTodayCard = lazy(() => import("./start/VpTodayCard"));
+const SilkDock = lazy(() => import("./start/SilkDock"));
+
+/** A shortcut's name for a pill: the site's own name where we know it, else
+ *  its hostname. */
+const SITE_NAMES: Record<string, string> = {
+  "github.com": "GitHub",
+  "youtube.com": "YouTube",
+  "wikipedia.org": "Wikipedia",
+  "en.wikipedia.org": "Wikipedia",
+  "news.ycombinator.com": "Hacker News",
+  "reddit.com": "Reddit",
+  "gitlab.com": "GitLab",
+  "mail.google.com": "Gmail",
+  "x.com": "X",
+};
+function siteName(url: string): string {
+  const host = hostOf(url);
+  return SITE_NAMES[host] ?? host;
+}
 
 /** Hostname without `www.`, best-effort. */
 function hostOf(url: string): string {
@@ -299,6 +318,7 @@ const StartPage: Component<{
    *  Today, Tasks, Mailbox — ahead of the rest in their usual order. Today and
    *  Mailbox are that design's own cards (-3, -1); these two are moved up. */
   const vp = () => design() === "velvet-paper";
+  const silk = () => design() === "liquid-silk";
   const VP_LEAD: Record<string, number> = { shortcuts: -4, tasks: -2 };
   const orderOf = (k: string) => (vp() && k in VP_LEAD ? VP_LEAD[k]! : widgetOrder().indexOf(k) + 1);
   const orderedWidgets = () =>
@@ -1292,6 +1312,85 @@ const StartPage: Component<{
     </div>
   );
 
+  /** The clock split from its am/pm, which locales with a 12-hour clock append:
+   *  at Silk's display size the period would wrap onto a line of its own, so it
+   *  is set small beside the time instead. */
+  const silkClock = (): [string, string] => {
+    const m = clock().match(/^(.*?)\s*([AaPp]\.?\s?[Mm]\.?)$/);
+    return m ? [m[1]!, m[2]!] : [clock(), ""];
+  };
+
+  /** Liquid Silk's home (design.ts): the clock and search straight on the
+   *  wallpaper, the shortcuts as small pills, the Today · Focus · Inbox cards,
+   *  and the dock. The other widgets stay reachable from Customize home. */
+  const silkHome = () => (
+    <div class="silk-home">
+      <header>
+        <div class="silk-date">{vpDateLegend()}</div>
+        <div class="silk-clock">
+          {silkClock()[0]}
+          <Show when={silkClock()[1]}>
+            <span class="silk-clock-period">{silkClock()[1]}</span>
+          </Show>
+        </div>
+        <div class="silk-greet">
+          {greeting()}
+          {userName ? `, ${userName}` : ""}
+        </div>
+        <div class="silk-greet-line">
+          {[
+            nextEvent() ? `Next · ${whenLabel(nextEvent()!)} ${nextEvent()!.summary}` : "",
+            focusLine() ?? "",
+            weather() ? `${weatherInfo(weather()!.code)[1]} ${weather()!.temp}° · ${weather()!.city}` : "",
+          ]
+            .filter(Boolean)
+            .join("  ·  ")}
+        </div>
+      </header>
+
+      {searchBox()}
+
+      <div class="silk-pills">
+        <For each={shortcuts().slice(0, 8)}>
+          {(s) => (
+            <button class="silk-pill" title={s.url} onClick={() => props.onNavigate(s.url)}>
+              <span class="silk-pill-icon" aria-hidden="true">
+                <SiteIcon url={s.url} letters={s.label} />
+              </span>
+              {siteName(s.url)}
+            </button>
+          )}
+        </For>
+        <button
+          class="silk-pill silk-pill-add"
+          title="Add or edit shortcuts"
+          aria-label="Add or edit shortcuts"
+          onClick={() => setExpandedWidget("shortcuts")}
+        >
+          +
+        </button>
+      </div>
+
+      <div class="silk-cards">
+        <Suspense>
+          <VpTodayCard
+            order={0}
+            events={events}
+            now={now}
+            todayStr={todayStr}
+            onOpenCalendar={() => setExpandedWidget("calendar")}
+          />
+          <VpFocusCard />
+          <VpMailCard order={0} />
+        </Suspense>
+      </div>
+
+      <Suspense>
+        <SilkDock />
+      </Suspense>
+    </div>
+  );
+
   return (
     <div
       class="start"
@@ -1378,6 +1477,9 @@ const StartPage: Component<{
           />
         </Modal>
       </Show>
+      {/* Liquid Silk has its own, quieter home (silkHome below); the rest is
+          Classic and Velvet Paper. */}
+      <Show when={!silk()} fallback={silkHome()}>
       <Show
         when={vp()}
         fallback={
@@ -1989,6 +2091,7 @@ const StartPage: Component<{
           </div>
         </section>
       </div>
+      </Show>
 
       {/* Expanded widgets — dashboard cards keep a fixed footprint; dense content
           opens here instead of resizing the grid. */}

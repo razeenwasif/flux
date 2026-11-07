@@ -1,0 +1,817 @@
+/* ════════════════════════════════════════════════════════════════════════
+   Liquid Silk — a Flux design (see src/design.ts, src/wallpaper.ts)
+   ════════════════════════════════════════════════════════════════════════
+
+   Velvet Paper's layout in another material: every floating card, gutter and
+   rail of Velvet Paper stays where it is, and the paper becomes frosted glass
+   over a silk wallpaper. <html> carries data-design="velvet-paper" (so that
+   sheet lays everything out) plus data-silk, and every rule here is scoped to
+   `:root[data-design][data-silk]` — one attribute more specific than any
+   Velvet Paper rule, so Silk wins wherever they overlap regardless of order.
+
+   Velvet Paper paints almost every surface through a handful of variables
+   (--vp-paper, --vp-raise, --vp-foil, …). Turning those translucent is most
+   of the material change; the blur then goes on the pseudo-element layers the
+   paper is drawn on, never on an element with children, because
+   backdrop-filter makes an element the containing block of its fixed-position
+   descendants and that would trap menus inside cards.
+
+   The wallpaper is a fixed layer on body::before, so it can step back while a
+   web page is open and drift on the home page without repainting the chrome.
+
+   Palette: each wallpaper sets the theme channels (theme.css) — the accent,
+   the agent's colour, the glass tint — so everything downstream recolours.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Palette per wallpaper ─────────────────────────────────────────────── */
+:root[data-design][data-silk] {
+  /* Opal: mint for actions, lilac for focus and the agent. The default, and
+     what "accent follows the wallpaper: off" keeps. */
+  --silk-tint: 14, 14, 28;
+  --silk-glass: 0.6;
+  --accent-rgb: 147, 232, 216;
+  --accent-ai-rgb: 210, 156, 246;
+  --accent-ai2-rgb: 190, 168, 244;
+  --accent-hot-rgb: 240, 176, 226;
+  --neutral-rgb: 200, 198, 232;
+  --rim-rgb: 232, 226, 255;
+  --silk-accent-ink: #06201b;
+  --silk-ai-ink: #1a0f24;
+
+  --velvet-900: #07070d;
+  --velvet-800: #0b0c14;
+  --velvet-700: #12131f;
+  --velvet-600: #1a1b2a;
+  --velvet-500: #24253a;
+
+  --flux-text: #f3f4f9;
+  --flux-text-dim: #c4c7d8;
+  --flux-text-mute: #9ea1b8;
+  --flux-warn: #ffc66b;
+  --flux-ok: #8ef6c8;
+  --flux-popover-fill: #141522;
+
+  --silk-image: url("/wallpapers/opal.jpg");
+  --silk-scrim: linear-gradient(90deg, rgba(8, 8, 18, 0.5), rgba(8, 8, 18, 0.14) 62%);
+}
+:root[data-design][data-silk][data-wallpaper="abyss"] {
+  --silk-tint: 5, 13, 15;
+  --silk-glass: 0.5;
+  --accent-rgb: 102, 211, 221;
+  --accent-ai-rgb: 180, 232, 236;
+  --accent-ai2-rgb: 150, 210, 218;
+  --accent-hot-rgb: 120, 228, 200;
+  --neutral-rgb: 168, 204, 210;
+  --rim-rgb: 196, 238, 242;
+  --silk-accent-ink: #03191c;
+  --silk-ai-ink: #03191c;
+  --velvet-900: #020606;
+  --velvet-800: #030807;
+  --velvet-700: #0a1416;
+  --velvet-600: #112023;
+  --velvet-500: #1a2d31;
+  --flux-text: #ecf6f7;
+  --flux-text-dim: #bed3d6;
+  --flux-text-mute: #93abaf;
+  --flux-popover-fill: #0d1719;
+  --silk-image: url("/wallpapers/abyss.jpg");
+  --silk-scrim: linear-gradient(100deg, rgba(2, 7, 7, 0.5), rgba(2, 7, 7, 0) 45%);
+}
+:root[data-design][data-silk][data-wallpaper="ember"] {
+  --silk-tint: 10, 14, 15;
+  --silk-glass: 0.52;
+  --accent-rgb: 243, 154, 98;
+  --accent-ai-rgb: 108, 195, 204;
+  --accent-ai2-rgb: 140, 205, 212;
+  --accent-hot-rgb: 255, 196, 150;
+  --neutral-rgb: 210, 194, 184;
+  --rim-rgb: 255, 226, 206;
+  --silk-accent-ink: #2a1104;
+  --silk-ai-ink: #03191c;
+  --velvet-900: #040606;
+  --velvet-800: #050807;
+  --velvet-700: #101516;
+  --velvet-600: #171e1f;
+  --velvet-500: #222a2b;
+  --flux-text: #f8f2ed;
+  --flux-text-dim: #d6cbc3;
+  --flux-text-mute: #ab9f97;
+  --flux-popover-fill: #121718;
+  --silk-image: url("/wallpapers/ember.jpg");
+  --silk-scrim: linear-gradient(180deg, rgba(3, 6, 6, 0.5), rgba(3, 6, 6, 0) 48%, rgba(3, 6, 6, 0.3));
+}
+:root[data-design][data-silk][data-wallpaper="aurora"] {
+  --silk-tint: 3, 6, 28;
+  --silk-glass: 0.56;
+  --accent-rgb: 69, 221, 242;
+  --accent-ai-rgb: 143, 155, 255;
+  --accent-ai2-rgb: 172, 180, 255;
+  --accent-hot-rgb: 120, 190, 255;
+  --neutral-rgb: 176, 194, 232;
+  --rim-rgb: 196, 216, 255;
+  --silk-accent-ink: #021a22;
+  --silk-ai-ink: #0a0d24;
+  --velvet-900: #01020a;
+  --velvet-800: #02030d;
+  --velvet-700: #0a0d22;
+  --velvet-600: #11152e;
+  --velvet-500: #1b2040;
+  --flux-text: #eef5ff;
+  --flux-text-dim: #c4d0e8;
+  --flux-text-mute: #98a6c4;
+  --flux-popover-fill: #0c1028;
+  --silk-image: url("/wallpapers/aurora.jpg");
+  --silk-scrim: linear-gradient(90deg, rgba(0, 0, 6, 0.55), rgba(0, 0, 6, 0) 50%);
+}
+/* Accent pinned to Opal's whatever the wallpaper ("accent follows" off). */
+:root[data-design][data-silk][data-silk-accent="fixed"] {
+  --accent-rgb: 147, 232, 216;
+  --accent-ai-rgb: 210, 156, 246;
+  --accent-ai2-rgb: 190, 168, 244;
+  --silk-accent-ink: #06201b;
+  --silk-ai-ink: #1a0f24;
+}
+
+/* ── Material ──────────────────────────────────────────────────────────── */
+:root[data-design][data-silk] {
+  --silk-fill: rgba(var(--silk-tint), var(--silk-glass));
+  --silk-blur: blur(30px) saturate(150%);
+  --silk-edge: rgba(var(--rim-rgb), 0.16);
+  --silk-lift: 0 30px 60px -30px rgba(0, 0, 8, 0.85);
+  --silk-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+
+  /* Velvet Paper's paper, made of glass. */
+  --vp-paper: var(--silk-fill);
+  --vp-paper-2: rgba(0, 0, 0, 0.24);
+  --vp-raise: rgba(255, 255, 255, 0.07);
+  --vp-chip: rgba(255, 255, 255, 0.1);
+  --vp-edge: rgba(var(--rim-rgb), 0.12);
+  --vp-shadow: var(--silk-lift);
+  --vp-r: 22px;
+  --vp-display: "Figtree", "Inter", system-ui, sans-serif;
+  --vp-foil: linear-gradient(180deg, rgba(var(--rim-rgb), 0.22), rgba(var(--rim-rgb), 0.08));
+  --vp-foil-line: linear-gradient(90deg, rgba(var(--rim-rgb), 0.18), rgba(var(--rim-rgb), 0.06));
+  --vp-wash: linear-gradient(100deg, rgba(var(--accent-rgb), 0.18), rgba(var(--accent-rgb), 0.08));
+  --vp-satin: linear-gradient(100deg, rgb(var(--accent-rgb)), rgb(var(--accent-ai-rgb)));
+  --vp-bloom: none;
+  --vp-hills: none;
+
+  /* Velvet Paper's own accents (rose, lilac, pearl, aqua) and dark fills are
+     variables with its colours as fallbacks; Silk points them at the wallpaper. */
+  --vp-rose: rgb(var(--accent-rgb));
+  --vp-rose-2: rgb(var(--accent-rgb));
+  --vp-rose-rgb: var(--accent-rgb);
+  --vp-lilac: rgb(var(--accent-ai-rgb));
+  --vp-lilac-rgb: var(--accent-ai-rgb);
+  --vp-pearl: #f4f6fb;
+  --vp-aqua: rgb(var(--accent-rgb));
+  --vp-well: rgba(0, 0, 0, 0.28);
+  --vp-well-2: rgba(0, 0, 0, 0.24);
+  --vp-bar: var(--silk-fill);
+  --vp-track: rgba(255, 255, 255, 0.1);
+
+  --glass-fill: var(--silk-fill);
+  --glass-fill-soft: rgba(var(--silk-tint), 0.45);
+  --glass-rim: var(--silk-edge);
+  --glass-rim-soft: rgba(var(--rim-rgb), 0.08);
+  --glass-shadow: var(--silk-lift);
+  --glass-inset: var(--silk-sheen);
+}
+
+/* ── The wallpaper ─────────────────────────────────────────────────────── */
+:root[data-design][data-silk] body,
+:root[data-design][data-silk] .shell {
+  background-color: var(--velvet-800);
+  background-image: none;
+}
+:root[data-design][data-silk] .shell {
+  background: transparent;
+}
+:root[data-design][data-silk] body::before {
+  content: "";
+  position: fixed;
+  inset: -3%;
+  z-index: -1;
+  background-image: var(--silk-scrim), var(--silk-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  transition:
+    filter 0.6s ease,
+    transform 0.6s ease;
+  pointer-events: none;
+}
+:root[data-design][data-silk][data-wallpaper="ember"] body::before {
+  background-position: center 70%;
+}
+/* Step back while reading: a web page is open (App.tsx sets data-reading). */
+:root[data-design][data-silk][data-reading]:not([data-silk-still]) body::before {
+  filter: blur(6px) brightness(0.55) saturate(110%);
+}
+/* A slow drift on the home page only — never behind a page you're reading. */
+:root[data-design][data-silk][data-silk-drift]:not([data-reading]) body::before {
+  animation: silk-drift 70s ease-in-out infinite alternate;
+}
+@keyframes silk-drift {
+  from {
+    transform: scale(1) translate(0, 0);
+  }
+  to {
+    transform: scale(1.06) translate(-1.5%, -1%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-design][data-silk] body::before {
+    animation: none !important;
+    transition: none;
+  }
+}
+
+/* ── Glass surfaces ────────────────────────────────────────────────────── */
+/* Velvet Paper draws these cards' paper on ::before; the blur goes there too. */
+:root[data-design][data-silk] .sidebar::before,
+:root[data-design][data-silk] .connect-notes::before,
+:root[data-design][data-silk] .sysmon::before,
+:root[data-design][data-silk] .trailmini::before,
+:root[data-design][data-silk] .agent-inner::before,
+:root[data-design][data-silk] .mail-pane::before,
+:root[data-design][data-silk] .cal-pane.docked::before,
+:root[data-design][data-silk] .start-card::before,
+:root[data-design][data-silk] .idx-panel::before,
+:root[data-design][data-silk] .idx-card::before,
+:root[data-design][data-silk] .files-rail::before,
+:root[data-design][data-silk] .files-main::before,
+:root[data-design][data-silk] .files-preview::before,
+:root[data-design][data-silk] .set-nav::before,
+:root[data-design][data-silk] .set-card::before,
+:root[data-design][data-silk] .idx-sheet-card::before,
+:root[data-design][data-silk] .idx-sheet-tuning::before {
+  backdrop-filter: var(--silk-blur);
+  -webkit-backdrop-filter: var(--silk-blur);
+  box-shadow: var(--silk-sheen);
+}
+
+/* The content card paints itself (no pseudo), and hosts fixed-position modals,
+   so its glass is a new ::before layer under its content. */
+:root[data-design][data-silk] .card {
+  isolation: isolate;
+  background:
+    linear-gradient(transparent, transparent) padding-box,
+    var(--vp-foil) border-box;
+}
+:root[data-design][data-silk] .card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--silk-fill);
+  backdrop-filter: var(--silk-blur);
+  -webkit-backdrop-filter: var(--silk-blur);
+  pointer-events: none;
+}
+/* Home sits straight on the wallpaper: no card, no ring, no shadow. */
+:root[data-design][data-silk] .card:has(.start) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+:root[data-design][data-silk] .card:has(.start)::before {
+  display: none;
+}
+
+/* Edge titles: Velvet Paper cuts them into the paper's top edge; on glass they
+   become small frosted tabs sitting on the edge. */
+:root[data-design][data-silk] .sidebar::after,
+:root[data-design][data-silk] .connect-notes::after,
+:root[data-design][data-silk] .start-card::after,
+:root[data-design][data-silk] .files-rail::after,
+:root[data-design][data-silk] .files-main::after,
+:root[data-design][data-silk] .files-preview::after,
+:root[data-design][data-silk] .set-nav::after,
+:root[data-design][data-silk] .set-card::after,
+:root[data-design][data-silk] .idx-sheet-card::after {
+  background: rgba(var(--silk-tint), 0.92);
+  border: 1px solid var(--silk-edge);
+  border-radius: 999px;
+  line-height: 16px;
+  color: var(--flux-text-dim);
+}
+
+/* Popovers over the page keep an opaque fill (the native page can't be
+   sampled), but take the glass's edge and corner. */
+:root[data-design][data-silk] .popover,
+:root[data-design][data-silk] .footer-pop {
+  border-color: var(--silk-edge);
+}
+
+/* Primary actions: the accent with its own ink, so contrast holds on every
+   wallpaper (mint, cyan and copper are all light). */
+:root[data-design][data-silk] .vp-pill-satin {
+  background: rgb(var(--accent-rgb));
+  color: var(--silk-accent-ink);
+  border-color: transparent;
+}
+
+/* ── Home ──────────────────────────────────────────────────────────────── */
+:root[data-design][data-silk] .start {
+  background: none;
+}
+/* Velvet Paper centres a fixed-width column in .start; Silk's home fills it. */
+:root[data-design][data-silk] .start:has(.silk-home) {
+  padding: 0;
+  align-items: stretch;
+}
+.silk-home {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: clamp(24px, 5vh, 56px) clamp(20px, 4vw, 52px) 16px;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(16px, 2.6vh, 24px);
+  color: var(--flux-text);
+}
+.silk-home > * {
+  min-width: 0;
+}
+.silk-cards > * {
+  min-width: 0;
+}
+.silk-date {
+  font-size: 13px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--flux-text-dim);
+}
+.silk-clock {
+  margin-top: 6px;
+  font-family: "Figtree", "Inter", system-ui, sans-serif;
+  font-weight: 300;
+  font-size: clamp(72px, 11vw, 124px);
+  line-height: 0.9;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: #fafbff;
+}
+.silk-clock-period {
+  margin-left: 0.2em;
+  font-size: 0.26em;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--flux-text-dim);
+}
+.silk-greet {
+  margin-top: 12px;
+  font-size: 24px;
+  font-weight: 300;
+}
+.silk-greet-line {
+  margin-top: 6px;
+  font-size: 13.5px;
+  color: var(--flux-text-dim);
+}
+:root[data-design][data-silk] .silk-home .start-search {
+  max-width: 700px;
+  border-radius: 20px;
+  border: 1px solid var(--silk-edge);
+  background: var(--silk-fill);
+  backdrop-filter: var(--silk-blur);
+  -webkit-backdrop-filter: var(--silk-blur);
+  box-shadow: var(--silk-lift), var(--silk-sheen);
+}
+
+/* Shortcuts as small oval pills. */
+.silk-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  max-width: 780px;
+}
+.silk-pill {
+  height: 38px;
+  padding: 0 15px 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--silk-edge);
+  background: var(--silk-fill);
+  backdrop-filter: var(--silk-blur);
+  -webkit-backdrop-filter: var(--silk-blur);
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--flux-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+.silk-pill:hover {
+  background: rgba(var(--silk-tint), 0.78);
+  border-color: rgba(var(--accent-rgb), 0.4);
+}
+.silk-pill:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 2px;
+}
+.silk-pill-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  flex: none;
+}
+.silk-pill-icon > * {
+  max-width: 18px;
+  max-height: 18px;
+}
+.silk-pill-add {
+  width: 38px;
+  padding: 0;
+  justify-content: center;
+  border-style: dashed;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: var(--flux-text-dim);
+}
+
+/* The three cards: in-card titles instead of edge tabs. */
+.silk-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 16px;
+  max-width: 1180px;
+}
+:root[data-design][data-silk] .silk-cards .start-card {
+  order: 0;
+  margin: 0;
+  min-height: 0;
+  padding: 18px 20px 20px;
+  border-radius: 24px;
+  border: 1px solid var(--silk-edge);
+  background: var(--silk-fill);
+  box-shadow: var(--silk-lift), var(--silk-sheen);
+  backdrop-filter: var(--silk-blur);
+  -webkit-backdrop-filter: var(--silk-blur);
+}
+/* The title sits inside the card (the legend, on ::before) with its icon on
+   ::after; Velvet Paper's title row keeps only its controls, top-right. */
+:root[data-design][data-silk] .silk-cards .start-card::before {
+  content: attr(data-legend);
+  position: static;
+  inset: auto;
+  z-index: auto;
+  display: block;
+  margin: 0 0 12px;
+  padding: 0 0 0 27px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  font: 600 14px/20px "Figtree", "Inter", system-ui, sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--flux-text);
+}
+:root[data-design][data-silk] .silk-cards .start-card::after {
+  content: "";
+  position: absolute;
+  top: 19px;
+  left: 20px;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgb(var(--accent-rgb));
+  -webkit-mask: var(--silk-card-icon) center / contain no-repeat;
+  mask: var(--silk-card-icon) center / contain no-repeat;
+}
+.silk-cards .vp-today-card {
+  --silk-card-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'><rect x='3.5' y='5' width='17' height='15' rx='3'/><path d='M3.5 10h17M8 3v4M16 3v4'/></svg>");
+}
+.silk-cards .vp-focus-card {
+  --silk-card-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'><circle cx='12' cy='13' r='7.5'/><path d='M12 9v4l2.5 2M10 2.5h4'/></svg>");
+}
+.silk-cards .vp-mail-card {
+  --silk-card-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='5.5' width='18' height='13' rx='3'/><path d='M4 7l8 6 8-6'/></svg>");
+}
+:root[data-design][data-silk] .silk-cards .start-card-title {
+  top: 16px;
+  right: 16px;
+}
+:root[data-design][data-silk] .silk-cards .start-card-link,
+:root[data-design][data-silk] .silk-cards .vp-pill:not(.vp-pill-satin) {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgb(var(--accent-rgb));
+}
+
+/* Focus: the ring beside its note and buttons, not stacked under them. */
+:root[data-design][data-silk] .silk-cards .vp-focus-card {
+  flex: none;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "title title"
+    "ring note"
+    "ring actions";
+  align-items: center;
+  justify-items: start;
+  column-gap: 18px;
+  row-gap: 10px;
+  text-align: left;
+}
+:root[data-design][data-silk] .silk-cards .vp-focus-card::before {
+  grid-area: title;
+  margin: 0;
+}
+:root[data-design][data-silk] .silk-cards .vp-focus-ring {
+  grid-area: ring;
+  width: 96px;
+  height: 96px;
+}
+:root[data-design][data-silk] .silk-cards .vp-focus-arc {
+  stroke: rgb(var(--accent-ai-rgb));
+}
+:root[data-design][data-silk] .silk-cards .vp-focus-note {
+  grid-area: note;
+  align-self: end;
+  font-size: 13px;
+  color: var(--flux-text-dim);
+}
+:root[data-design][data-silk] .silk-cards .vp-focus-actions {
+  grid-area: actions;
+  align-self: start;
+}
+:root[data-design][data-silk] .silk-cards .vp-focus-card .vp-pill-satin {
+  background: rgb(var(--accent-ai-rgb));
+  color: var(--silk-ai-ink);
+}
+/* Today: plain rows, the time in mono. */
+:root[data-design][data-silk] .silk-cards .vp-day-event {
+  padding: 3px 0;
+  background: none;
+  border-radius: 0;
+}
+:root[data-design][data-silk] .silk-cards .vp-day-time {
+  color: var(--flux-text-mute);
+}
+
+/* The window-controls column and the pages bar: glass too. */
+:root[data-design][data-silk] .pages-bar,
+:root[data-design][data-silk] .tui-bar {
+  border-color: var(--silk-edge);
+  backdrop-filter: var(--silk-blur);
+  -webkit-backdrop-filter: var(--silk-blur);
+}
+
+/* Home has its own dock with the apps in it; the corner one would repeat them. */
+:root[data-design][data-silk] body:has(.silk-home) .appdock {
+  display: none;
+}
+
+/* The dock: tools and apps, bottom centre. */
+/* Sticky, so it stays reachable when the cards make home taller than the
+   window (a narrow page with the agent or terminal open). */
+.silk-dock {
+  position: sticky;
+  bottom: 14px;
+  z-index: 5;
+  flex: none;
+  align-self: center;
+  margin-top: auto;
+  padding: 7px;
+  border-radius: 22px;
+  border: 1px solid var(--silk-edge);
+  /* Denser than the cards: they scroll underneath it. */
+  background: rgba(var(--silk-tint), 0.94);
+  backdrop-filter: var(--silk-blur);
+  -webkit-backdrop-filter: var(--silk-blur);
+  box-shadow: var(--silk-lift), var(--silk-sheen);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.silk-dock::-webkit-scrollbar {
+  display: none;
+}
+.silk-dock-btn {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 15px;
+  background: transparent;
+  color: var(--flux-text-dim);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+.silk-dock-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+  transform: translateY(-2px);
+}
+.silk-dock-btn:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 1px;
+}
+.silk-dock-btn.on::after {
+  content: "";
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: rgb(var(--accent-rgb));
+}
+.silk-dock-btn.agent {
+  color: rgb(var(--accent-ai-rgb));
+}
+.silk-dock-btn.app {
+  background: rgba(255, 255, 255, 0.07);
+}
+.silk-dock-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 8px 4px;
+  background: var(--silk-edge);
+}
+@media (prefers-reduced-motion: reduce) {
+  .silk-dock-btn:hover {
+    transform: none;
+  }
+}
+
+/* ── The agent: silk folds in place of the aurora shader ──────────────── */
+.silk-fold {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 150px;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(#000 55%, transparent);
+  mask-image: linear-gradient(#000 55%, transparent);
+}
+.silk-ribbon {
+  position: absolute;
+  left: -30%;
+  width: 160%;
+  height: 110px;
+  border-radius: 50%;
+  filter: blur(20px);
+  opacity: 0.22;
+  transition: opacity 1.2s ease;
+}
+.silk-ribbon.r1 {
+  top: -36px;
+  background: linear-gradient(90deg, transparent 5%, rgb(var(--accent-rgb)) 42%, transparent 82%);
+}
+.silk-ribbon.r2 {
+  top: 40px;
+  background: linear-gradient(90deg, transparent 12%, rgb(var(--accent-ai-rgb)) 58%, transparent 96%);
+}
+.silk-crease {
+  position: absolute;
+  left: -20%;
+  width: 140%;
+  height: 220px;
+  top: 30px;
+  border-radius: 50%;
+  border-top: 1.5px solid rgba(255, 255, 255, 0.8);
+  filter: drop-shadow(0 0 6px rgb(var(--accent-rgb)));
+  opacity: 0.18;
+  transition: opacity 1.2s ease;
+}
+.silk-crease.c2 {
+  top: 62px;
+  border-top-color: rgba(255, 255, 255, 0.35);
+  filter: none;
+}
+.silk-fold.busy .silk-ribbon {
+  opacity: 0.6;
+}
+.silk-fold.busy .silk-crease {
+  opacity: 0.85;
+}
+.silk-fold.busy .r1 {
+  animation: silk-fold-a 9s ease-in-out infinite alternate;
+}
+.silk-fold.busy .r2 {
+  animation: silk-fold-b 11s ease-in-out infinite alternate;
+}
+.silk-fold.busy .silk-crease {
+  animation: silk-crease 6s ease-in-out infinite;
+}
+.silk-fold.busy .c2 {
+  animation: silk-crease 8s ease-in-out -3s infinite reverse;
+}
+@keyframes silk-fold-a {
+  from {
+    transform: translateX(-8%) rotate(-4deg);
+  }
+  to {
+    transform: translateX(8%) rotate(3deg);
+  }
+}
+@keyframes silk-fold-b {
+  from {
+    transform: translateX(10%) rotate(5deg);
+  }
+  to {
+    transform: translateX(-6%) rotate(-3deg);
+  }
+}
+@keyframes silk-crease {
+  0% {
+    transform: translateX(-12%) rotate(-6deg);
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.95;
+  }
+  100% {
+    transform: translateX(12%) rotate(4deg);
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .silk-fold .silk-ribbon,
+  .silk-fold .silk-crease {
+    animation: none !important;
+  }
+}
+
+/* ── Settings: the wallpaper picker ───────────────────────────────────── */
+.silk-walls {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+.silk-wall {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--flux-text-dim);
+  text-align: left;
+  cursor: pointer;
+}
+.silk-wall-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 12px;
+  background-size: cover;
+  background-position: center;
+  outline: 1px solid rgba(255, 255, 255, 0.16);
+}
+.silk-wall.on {
+  color: var(--flux-text);
+}
+.silk-wall.on .silk-wall-thumb {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 3px;
+}
+.silk-wall:focus-visible .silk-wall-thumb {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 3px;
+}
+.silk-wall-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.silk-wall-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}

@@ -139,7 +139,8 @@ const AppPane = lazy(() => import("./AppPane"));
 const TuiPane = lazy(() => import("./TuiPane"));
 import { fitLayout, LAYOUT_PRESETS, parseLayout, type LayoutPreset, type LayoutState } from "./layout";
 import { tileRects } from "./tiles";
-import { design } from "./design";
+import { cardLayout, design } from "./design";
+import { registerShellActions } from "./shellActions";
 import type { PaletteContext } from "./paletteActions";
 import { LinkMenu } from "./linkMenu";
 // Lazy-loaded: not shown on a fresh window, so they stay out of the boot bundle
@@ -302,7 +303,7 @@ const App: Component = () => {
   // webview layer the design's card radius (26px less the 1.5px ring).
   createEffect(
     on(design, (d) => {
-      void webviewSetCornerRadius(d === "velvet-paper" ? 24.5 : null).catch(() => {});
+      void webviewSetCornerRadius(d === "classic" ? null : d === "liquid-silk" ? 20.5 : 24.5).catch(() => {});
     }),
   );
   // Velvet Paper's right-hand column is this rail (system, your notes, the
@@ -312,7 +313,7 @@ const App: Component = () => {
     on(
       design,
       (d) => {
-        if (d === "velvet-paper") setConnectOpen(true);
+        if (d !== "classic") setConnectOpen(true);
       },
       { defer: true },
     ),
@@ -1629,6 +1630,40 @@ const App: Component = () => {
         return false;
     }
   };
+  // Liquid Silk's home dock (StartPage) reaches these through the bridge.
+  registerShellActions({
+    run: (action) => {
+      if (action === "toggle-files") {
+        if (filesPanelOpen()) closeFilesPanel();
+        else openFilesPanel();
+        return true;
+      }
+      if (action === "toggle-notebook") {
+        if (kbPanelOpen()) closeKbPanel();
+        else openKbPanel();
+        return true;
+      }
+      return dispatch(action);
+    },
+    isOpen: (action) =>
+      action === "toggle-terminal"
+        ? terminalOpen()
+        : action === "toggle-agent"
+          ? agentOpen()
+          : action === "toggle-editor"
+            ? editorColOpen()
+            : action === "toggle-files"
+              ? filesPanelOpen()
+              : kbPanelOpen(),
+  });
+  // Silk steps its wallpaper back while a web page is the active tab.
+  createEffect(() => {
+    const t = activeTab();
+    document.documentElement.toggleAttribute(
+      "data-reading",
+      !!t && t.kind === "browser" && !t.url.startsWith("flux://"),
+    );
+  });
 
   const BARS_W = 54;
   // The split's own floor (each pane at least 320px), sized from the panes
@@ -1965,7 +2000,7 @@ const App: Component = () => {
       {/* The Indexer orb (#196) — position:fixed, lives over the chrome. */}
       {/* Velvet Paper has no orb, but its "Ask your notes" button opens the same
           panel, so the Indexer stays mounted there whatever the orb toggle says. */}
-      <Show when={(orbOn() || design() === "velvet-paper") && !focusMode()}>
+      <Show when={(orbOn() || cardLayout()) && !focusMode()}>
         <Suspense>
           <IndexerBubble />
         </Suspense>

@@ -8,7 +8,7 @@
 import type { Accessor, Setter } from "solid-js";
 
 import { askConfirm } from "./ask";
-import { design } from "./design";
+import { cardLayout } from "./design";
 import { setIndexerPanelOpen } from "./indexerOpen";
 import { keyOf } from "./keyLabel";
 import { openWelcome } from "./welcomeOpen";
@@ -131,7 +131,7 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
     navActive,
     toast,
   } = ctx;
-  const vp = design() === "velvet-paper";
+  const vp = cardLayout();
 
   /** Confirm, close, and say what happened + how to undo. */
   const closeMany = async (targets: TabMeta[], where: string) => {

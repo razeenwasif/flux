@@ -9,9 +9,19 @@
  * keyed on `<html data-design="…">`, so the Classic boot path never downloads it
  * and it stays out of the entry CSS budget (`npm run perf`).
  *
+ * **Liquid Silk is Velvet Paper's layout in another material.** It keeps every
+ * floating card, gutter and rail of Velvet Paper and swaps the paper for frosted
+ * glass over a silk wallpaper (`wallpaper.ts`). Rather than fork Velvet Paper's
+ * 5,000-line sheet, Silk marks <html> as `data-design="velvet-paper"` *and*
+ * `data-silk`, links both sheets, and scopes every Silk rule to
+ * `:root[data-design][data-silk]` — one attribute more specific than any Velvet
+ * Paper rule, so Silk wins wherever they overlap without depending on order.
+ * Code that asks "is this the floating-card layout?" uses `cardLayout()`; code
+ * that wants Velvet Paper's own look (its home, its paper) checks the id.
+ *
  * **Applied before first paint**, like the theme (see `index.html`): an inline
- * script in <head> sets the attribute and one at the top of <body> links the
- * stylesheet (after the theme's, so the design wins the rules they share), so a
+ * script in <head> sets the attributes and one at the top of <body> links the
+ * stylesheets (after the theme's, so the design wins the rules they share), so a
  * Velvet Paper launch never shows one classic frame first.
  *
  * A design brings its own palette. While one is active the theme picker is moot,
@@ -19,7 +29,7 @@
  */
 import { createSignal } from "solid-js";
 
-export type DesignId = "classic" | "velvet-paper";
+export type DesignId = "classic" | "velvet-paper" | "liquid-silk";
 
 export const DESIGNS: { id: DesignId; name: string; blurb: string }[] = [
   { id: "classic", name: "Classic", blurb: "Flux as it has always looked; colours follow the theme" },
@@ -28,10 +38,16 @@ export const DESIGNS: { id: DesignId; name: string; blurb: string }[] = [
     name: "Velvet Paper",
     blurb: "Floating paper cards on plum velvet, titles set in their edges, paper hills behind",
   },
+  {
+    id: "liquid-silk",
+    name: "Liquid Silk",
+    blurb: "Frosted glass over a silk wallpaper; the accent follows the wallpaper",
+  },
 ];
 
 const KEY = "flux.design";
 const LINK_ID = "flux-design-css";
+const SILK_LINK_ID = "flux-silk-css";
 
 const isDesign = (v: string | null): v is DesignId => DESIGNS.some((d) => d.id === v);
 
@@ -52,35 +68,49 @@ export const storedDesign = (): DesignId => {
 const [design, setDesignSig] = createSignal<DesignId>(storedDesign());
 export { design };
 
-/** The stylesheet a design lives in. Classic has none: it is theme.css. */
-export const designHref = (id: DesignId): string | null => (id === "classic" ? null : `/designs/${id}.css`);
+/** Velvet Paper's floating-card layout — true for both designs built on it. */
+export const cardLayout = (): boolean => design() !== "classic";
+
+/** The stylesheet a design's layout lives in. Classic has none: it is theme.css.
+ *  Liquid Silk's layout is Velvet Paper's; its material is `silkHref`. */
+export const designHref = (id: DesignId): string | null =>
+  id === "classic" ? null : "/designs/velvet-paper.css";
+export const silkHref = "/designs/liquid-silk.css";
+
+/** Link a stylesheet once (by id); resolves when it has loaded or failed. */
+const linkSheet = (id: string, href: string): Promise<void> => {
+  if (document.getElementById(id)?.getAttribute("href") === href) return Promise.resolve();
+  document.getElementById(id)?.remove();
+  const link = document.createElement("link");
+  link.id = id;
+  link.rel = "stylesheet";
+  link.href = href;
+  const loaded = new Promise<void>((done) => {
+    link.onload = () => done();
+    link.onerror = () => done();
+  });
+  document.head.appendChild(link);
+  return loaded;
+};
 
 /**
- * Put the design on <html> and make sure its stylesheet is linked. Resolves once
- * the sheet has loaded, so anything that reads computed colours afterwards (the
+ * Put the design on <html> and make sure its stylesheets are linked. Resolves
+ * once they have loaded, so anything that reads computed colours afterwards (the
  * palette, the terminals) sees the design's and not the previous one's.
  */
 export const applyDesign = (id: DesignId): Promise<void> => {
   const root = document.documentElement;
   const href = designHref(id);
-  // Leaving the link in place when switching back to Classic is harmless (its
-  // rules are all scoped to the attribute) and saves a re-fetch on the way back.
-  let loaded: Promise<void> = Promise.resolve();
-  if (href && document.getElementById(LINK_ID)?.getAttribute("href") !== href) {
-    document.getElementById(LINK_ID)?.remove();
-    const link = document.createElement("link");
-    link.id = LINK_ID;
-    link.rel = "stylesheet";
-    link.href = href;
-    loaded = new Promise((done) => {
-      link.onload = () => done();
-      link.onerror = () => done();
-    });
-    document.head.appendChild(link);
-  }
-  return loaded.then(() => {
+  // Leaving a link in place when switching away is harmless (its rules are all
+  // scoped to the attributes) and saves a re-fetch on the way back.
+  const loads: Promise<void>[] = [];
+  if (href) loads.push(linkSheet(LINK_ID, href));
+  if (id === "liquid-silk") loads.push(linkSheet(SILK_LINK_ID, silkHref));
+  return Promise.all(loads).then(() => {
     if (!href) root.removeAttribute("data-design");
-    else root.setAttribute("data-design", id);
+    else root.setAttribute("data-design", "velvet-paper");
+    if (id === "liquid-silk") root.setAttribute("data-silk", "");
+    else root.removeAttribute("data-silk");
   });
 };
 

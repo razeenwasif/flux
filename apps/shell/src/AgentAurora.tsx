@@ -1,4 +1,5 @@
-import { createEffect, onCleanup, onMount, type Component } from "solid-js";
+import { Show, createEffect, onCleanup, onMount, type Component } from "solid-js";
+import { design } from "./design";
 import { palette as pal, paletteGeneration, unit } from "./palette";
 
 const QUAD_VS = `#version 300 es
@@ -130,7 +131,9 @@ void main() {
 }
 `;
 
-const AgentAurora: Component<{ active: () => boolean; busy?: () => boolean }> = (props) => {
+type AuroraProps = { active: () => boolean; busy?: () => boolean };
+
+const AuroraCanvas: Component<AuroraProps> = (props) => {
   let canvas: HTMLCanvasElement | undefined;
 
   onMount(() => {
@@ -305,5 +308,30 @@ const AgentAurora: Component<{ active: () => boolean; busy?: () => boolean }> = 
     />
   );
 };
+
+/**
+ * Liquid Silk's take (design.ts): soft folded ribbons in the wallpaper's two
+ * accents with a crease of light across them, like the silk behind the glass.
+ * Plain CSS (public/designs/liquid-silk.css): settled while the agent is idle,
+ * drifting while it works, and still under Reduce Motion.
+ */
+const SilkFold: Component<{ busy: () => boolean }> = (props) => (
+  <div class="silk-fold" classList={{ busy: props.busy() }} aria-hidden="true">
+    <span class="silk-ribbon r1" />
+    <span class="silk-ribbon r2" />
+    <span class="silk-crease" />
+    <span class="silk-crease c2" />
+  </div>
+);
+
+/** The agent's ambient layer: the aurora shader, or Silk's folds under Liquid Silk. */
+const AgentAurora: Component<AuroraProps> = (props) => (
+  <Show
+    when={design() !== "liquid-silk"}
+    fallback={<SilkFold busy={() => props.busy?.() ?? props.active()} />}
+  >
+    <AuroraCanvas {...props} />
+  </Show>
+);
 
 export default AgentAurora;

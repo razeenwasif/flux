@@ -56,7 +56,7 @@ import {
 } from "./ipc";
 import { openTab } from "./store";
 import { crumbs, toFileUrl } from "./filepaths";
-import { design } from "./design";
+import { cardLayout } from "./design";
 import "./FilesView.css";
 
 const ROW_H = 30;
@@ -111,7 +111,7 @@ const FilesView: Component<{
   // Velvet Paper (design.ts) lays Files out with the preview as a standing
   // column, so it defaults on there — under its own key, so a Classic "off"
   // doesn't carry over and hide it.
-  const vp = () => design() === "velvet-paper";
+  const vp = () => cardLayout();
   const previewKey = vp() ? "flux.files.preview.vp" : "flux.files.preview";
   const [previewOpen, setPreviewOpen] = createSignal(
     (localStorage.getItem(previewKey) ?? (vp() ? "1" : "0")) === "1",
