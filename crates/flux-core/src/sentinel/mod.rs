@@ -238,7 +238,7 @@ pub async fn sentinel_assess_permission(
         .unwrap_or_default();
 
     let judged = tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().assess_permission(&host, &permission, &title, &text)
+        crate::agent_bridge::local_planner().assess_permission(&host, &permission, &title, &text)
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -294,7 +294,7 @@ async fn consent_check(
         snap.text.chars().take(1500).collect::<String>()
     );
     let insight = tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().explain_privacy(&banner)
+        crate::agent_bridge::local_planner().explain_privacy(&banner)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -360,7 +360,7 @@ pub async fn sentinel_policy_flags(
         .unwrap_or_default();
 
     let flags = tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().flag_policy(&title, &text)
+        crate::agent_bridge::local_planner().flag_policy(&title, &text)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -393,7 +393,7 @@ pub async fn sentinel_tracker_narrative(
     }
     let for_model = summary.clone();
     let insight = tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().explain_privacy(&for_model)
+        crate::agent_bridge::local_planner().explain_privacy(&for_model)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -531,7 +531,7 @@ async fn verify_url(
 
     let resembles = deterministic.resembles.clone();
     let judgment = tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().assess_phishing(&host, &resembles, &title, &text, has_form)
+        crate::agent_bridge::local_planner().assess_phishing(&host, &resembles, &title, &text, has_form)
     })
     .await
     .map_err(|e| e.to_string())?;

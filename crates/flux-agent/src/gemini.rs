@@ -564,7 +564,11 @@ mod tests {
     fn translates_the_real_schemas_without_leaving_unsupported_keywords() {
         // The actual schemas, not a hand-written stand-in — this is what catches
         // a construct being added upstream that the translator doesn't know.
-        for schema in [crate::action_schema(true), crate::note_action_schema()] {
+        for schema in [
+            crate::action_schema(true),
+            crate::step_batch_schema(),
+            crate::note_action_schema(),
+        ] {
             let g = to_gemini_schema(&schema);
             let mut bad = Vec::new();
             walk(&g, &mut |k, v| {

@@ -12,15 +12,16 @@
 //!     Brave, Zen, Edge and Chromium — bookmarks, the last 180 days of
 //!     history, and Arc's pinned sites — read from copies (sqlite.rs) so a
 //!     running browser is undisturbed; Safari's plist via plist.rs.
-//!   * Saved tab groups — DISCOVERY only for now. Chrome keeps them in a
-//!     per-profile SQLite database with a sync-internals schema; full import
-//!     is BACKLOG #23.
+//!   * Saved tab groups — from the Chromium family's sync store (tabgroups.rs),
+//!     as bookmark folders.
 
 pub mod browsers;
 pub mod chrome;
 pub mod gecko;
 mod plist;
+mod private_dir;
 mod sqlite;
+pub mod tabgroups;
 
 use thiserror::Error;
 

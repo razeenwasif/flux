@@ -1,6 +1,7 @@
 //! The welcome's import (Flux Next "welcome"): what other browsers on this
 //! machine have, and bringing it into Flux — bookmarks (each browser's bar
-//! becomes Flux's), the last 180 days of history, and Arc's pinned sites.
+//! becomes Flux's), the last 180 days of history, Arc's pinned sites and the
+//! Chromium family's saved tab groups, those last two as bookmark folders.
 //! The reading is flux-import's browsers.rs; this puts it in Flux's stores.
 
 use serde::{Deserialize, Serialize};
@@ -43,21 +44,32 @@ pub struct ImportResult {
     pub bookmarks: u32,
     pub history: u32,
     pub pinned: u32,
+    /// Pages from saved tab groups.
+    pub tab_group_pages: u32,
     /// "Chrome: …" for each part that couldn't be read.
     pub failed: Vec<String>,
 }
 
+/// (name, url, folder)
+type Marks = Vec<(String, String, String)>;
 type Read = (
-    Vec<(String, String, String)>,
+    Marks,
     Vec<(String, String, u64, u32)>,
-    Vec<(String, String, String)>,
+    Marks,
+    Marks,
     Vec<String>,
 );
 
-fn read(picks: &[ImportPick], bookmarks: bool, history: bool, pinned: bool) -> Read {
+fn read(
+    picks: &[ImportPick],
+    bookmarks: bool,
+    history: bool,
+    pinned: bool,
+    tab_groups: bool,
+) -> Read {
     let since = since_ms();
-    let (mut books, mut pages, mut pins, mut failed) =
-        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut books, mut pages, mut pins, mut groups, mut failed) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for pick in picks {
         let name = browsers::name_of(&pick.browser);
         let dir = std::path::Path::new(&pick.dir);
@@ -85,8 +97,14 @@ fn read(picks: &[ImportPick], bookmarks: bool, history: bool, pinned: bool) -> R
                 Err(e) => failed.push(format!("Arc pinned sites: {e}")),
             }
         }
+        if tab_groups {
+            match browsers::tab_groups(&pick.browser, dir) {
+                Ok(g) => groups.extend(g.into_iter().map(|b| (b.name, b.url, b.folder))),
+                Err(e) => failed.push(format!("{name} saved tab groups: {e}")),
+            }
+        }
     }
-    (books, pages, pins, failed)
+    (books, pages, pins, groups, failed)
 }
 
 /// Bring the picked profiles over. Importing again adds only what's new.
@@ -98,14 +116,17 @@ pub async fn import_run(
     bookmarks: bool,
     history: bool,
     pinned: bool,
+    tab_groups: bool,
 ) -> Result<ImportResult, String> {
-    let (books, pages, pins, failed) =
-        tauri::async_runtime::spawn_blocking(move || read(&picks, bookmarks, history, pinned))
-            .await
-            .map_err(|e| e.to_string())?;
+    let (books, pages, pins, groups, failed) = tauri::async_runtime::spawn_blocking(move || {
+        read(&picks, bookmarks, history, pinned, tab_groups)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
     let result = ImportResult {
         bookmarks: bookmark_store.import(books, "") as u32,
         pinned: bookmark_store.import(pins, "") as u32,
+        tab_group_pages: bookmark_store.import(groups, "") as u32,
         history: history_store.import(pages) as u32,
         failed,
     };

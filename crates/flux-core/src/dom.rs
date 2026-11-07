@@ -410,6 +410,18 @@ pub fn agent_report(
     payload: String,
 ) -> Result<(), String> {
     let tab = caller_tab(&webview)?;
+    emit_agent_report(&app, tab, kind, detail, format, payload)
+}
+
+/// Hand a step's outcome to the agent panel, whichever world it came from.
+pub(crate) fn emit_agent_report(
+    app: &AppHandle,
+    tab: TabId,
+    kind: String,
+    detail: String,
+    format: String,
+    payload: String,
+) -> Result<(), String> {
     app.emit(
         "flux://agent-report",
         (

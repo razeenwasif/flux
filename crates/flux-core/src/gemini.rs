@@ -175,7 +175,12 @@ fn cloud_set(on: bool, model: String) -> Result<RouteStatus, String> {
     let router = crate::agent_bridge::router();
     if !on {
         route::request_cloud(false);
-        return Ok(route::status(stored_key().is_some(), router.has_cloud()));
+        return Ok(route::status(can_escalate(), router.has_cloud()));
+    }
+    // Chosen in Settings: back on, through Antigravity rather than a key.
+    if crate::modelserver::uses_antigravity() {
+        crate::modelserver::apply_cloud(router);
+        return Ok(route::status(true, router.has_cloud()));
     }
     let key = stored_key()
         .ok_or("no Gemini API key set — add one in Settings → Integrations before escalating")?;
@@ -188,7 +193,7 @@ fn cloud_set(on: bool, model: String) -> Result<RouteStatus, String> {
         model = %if model.trim().is_empty() { flux_agent::gemini::default_model() } else { model },
         "cloud escalation ON — agent prompts (page text, notes, terminal output) now leave this machine"
     );
-    Ok(route::status(stored_key().is_some(), router.has_cloud()))
+    Ok(route::status(can_escalate(), router.has_cloud()))
 }
 
 /// What the next agent request will actually do.
@@ -197,12 +202,17 @@ fn cloud_set(on: bool, model: String) -> Result<RouteStatus, String> {
 /// be built: the backend is only constructed when the user escalates, so
 /// reporting that here would tell a user who had just saved a key that they
 /// still need one — and hide the control that would have built it.
+/// There's a way to the cloud: a Gemini key, or Antigravity chosen in Settings.
+fn can_escalate() -> bool {
+    crate::modelserver::uses_antigravity() || stored_key().is_some()
+}
+
 #[tauri::command]
 pub async fn agent_cloud_status() -> RouteStatus {
-    let has_key = tauri::async_runtime::spawn_blocking(|| stored_key().is_some())
+    let can = tauri::async_runtime::spawn_blocking(can_escalate)
         .await
         .unwrap_or(false);
-    route::status(has_key, crate::agent_bridge::router().has_cloud())
+    route::status(can, crate::agent_bridge::router().has_cloud())
 }
 
 #[cfg(test)]

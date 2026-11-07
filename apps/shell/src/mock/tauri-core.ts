@@ -1688,13 +1688,13 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       // A 3-step demo (taskLoop.ts): a draft that runs on its own, a commit that
       // asks, then finish.
       const hist = (args?.history as string[]) ?? [];
-      return Promise.resolve(
-        (hist.length === 0
+      return Promise.resolve([
+        hist.length === 0
           ? { action: "type", selector: "#msg", text: "hello" }
           : hist.length === 1
             ? { action: "click", selector: "#send", reason: "send it" }
-            : { action: "finish", summary: `(mock) completed: ${String(args?.goal ?? "task")}` }) as T,
-      );
+            : { action: "finish", summary: `(mock) completed: ${String(args?.goal ?? "task")}` },
+      ] as T);
     }
     // What the agent sees of the page (steps.rs). `?previewHandoff` puts a
     // sign-in in the way, for the hand-off card.
@@ -1788,13 +1788,21 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(false as T);
     case "import_scan": {
       // The welcome board's Mac: five browsers, Safari locked, Brave missing.
-      const p = (dir: string, name: string, bookmarks: number, history: number, pinned = 0) => ({
+      const p = (
+        dir: string,
+        name: string,
+        bookmarks: number,
+        history: number,
+        pinned = 0,
+        tab_groups = 0,
+      ) => ({
         dir,
         name,
         in_use: true,
         bookmarks,
         history,
         pinned,
+        tab_groups,
       });
       return Promise.resolve([
         {
@@ -1802,7 +1810,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
           name: "Chrome",
           state: "ready",
           detail: "Default profile",
-          profiles: [p("/c", "Default", 268, 2140)],
+          profiles: [p("/c", "Default", 268, 2140, 0, 6)],
         },
         {
           id: "arc",
@@ -1825,7 +1833,10 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "import_run":
       return new Promise((r) =>
-        setTimeout(() => r({ bookmarks: 401, history: 3_912, pinned: 38, failed: [] } as T), 700),
+        setTimeout(
+          () => r({ bookmarks: 401, history: 3_912, pinned: 38, tab_group_pages: 47, failed: [] } as T),
+          700,
+        ),
       );
     case "import_top_sites":
       return Promise.resolve(
@@ -2154,6 +2165,12 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(["gemma-4-26b-it"] as T);
     case "model_server_set":
       return Promise.resolve(undefined as T);
+    case "model_server_agy_models":
+      return Promise.resolve([
+        "gemini-4-argon-medium",
+        "gemini-3.8-flash-medium",
+        "gemini-3.8-flash-low",
+      ] as T);
     case "gecko_import_preview":
       return Promise.resolve([
         {

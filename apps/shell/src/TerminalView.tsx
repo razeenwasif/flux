@@ -34,6 +34,7 @@ import {
 } from "./terminals";
 import { openTab } from "./store";
 import { createAcker, termBytes, terminalAck } from "./termflow";
+import { ligatureRanges, mayHoldImage } from "./termdraw";
 import { speak, stopSpeaking } from "./speak";
 import LiquidBackground from "./LiquidBackground";
 import { hex, palette as pal, rgba } from "./palette";
@@ -200,6 +201,17 @@ const TerminalView: Component<{
 
     if (disposed) return;
 
+    // The renderer keeps each glyph as it first drew it, so a face still loading
+    // would stay in a fallback font, and without ligatures. The cap is so a font
+    // that won't load can't keep the shell from starting.
+    await Promise.race([
+      Promise.allSettled(
+        ["13px", "bold 13px"].map((font) => document.fonts.load(`${font} "CaskaydiaCove NF"`, "=>")),
+      ),
+      new Promise((done) => setTimeout(done, 800)),
+    ]);
+    if (disposed) return;
+
     // #17: clicking a link in the terminal opens a Flux browser tab (closing the
     // terminal↔browser loop) rather than the OS browser. Covers both auto-detected
     // URLs (WebLinksAddon) and explicit OSC 8 hyperlinks (the linkHandler option).
@@ -242,6 +254,7 @@ const TerminalView: Component<{
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon((_e, uri) => openInFlux(uri)));
     term.open(host);
+    term.registerCharacterJoiner(ligatureRanges);
     // GPU-accelerated rendering (like Windows Terminal / VS Code) — crisper glyphs
     // and far smoother scrolling for TUIs than the DOM fallback. Must load after
     // open(). If the GL context is lost or init fails, dispose it and fall back to
@@ -511,9 +524,23 @@ const TerminalView: Component<{
     // much is unwritten, so a flood can't outrun the renderer (termflow.ts).
     const ack = createAcker((n) => void terminalAck(props.session, n).catch(() => {}));
     const channel = new Channel<ArrayBuffer>();
+    // Inline images load when a program first needs them (termdraw.ts), and what
+    // arrives meanwhile waits, in order, so the first image isn't lost.
+    let imagesLoading: Promise<void> | null = null;
+    let imagesReady = false;
+    const loadImages = () =>
+      import("./termimages")
+        .then((m) => m.addImages(term))
+        .catch(() => {})
+        .then(() => {
+          imagesReady = true;
+        });
     channel.onmessage = (msg) => {
       const bytes = termBytes(msg);
-      term.write(bytes, () => ack(bytes.byteLength));
+      const show = () => term.write(bytes, () => ack(bytes.byteLength));
+      if (!imagesLoading && mayHoldImage(bytes)) imagesLoading = loadImages();
+      if (imagesLoading && !imagesReady) void imagesLoading.then(show);
+      else show();
     };
     try {
       const persist = props.persist ?? termPersist();

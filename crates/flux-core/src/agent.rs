@@ -617,7 +617,7 @@ pub async fn agent_execute(
     let page_text = Arc::clone(&snap.text);
     let url = snap.url.clone();
     let action = tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().plan(&prompt, &page_text, &url)
+        crate::agent_bridge::planner().plan(&prompt, &*page_text, &url)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -658,23 +658,21 @@ pub async fn agent_plan(
     state: State<'_, FluxState>,
     prompt: String,
 ) -> Result<flux_agent::AgentAction, String> {
-    let snap = state
-        .active_snapshot()
-        .ok_or("no page context — open a tab first")?;
+    let (url, page) = page_for_planning(&app, &state).await?;
     *state.agent.write() = AgentStatus::Thinking {
         prompt: prompt.clone(),
     };
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
     // Banking, password-manager, health and tax sites: not even a plan.
-    if let Some(kind) = flux_agent::steps::sensitive_site(&snap.url) {
+    if let Some(kind) = flux_agent::steps::sensitive_site(&url) {
+        *state.agent.write() = AgentStatus::Idle;
+        let _ = app.emit("flux://agent-status", state.agent.read().clone());
         return Ok(flux_agent::AgentAction::Refuse {
             reason: format!("Flux's agent doesn't act on {kind} sites."),
         });
     }
-    let page_text = Arc::clone(&snap.text);
-    let url = snap.url.clone();
     let action = tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().plan(&prompt, &page_text, &url)
+        crate::agent_bridge::planner().plan(&prompt, page.view(), &url)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -690,37 +688,33 @@ pub async fn agent_plan(
     Ok(action)
 }
 
-/// Plan the **next step** of a multi-step task (BACKLOG #A). The frontend agent
-/// loop drives this: it passes the high-level `goal` and the list of steps
-/// already taken (`history`), and gets back the single next `AgentAction` —
-/// `finish` when done, `refuse` if stuck. Like `agent_plan`, this does NOT touch
-/// the page; the frontend previews the step and runs it via `agent_run_action`
-/// only after the user approves (or in "run all" mode, after the destructive
-/// guard clears). Reads the **live** active-tab snapshot every call, so cross-
-/// page tasks work as navigation republishes the DOM.
+/// Plan the **next steps** of a multi-step task (BACKLOG #A, #104). The frontend
+/// agent loop drives this: it passes the high-level `goal` and the list of steps
+/// already taken (`history`), and gets back what to do from this look at the page,
+/// in order — `finish` when done, `refuse` if stuck. Like `agent_plan`, this does
+/// NOT touch the page; the frontend checks each step and runs it via
+/// `agent_run_action`. Reads the page **live** every call, so cross-page tasks work.
 #[tauri::command]
 pub async fn agent_task_step(
     app: AppHandle,
     state: State<'_, FluxState>,
     goal: String,
     history: Vec<String>,
-) -> Result<flux_agent::AgentAction, String> {
-    let snap = state
-        .active_snapshot()
-        .ok_or("no page context — open a tab first")?;
+) -> Result<Vec<flux_agent::AgentAction>, String> {
+    let (url, page) = page_for_planning(&app, &state).await?;
     *state.agent.write() = AgentStatus::Thinking {
         prompt: goal.clone(),
     };
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
-    if let Some(kind) = flux_agent::steps::sensitive_site(&snap.url) {
-        return Ok(flux_agent::AgentAction::Refuse {
+    if let Some(kind) = flux_agent::steps::sensitive_site(&url) {
+        *state.agent.write() = AgentStatus::Idle;
+        let _ = app.emit("flux://agent-status", state.agent.read().clone());
+        return Ok(vec![flux_agent::AgentAction::Refuse {
             reason: format!("Flux's agent doesn't act on {kind} sites."),
-        });
+        }]);
     }
-    let page_text = Arc::clone(&snap.text);
-    let url = snap.url.clone();
-    let action = tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().plan_step(&goal, &page_text, &history, &url)
+    let steps = tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().plan_step(&goal, page.view(), &history, &url)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -733,7 +727,7 @@ pub async fn agent_task_step(
     })?;
     *state.agent.write() = AgentStatus::Idle;
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
-    Ok(action)
+    Ok(steps)
 }
 
 /// Execute a previously-planned action that the user approved (BACKLOG #8).
@@ -798,7 +792,18 @@ pub async fn agent_run_action(
         selector: action.selector().unwrap_or_default().to_owned(),
     };
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
-    webview.eval(action.to_js()).map_err(|e| e.to_string())?;
+    // A ref means nothing to anyone reading the log, so it says what it named.
+    let mut logged = action.describe();
+    match action.selector().filter(|s| flux_agent::axtree::is_ref(s)) {
+        Some(reference) => {
+            let target = page_facts(&app, tab, Some(reference)).await.target;
+            if let Some(label) = target.map(|t| t.label).filter(|l| !l.is_empty()) {
+                logged = format!("{logged} — “{label}”");
+            }
+            run_in_flux_world(&app, tab, &action).await;
+        }
+        None => webview.eval(action.to_js()).map_err(|e| e.to_string())?,
+    }
     // Sentinel audit log (ADR 0013, Pillar 0): record every action the agent runs
     // on the user's behalf. `confirmed: true` — this command is only reached after
     // the frontend's approval card.
@@ -806,7 +811,7 @@ pub async fn agent_run_action(
         audit.record(crate::sentinel::AuditEntry {
             ms: 0,
             tab,
-            action: action.describe(),
+            action: logged,
             destructive: action.is_destructive().map(|t| t.to_string()),
             confirmed: true,
         });
@@ -820,6 +825,85 @@ pub async fn agent_run_action(
 
 /// The agent's look at a page, run in Flux's own JavaScript world.
 const PROBE_JS: &str = include_str!("../assets/agent-probe.js");
+
+/// The agent's accessibility tree of a page, run in the same world (axtree.rs).
+const TREE_JS: &str = include_str!("../assets/agent-tree.js");
+
+/// Each look at a page gets its own version, across every tab and page load, so
+/// a ref from an earlier look can't name anything on a later one.
+static TREE_VERSION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// `tab`'s page as an accessibility tree, ready for a prompt. `None` where Flux
+/// can't look (no isolated world off macOS), or there's nothing on the page.
+async fn page_tree(app: &AppHandle, tab: TabId) -> Option<flux_agent::axtree::AxTree> {
+    let ver = TREE_VERSION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let body = TREE_JS.replace("__VER__", &ver.to_string());
+    let seen = crate::pagejs::run_isolated(
+        app,
+        tab,
+        "flux-agent",
+        body,
+        std::time::Duration::from_millis(2500),
+    )
+    .await?;
+    let tree: flux_agent::axtree::AxTree = serde_json::from_str(&seen).ok()?;
+    (!tree.nodes.is_empty()).then_some(tree)
+}
+
+/// What the model is given of the active page.
+enum PlanningPage {
+    Tree(String),
+    Text(Arc<str>),
+}
+
+impl PlanningPage {
+    fn view(&self) -> flux_agent::PageView<'_> {
+        match self {
+            Self::Tree(tree) => flux_agent::PageView::Tree(tree),
+            Self::Text(text) => flux_agent::PageView::Text(text),
+        }
+    }
+}
+
+/// The active page's URL and what to plan from: its tree, or its captured text
+/// where there's no tree to read.
+async fn page_for_planning(
+    app: &AppHandle,
+    state: &FluxState,
+) -> Result<(String, PlanningPage), String> {
+    if let Some(tree) = match state.active_tab() {
+        Some(tab) => page_tree(app, tab).await,
+        None => None,
+    } {
+        let rendered = flux_agent::axtree::render(&tree, flux_agent::axtree::TREE_BUDGET);
+        tracing::info!(target: "flux::agent", ver = tree.ver, lines = rendered.lines().count(), bytes = rendered.len(), "read the page's tree");
+        return Ok((tree.url, PlanningPage::Tree(rendered)));
+    }
+    let snap = state
+        .active_snapshot()
+        .ok_or("no page context — open a tab first")?;
+    Ok((snap.url.clone(), PlanningPage::Text(Arc::clone(&snap.text))))
+}
+
+/// Run a step that targets a ref, in the world that holds refs, and pass on its
+/// report. No answer (a click that took the page away with it) is not a report:
+/// the fresh look afterwards says what happened.
+async fn run_in_flux_world(app: &AppHandle, tab: TabId, action: &flux_agent::AgentAction) {
+    let seen = crate::pagejs::run_isolated(
+        app,
+        tab,
+        "flux-agent",
+        flux_agent::compile::to_isolated_js(action),
+        std::time::Duration::from_millis(2500),
+    )
+    .await;
+    let report = seen.and_then(|s| serde_json::from_str::<[String; 4]>(&s).ok());
+    let Some([kind, detail, format, payload]) = report else {
+        return;
+    };
+    tracing::info!(target: "flux::agent", kind, "step reported");
+    let _ = crate::dom::emit_agent_report(app, tab, kind, detail, format, payload);
+}
 
 /// What Flux sees on `tab`'s page, and of `selector` on it. Where it can't
 /// look (no isolated world off macOS), `checked` is false and only the URL is
@@ -903,7 +987,9 @@ pub async fn agent_verify_step(
 ) -> Result<flux_agent::steps::StepVerdict, String> {
     let tab = tab.or_else(|| state.active_tab()).ok_or("no active tab")?;
     let after = page_facts(&app, tab, action.selector()).await;
-    Ok(flux_agent::steps::verify(&action, &before, &after))
+    let verdict = flux_agent::steps::verify(&action, &before, &after);
+    tracing::info!(target: "flux::agent", step = %action.describe(), verified = verdict.verified, how = %verdict.how, "step checked");
+    Ok(verdict)
 }
 
 #[cfg(test)]

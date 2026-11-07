@@ -2,7 +2,7 @@
 
 **An AI-native browser with a built-in GPU terminal and a fully local agent.**
 
-Rust + Tauri v2 core · native OS webviews · SolidJS chrome · WGPU terminal ·
+Rust + Tauri v2 core · native OS webviews · SolidJS chrome · xterm.js terminal (WebGL) ·
 llama.cpp (Gemma-class 12B) on-device inference. See
 [ADR 0001](docs/adr/0001-architecture-and-performance-budgets.md) for the
 architecture rationale and the CI-enforced performance budgets.
@@ -20,7 +20,6 @@ flux/
 │   └── shell/                 # SolidJS chrome (Arc-style vertical sidebar shell)
 └── crates/
     ├── flux-core/             # Tauri daemon: windows, FluxState, zero-copy IPC, CLI entry
-    ├── flux-term/             # WGPU terminal (vte grid + instanced renderer)
     ├── flux-agent/            # Local LLM planner → structured DOM actions → JS
     ├── flux-embed/            # Embeddings + greedy clustering for tab groups
     ├── flux-import/           # Chrome import: bookmarks, extension inventory
@@ -339,6 +338,12 @@ ollama pull gemma4:12b-it-qat   # or e4b-it-qat (faster) / e2b-it-qat (fastest)
 ollama serve                    # http://localhost:11434
 ```
 
+Or use **Gemini through Antigravity**, signed in with your Google account and no
+API key: install the Antigravity CLI (`agy`), open it once to sign in, then pick
+**Settings → Model server → Gemini (Antigravity)** and a model (ADR 0020). The
+agent's prompts then go to Google, the panel shows it as cloud, and each step takes
+25–35 s. Flux refuses the CLI every tool but the one that returns an answer.
+
 The sidebar is **chat-first**: talk to Gemma about anything, with no page
 required (if a page is open, its text is added as context so you can ask about
 it). Replies **stream in token-by-token** as the model generates them. To make
@@ -449,6 +454,11 @@ column** (the persistent dev shell, ⌨ in the sidebar footer) or as a **Termina
 tab** (the new-tab picker). xterm is lazy-loaded so it never weighs down the
 browser chrome. Terminal tabs are kept alive across tab switches (the shell
 keeps running when you switch away).
+
+The bundled font's **ligatures** are on (`=>`, `!=`, `|>`). **Inline images** work
+over Sixel and iTerm's image protocol, for tools such as `img2sixel`, `chafa -f sixel`
+and `imgcat`. Kitty's graphics protocol isn't supported, so `kitten icat` won't show
+anything, and tmux needs its own passthrough settings.
 
 **Persist sessions across closing Flux** — Settings → Terminal → *Keep sessions
 across restarts*. Off by default. Two independent halves, because they fix
@@ -645,7 +655,6 @@ detected, import tracked in BACKLOG #23.
 | Flag | Crate | Effect |
 |---|---|---|
 | `llama` | flux-core / flux-agent | Real llama.cpp inference (needs a GGUF in `models/`, see `FLUX_MODEL_PATH`). Default: deterministic `MockBackend`. |
-| `gpu` | flux-term | WGPU renderer. Default off so headless CI checks the grid/parser logic. |
 | `model` | flux-embed | EmbeddingGemma-class embedder. Default: hashing embedder. |
 | `voice` | flux-core | Push-to-talk + "Hey Gemma" STT via Vosk. Builds without linking to Vosk; at runtime Flux loads `libvosk.dll`/`libvosk.so` from `PATH`, `FLUX_VOSK_LIBRARY`, `FLUX_VOSK_LIB_DIR`, or next to the configured model. `FLUX_VOSK_MODEL` points at a model dir. Default: the 🎤 returns a "not built" stub. |
 

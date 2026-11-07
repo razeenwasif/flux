@@ -18,6 +18,7 @@ import {
   type JSX,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import { listen } from "@tauri-apps/api/event";
 import {
   agentChatStream,
   traceTabThread,
@@ -101,6 +102,8 @@ import {
   calEventAdd,
   calEventUpdate,
   calEventDelete,
+  agentStepGuard,
+  modelServerGet,
   type AgentAction,
   type NextStep,
   type AgentStatus,
@@ -443,9 +446,21 @@ const AgentPanel: Component = () => {
     }
   };
 
+  // Gemini through Antigravity, chosen in Settings → Model server (ADR 0020): the
+  // cloud route then stays on across launches, with the model picked there.
+  const [viaAgy, setViaAgy] = createSignal<string | null>(null);
+  const cloudName = () => viaAgy() ?? cloudModel();
+  const resets = () =>
+    viaAgy()
+      ? "Until you choose another model server in Settings."
+      : "Resets to local when you restart Flux.";
+
   onMount(() => {
     void agentCloudStatus()
       .then(setRoute)
+      .catch(() => {});
+    void modelServerGet()
+      .then((v) => setViaAgy(v.kind === "antigravity" ? v.model || "gemini" : null))
       .catch(() => {});
     void geminiHasKey()
       .then((has) => has && geminiDefaultModel().then((d) => !cloudModel() && setCloudModel(d)))
@@ -467,11 +482,11 @@ const AgentPanel: Component = () => {
         {
           role: "action",
           text: st.active
-            ? `☁ Cloud escalation ON — ${cloudModel() || "Gemini"} will answer, and prompts (page text, notes, terminal output) now leave this machine. Off again when you restart Flux.`
+            ? `☁ Cloud escalation ON — ${cloudName() || "Gemini"} will answer, and prompts (page text, notes, terminal output) now leave this machine. ${viaAgy() ? "On until you choose another model server in Settings." : "Off again when you restart Flux."}`
             : `🔒 Back to local — nothing leaves this machine.`,
         },
       ]);
-      if (st.active && cloudModels().length === 0) {
+      if (st.active && !viaAgy() && cloudModels().length === 0) {
         void geminiModels()
           .then(setCloudModels)
           .catch(() => {});
@@ -522,6 +537,7 @@ const AgentPanel: Component = () => {
   const FAIL_OUTCOMES = new Set([
     "not_found",
     "bad_selector",
+    "page_changed",
     "blocked_destructive",
     "blocked_sensitive",
     "not_typable",
@@ -2635,11 +2651,14 @@ const AgentPanel: Component = () => {
         if (action.action === "refuse") {
           setFeed((f) => [...f, { role: "assistant", text: describeAction(action) }]);
         } else {
+          // A ref says nothing to you: the preview names what it points at.
+          const seen = await agentStepGuard(action, targetTabId ?? undefined).catch(() => null);
+          const label = seen?.before.target?.label;
           setFeed((f) => [
             ...f,
             {
               role: "plan",
-              text: describeAction(action),
+              text: describeAction(action, label),
               action,
               pending: true,
               tabId: targetTabId != null ? targetTabId : undefined,
@@ -2770,7 +2789,9 @@ const AgentPanel: Component = () => {
     expectReport(tabId ?? activeId() ?? undefined, action);
     try {
       await agentRunAction(action, tabId, expectedUrl);
-      setFeed((f) => [...f, { role: "action", text: `✓ ${describeAction(action)}` }]);
+      // What the preview named, which a ref alone can't.
+      const shown = feed()[idx]?.text ?? describeAction(action);
+      setFeed((f) => [...f, { role: "action", text: `✓ ${shown}` }]);
     } catch (err) {
       setFeed((f) => [...f, { role: "error", text: String(err) }]);
     } finally {
@@ -3185,6 +3206,18 @@ const AgentPanel: Component = () => {
     }
   };
 
+  // The native check (docs/native-smoke.md) starts a task and answers its commit
+  // from a terminal. Not in any other build.
+  if (import.meta.env.VITE_FLUX_NATIVE_SMOKE === "1") {
+    onMount(() => {
+      const off = listen<string>("flux://smoke-task", (e) => {
+        if (e.payload) void runTask(e.payload);
+        else decideStep("approve");
+      });
+      onCleanup(() => void off.then((u) => u()));
+    });
+  }
+
   return (
     <aside
       class="agent"
@@ -3230,12 +3263,12 @@ const AgentPanel: Component = () => {
               classList={{ cloud: route().active }}
               title={
                 route().active
-                  ? `Sending to ${cloudModel() || "Gemini"} — page text, notes and terminal output leave this machine. Resets to local when you restart Flux.`
+                  ? `Sending to ${cloudName() || "Gemini"} — page text, notes and terminal output leave this machine. ${resets()}`
                   : "Pick the local model (Ollama). Nothing leaves this machine."
               }
               onClick={toggleModelMenu}
             >
-              {routeLabel(route(), shortModel(), cloudModel())} ▾
+              {routeLabel(route(), shortModel(), cloudName())} ▾
             </button>
             <Show when={modelMenu()}>
               <Portal>
@@ -3290,7 +3323,7 @@ const AgentPanel: Component = () => {
                       title={
                         route().active
                           ? "Go back to the local model."
-                          : "Send prompts to Gemini instead — page text, notes and terminal output will leave this machine. Resets to local on restart."
+                          : `Send prompts to ${cloudName() || "Gemini"} instead — page text, notes and terminal output will leave this machine. ${resets()}`
                       }
                       onClick={() => void toggleCloud()}
                     >
@@ -3298,9 +3331,11 @@ const AgentPanel: Component = () => {
                         ? "Switching…"
                         : route().active
                           ? "🔒 Back to local"
-                          : "☁ Escalate to Gemini…"}
+                          : viaAgy()
+                            ? "☁ Gemini (Antigravity)"
+                            : "☁ Escalate to Gemini…"}
                     </button>
-                    <Show when={route().active && cloudModels().length > 0}>
+                    <Show when={route().active && !viaAgy() && cloudModels().length > 0}>
                       <For each={cloudModels()}>
                         {(m) => (
                           <button
@@ -3770,16 +3805,17 @@ const AgentPanel: Component = () => {
   );
 };
 
-function describeAction(a: AgentAction): string {
+function describeAction(a: AgentAction, label?: string): string {
+  const target = (selector: string) => (label ? `“${label}”` : selector);
   switch (a.action) {
     case "click":
-      return `✓ clicked ${a.selector} (${a.reason})`;
+      return `✓ clicked ${target(a.selector)} (${a.reason})`;
     case "extract_table":
-      return `✓ extracted ${a.selector} → ${a.format}`;
+      return `✓ extracted ${target(a.selector)} → ${a.format}`;
     case "type":
-      return `✓ typed into ${a.selector}`;
+      return `✓ typed into ${target(a.selector)}`;
     case "reveal":
-      return `✓ revealed ${a.selector}`;
+      return `✓ revealed ${target(a.selector)}`;
     case "refuse":
       return `— ${a.reason}`;
     case "finish":

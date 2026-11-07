@@ -44,7 +44,37 @@ fn make_local() -> Box<dyn Inference> {
 /// install the cloud backend without rebuilding anything.
 pub fn router() -> &'static Arc<RoutingBackend> {
     static ROUTER: OnceLock<Arc<RoutingBackend>> = OnceLock::new();
-    ROUTER.get_or_init(|| Arc::new(RoutingBackend::new(make_local())))
+    static APPLIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let router = ROUTER.get_or_init(|| Arc::new(RoutingBackend::new(make_local())));
+    // Gemini through Antigravity, when Settings chose it (modelserver.rs): once,
+    // and only after the settings are there to say so.
+    if crate::modelserver::ready() && !APPLIED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        crate::modelserver::apply_cloud(router);
+    }
+    router
+}
+
+/// The default model alone, never the cloud route: for what Flux does on its own
+/// with what's on screen (Sentinel's checks), which ADR 0013 keeps on device.
+struct LocalOnly;
+
+impl Inference for LocalOnly {
+    fn complete(
+        &self,
+        prompt: &str,
+        schema: Option<&serde_json::Value>,
+    ) -> Result<String, flux_agent::AgentError> {
+        router().local().complete(prompt, schema)
+    }
+
+    fn chat(&self, prompt: &str) -> Result<String, flux_agent::AgentError> {
+        router().local().chat(prompt)
+    }
+}
+
+pub fn local_planner() -> &'static AgentPlanner {
+    static PLANNER: OnceLock<AgentPlanner> = OnceLock::new();
+    PLANNER.get_or_init(|| AgentPlanner::new(Box::new(LocalOnly)))
 }
 
 pub fn planner() -> &'static AgentPlanner {

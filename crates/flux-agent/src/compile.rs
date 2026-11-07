@@ -6,6 +6,11 @@
 //!   2. Runs inside an IIFE so nothing leaks into page scope.
 //!   3. Paints the Flux magenta highlight (#D100D1) on the target before
 //!      acting, with a forced reflow so the user perceives intent → effect.
+//!
+//! A step's target is a CSS selector or a ref from the accessibility tree
+//! (axtree.rs). Refs resolve only in Flux's own JavaScript world, so a step with
+//! one runs there ([`to_isolated_js`]), through the same templates: the page can't
+//! see the ref, stand in for the element, or forge the report.
 
 use crate::AgentAction;
 
@@ -17,18 +22,30 @@ fn js_str(s: &str) -> String {
 /// Shared prelude: resolve the selector, flash the "Liquid AI" highlight.
 /// `__el` is in scope for the action body that follows.
 fn highlight_prelude(selector: &str) -> String {
-    format!(
-        r#"let __el;
-  /* An invalid selector (a model's jQuery-style `:contains()`) throws, and the
+    let lookup = if crate::axtree::is_ref(selector) {
+        format!(
+            r#"/* Gone, or no longer what the model was shown: look again. */
+  __el = globalThis.__fluxAx?.find({sel});
+  if (!__el) {{ window.__FLUX__?.report('page_changed', {sel}); return; }}"#,
+            sel = js_str(selector)
+        )
+    } else {
+        format!(
+            r#"/* An invalid selector (a model's jQuery-style `:contains()`) throws, and the
      action died before any report call. */
   try {{ __el = document.querySelector({sel}); }} catch (_) {{ window.__FLUX__?.report('bad_selector', {sel}); return; }}
-  if (!__el) {{ window.__FLUX__?.report('not_found', {sel}); return; }}
+  if (!__el) {{ window.__FLUX__?.report('not_found', {sel}); return; }}"#,
+            sel = js_str(selector)
+        )
+    };
+    format!(
+        r#"let __el;
+  {lookup}
   __el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
   const __old = __el.style.cssText;
   __el.style.cssText += ';outline:2px solid #D100D1;outline-offset:2px;'
     + 'box-shadow:0 0 18px rgba(209,0,209,.55);transition:outline .12s;';
-  void __el.offsetWidth; /* force reflow so the highlight paints pre-action */"#,
-        sel = js_str(selector)
+  void __el.offsetWidth; /* force reflow so the highlight paints pre-action */"#
     )
 }
 
@@ -136,6 +153,17 @@ pub fn to_js(action: &AgentAction) -> String {
       __el.textContent = __text;
       __el.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: __text }}));
     }}
+  }} else if (__el.tagName === 'SELECT') {{
+    /* A dropdown takes one of its options, by what it says or its value. */
+    const __opt = [...__el.options].find(o => o.text.trim() === __text.trim()) || [...__el.options].find(o => o.value === __text);
+    if (!__opt) {{
+      __el.style.cssText = __old;
+      window.__FLUX__?.report('not_typable', {sel});
+      return;
+    }}
+    __el.value = __opt.value;
+    __el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+    __el.dispatchEvent(new Event('change', {{ bubbles: true }}));
   }} else if ('value' in __el) {{
     /* Native setter + input event → works with React/Vue controlled inputs. */
     const proto = Object.getPrototypeOf(__el);
@@ -176,6 +204,24 @@ pub fn to_js(action: &AgentAction) -> String {
             format!("window.__FLUX__?.report('finished', {});", js_str(summary))
         }
     }
+}
+
+/// The body of an async function for Flux's own JavaScript world (pagejs.rs),
+/// returning the step's report as JSON: `[kind, detail, format, payload]`. There
+/// `window` isn't the page's, so `__FLUX__` here is just this report, which only
+/// Flux can write. A step that reports nothing (a reveal) settles by itself.
+pub fn to_isolated_js(action: &AgentAction) -> String {
+    format!(
+        r#"return await new Promise((done) => {{
+  window.__FLUX__ = {{
+    report: (kind, detail) => done(JSON.stringify([kind, String(detail ?? ''), '', ''])),
+    deliver: (kind, format, payload) => done(JSON.stringify([kind, '', format, payload])),
+  }};
+  {js}
+  setTimeout(() => done(JSON.stringify(['settled', '', '', ''])), 1200);
+}});"#,
+        js = to_js(action),
+    )
 }
 
 #[cfg(test)]
@@ -291,6 +337,44 @@ mod tests {
         assert!(js.contains("report('not_typable'"));
         // The text is still embedded only as a JSON string literal.
         assert!(js.contains(r#"const __text = "I'll be there at 3";"#));
+    }
+
+    /// A ref resolves only through what Flux's own world kept for it; it never
+    /// falls back to asking the page for the nearest thing.
+    #[test]
+    fn a_ref_resolves_only_through_flux_own_world() {
+        let click = AgentAction::Click {
+            selector: "7:e3".into(),
+            reason: "go".into(),
+        };
+        let js = click.to_js();
+        assert!(js.contains(r#"globalThis.__fluxAx?.find("7:e3")"#));
+        assert!(js.contains("report('page_changed'"));
+        assert!(!js.contains("querySelector("), "no CSS lookup for a ref");
+        // The same guard on the live label as any other click.
+        assert!(js.find("blocked_destructive").unwrap() < js.find("__el.click()").unwrap());
+
+        let isolated = to_isolated_js(&click);
+        assert!(isolated.starts_with("return await new Promise"));
+        assert!(isolated.contains("JSON.stringify([kind,"), "{isolated}");
+        // A CSS selector still looks it up in the page.
+        let css = AgentAction::Reveal {
+            selector: "#send".into(),
+        }
+        .to_js();
+        assert!(css.contains("document.querySelector(") && !css.contains("__fluxAx"));
+    }
+
+    #[test]
+    fn a_dropdown_is_set_by_an_option_or_says_it_cannot_be() {
+        let js = AgentAction::Type {
+            selector: "#size".into(),
+            text: "Large".into(),
+        }
+        .to_js();
+        let select = js.find("__el.tagName === 'SELECT'").expect("handled");
+        assert!(select < js.find("set.call(").unwrap());
+        assert!(js[select..].contains("report('not_typable'"));
     }
 
     /// `querySelector` throws on an invalid selector, so an unguarded lookup

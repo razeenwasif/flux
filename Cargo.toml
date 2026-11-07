@@ -3,7 +3,6 @@
 #
 # Layout:
 #   crates/flux-core   → Tauri v2 daemon: window mgmt, state, zero-copy IPC
-#   crates/flux-term   → WGPU-accelerated terminal emulator (Alacritty-style)
 #   crates/flux-agent  → Local LLM bridge (llama.cpp / Gemma) + agentic DOM ops
 #   crates/flux-embed  → Lightweight embeddings for semantic tab clustering
 #   apps/shell         → SolidJS frontend (npm workspace, not a cargo member)
@@ -13,7 +12,6 @@ resolver = "2"
 members = [
     "crates/flux-core",
     "crates/tauri-plugin-flux-webview",
-    "crates/flux-term",
     "crates/flux-agent",
     "crates/flux-embed",
     "crates/flux-import",
@@ -61,7 +59,6 @@ dashmap = "6"          # sharded concurrent map — lock-free reads on the tab t
 rayon = "1"
 
 # Internal crates, path-referenced.
-flux-term = { path = "crates/flux-term" }
 flux-agent = { path = "crates/flux-agent" }
 flux-embed = { path = "crates/flux-embed" }
 flux-import = { path = "crates/flux-import" }

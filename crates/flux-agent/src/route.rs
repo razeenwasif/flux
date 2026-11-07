@@ -15,6 +15,9 @@
 //!      every launch starts local. A toggle you flipped last week for one folder
 //!      of PDFs must not silently be shipping your browsing to a third party
 //!      today. This is the same shape as the voice stack's "off by default".
+//!      The one exception is choosing Gemini through Antigravity as the model
+//!      server in Settings (ADR 0020): a standing choice made there, not a toggle
+//!      left on, and shown as cloud in the agent panel the whole time.
 //!   3. **The state is legible.** [`status`] reports what will actually happen,
 //!      not what was requested, so the UI can show the truth rather than the
 //!      intent.

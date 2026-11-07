@@ -23,9 +23,14 @@ const captcha =
 let target = null;
 if (ARGS.selector) {
   let el = null;
-  try {
-    el = doc.querySelector(ARGS.selector);
-  } catch (_) {}
+  // A ref from the accessibility tree (agent-tree.js), or a CSS selector.
+  if (/^\d+:e\d+$/.test(ARGS.selector)) {
+    el = globalThis.__fluxAx?.peek(ARGS.selector) || null;
+  } else {
+    try {
+      el = doc.querySelector(ARGS.selector);
+    } catch (_) {}
+  }
   if (!el) {
     target = { found: false };
   } else {
@@ -57,7 +62,9 @@ if (ARGS.selector) {
     const value = field
       ? el.type === "password"
         ? ""
-        : String(el.value).slice(0, 500)
+        : el.tagName === "SELECT"
+          ? String(el.selectedOptions[0]?.text ?? "").trim().slice(0, 500)
+          : String(el.value).slice(0, 500)
       : el.isContentEditable
         ? (el.innerText || "").slice(0, 500)
         : "";

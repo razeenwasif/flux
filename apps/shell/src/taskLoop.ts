@@ -5,6 +5,9 @@
  * buys, posts, deletes) asks once with a preview and runs only if its target is
  * still the one you said yes to. A step counts as done only when a fresh look
  * at the page shows it; a sign-in or CAPTCHA is handed to you.
+ * One look can plan a few steps (a form's fields and its button), which saves
+ * model calls and nothing else: each is checked and shown on its own, and the
+ * first that fails, changes the page's address or commits ends the batch.
  * Its own chunk, loaded on the first /task: nothing here is needed to paint the
  * window.
  */
@@ -19,9 +22,12 @@ import {
   type StepVerdict,
 } from "./ipc";
 
+/** How many times the model is asked what to do next. */
 export const MAX_TASK_STEPS = 8;
-/** How long a click or typing gets to show on the page before Flux looks. */
+/** How long a click gets to show on the page before Flux looks. */
 const SETTLE_MS = 1200;
+/** Typing shows at once. */
+const SETTLE_TYPING_MS = 200;
 /** "Keep waiting": look every 3 seconds, for up to 90. */
 const POLL_MS = 3000;
 const POLLS = 30;
@@ -49,19 +55,25 @@ export interface TaskDeps {
   stopped: () => boolean;
 }
 
+/** The verdict for a step that took the page somewhere else (steps.rs). */
+const MOVED = "the page moved";
+
 const KIND_LABEL: Record<StepGuard["kind"], string> = { read: "Read", draft: "Draft", commit: "Commit" };
 
 /** A step as it's proposed, before anything says whether it happened. */
-export function stepWhat(a: AgentAction): string {
+export function stepWhat(a: AgentAction, label?: string): string {
+  // A ref says nothing to you, and is out of date by the model's next look.
+  const target = (selector: string) =>
+    !/^\d+:e\d+$/.test(selector) ? selector : label ? `“${label}”` : "something no longer on the page";
   switch (a.action) {
     case "click":
-      return `click ${a.selector} (${a.reason})`;
+      return `click ${target(a.selector)} (${a.reason})`;
     case "extract_table":
-      return `extract ${a.selector} → ${a.format}`;
+      return `extract ${target(a.selector)} → ${a.format}`;
     case "type":
-      return `type into ${a.selector}`;
+      return `type into ${target(a.selector)}`;
     case "reveal":
-      return `reveal ${a.selector}`;
+      return `reveal ${target(a.selector)}`;
     case "refuse":
       return a.reason;
     case "finish":
@@ -105,6 +117,7 @@ export async function runTaskLoop(goal: string, d: TaskDeps): Promise<void> {
   let undone = 0;
   let lastOk = true;
   let refused = 0;
+  let asked = 0;
   const run = async <T>(p: Promise<T>) => {
     d.busy(true);
     try {
@@ -128,9 +141,10 @@ export async function runTaskLoop(goal: string, d: TaskDeps): Promise<void> {
         );
     }
 
-    // Plan the next step from the live page and what's been done.
-    const action = await run(agentTaskStep(goal, history));
-    if (action.action === "finish") {
+    // Plan from the live page and what's been done.
+    const steps = await run(agentTaskStep(goal, history));
+    const first = steps[0];
+    if (first?.action === "finish") {
       // Done only counts when the page showed every step that got it there.
       const why = [
         unverified && `${unverified} step${unverified === 1 ? "" : "s"} applied without the page showing it`,
@@ -140,91 +154,110 @@ export async function runTaskLoop(goal: string, d: TaskDeps): Promise<void> {
       return d.say(
         "task",
         why.length
-          ? `Finished, but not confirmed: ${action.summary} (${why.join("; ")})`
-          : `✓ ${action.summary}`,
+          ? `Finished, but not confirmed: ${first.summary} (${why.join("; ")})`
+          : `✓ ${first.summary}`,
       );
     }
-    if (action.action === "refuse") return d.say("assistant", `✕ ${action.reason}`);
+    if (first?.action === "refuse") return d.say("assistant", `✕ ${first.reason}`);
 
-    const what = stepWhat(action);
-    let check = await agentStepGuard(action, tab).catch(() => null);
-    if (!check) return d.say("error", "Flux couldn't look at the page. Task stopped.");
-    const { guard } = check;
-    if (guard.blocked) {
-      d.say("assistant", `✕ Not done: ${what} (${guard.blocked})`);
-      history.push(`✕ NOT ALLOWED (${guard.blocked}): ${what}`);
-      undone++;
-      lastOk = false;
-      if (++refused >= 2) return d.say("task", "Task stopped: the next steps aren't ones Flux will take.");
-      continue;
-    }
-    if (guard.kind === "commit") {
-      const before = decided.get(guard.fingerprint);
-      if (before) {
-        history.push(
-          before === "done"
-            ? `✕ NOT REPEATED (already done once): ${what}`
-            : before === "declined"
-              ? `✕ NOT REPEATED (the user said no to it): ${what}`
-              : `✕ NOT REPEATED (it didn't work once): ${what}`,
-        );
-        d.say("task", `↷ Not asked again: ${what}`);
-        lastOk = before === "done";
-        continue;
+    // Each step on its own, in order; `break` goes back to the model for a fresh look.
+    for (const [at, action] of steps.entries()) {
+      if (d.stopped()) return d.say("task", "⏹ Task stopped.");
+      let check = await agentStepGuard(action, tab).catch(() => null);
+      if (!check) return d.say("error", "Flux couldn't look at the page. Task stopped.");
+      const { guard } = check;
+      const what = stepWhat(action, check.before.target?.label);
+      // The target went (a re-render, or an earlier step moved the page): the plan
+      // no longer fits this page. That's for a fresh look, not a refusal.
+      if (check.before.target && !check.before.target.found) {
+        history.push(`✕ NOT DONE (it isn't on the page now): ${what}`);
+        if (at === 0) {
+          d.say("assistant", `✕ Not done: ${what} (it isn't on the page now)`);
+          lastOk = false;
+        }
+        break;
       }
-      // Only commits ask, with what they'll do.
-      const c = await d.decide(action, i + 1, guard);
-      if (c === "stop") return d.say("task", "⏹ Task stopped.");
-      if (c === "skip") {
-        decided.set(guard.fingerprint, "declined");
-        history.push(`✕ SKIPPED BY THE USER: ${what}`);
+      // Later in a batch, a sign-in that has just appeared comes first.
+      if (at > 0 && (check.before.sign_in || check.before.captcha)) break;
+      if (guard.blocked) {
+        d.say("assistant", `✕ Not done: ${what} (${guard.blocked})`);
+        history.push(`✕ NOT ALLOWED (${guard.blocked}): ${what}`);
         undone++;
         lastOk = false;
-        continue;
+        if (++refused >= 2) return d.say("task", "Task stopped: the next steps aren't ones Flux will take.");
+        break;
       }
-      // It runs only if its target is still the one you said yes to.
-      const again = await agentStepGuard(action, tab).catch(() => null);
-      if (!again || again.guard.blocked || again.guard.fingerprint !== guard.fingerprint) {
-        d.say("assistant", `✕ Not done: the page changed before “${what}” ran.`);
-        history.push(`✕ NOT DONE (the page changed before it ran): ${what}`);
-        undone++;
-        lastOk = false;
-        continue;
-      }
-      check = again;
-      decided.set(guard.fingerprint, "done");
-    }
-
-    // Run it, let the page settle, then look again.
-    if (d.stopped()) return d.say("task", "⏹ Task stopped.");
-    d.expectReport(tab, action);
-    await run(agentRunAction(action, tab, d.tabUrl(tab)));
-    await d.wait(SETTLE_MS);
-    const failed = d.failure(tab);
-    if (failed) {
-      // The page's own report already says so in the feed.
-      const why = failed.replace(/_/g, " ");
-      history.push(`✕ NOT DONE (${why}): ${what}`);
       if (guard.kind === "commit") {
-        decided.set(guard.fingerprint, "failed");
-        undone++;
+        const before = decided.get(guard.fingerprint);
+        if (before) {
+          history.push(
+            before === "done"
+              ? `✕ NOT REPEATED (already done once): ${what}`
+              : before === "declined"
+                ? `✕ NOT REPEATED (the user said no to it): ${what}`
+                : `✕ NOT REPEATED (it didn't work once): ${what}`,
+          );
+          d.say("task", `↷ Not asked again: ${what}`);
+          lastOk = before === "done";
+          break;
+        }
+        // Only commits ask, with what they'll do.
+        const c = await d.decide(action, ++asked, guard);
+        if (c === "stop") return d.say("task", "⏹ Task stopped.");
+        if (c === "skip") {
+          decided.set(guard.fingerprint, "declined");
+          history.push(`✕ SKIPPED BY THE USER: ${what}`);
+          undone++;
+          lastOk = false;
+          break;
+        }
+        // It runs only if its target is still the one you said yes to.
+        const again = await agentStepGuard(action, tab).catch(() => null);
+        if (!again || again.guard.blocked || again.guard.fingerprint !== guard.fingerprint) {
+          d.say("assistant", `✕ Not done: the page changed before “${what}” ran.`);
+          history.push(`✕ NOT DONE (the page changed before it ran): ${what}`);
+          undone++;
+          lastOk = false;
+          break;
+        }
+        check = again;
+        decided.set(guard.fingerprint, "done");
       }
-      lastOk = false;
-      continue;
-    }
-    const verdict: StepVerdict = await agentVerifyStep(action, check.before, tab).catch(() => ({
-      verified: false,
-      how: "Flux couldn't look at the page afterwards",
-    }));
-    const kind = KIND_LABEL[guard.kind];
-    lastOk = verdict.verified;
-    if (verdict.verified) {
-      d.say("action", `${kind} · ${what} — ✓ ${verdict.how}`);
-      history.push(`✓ [${guard.kind}] ${what} (${verdict.how})`);
-    } else {
-      unverified++;
-      d.say("action", `${kind} · ${what} — applied, unverified: ${verdict.how}`);
-      history.push(`UNVERIFIED [${guard.kind}] ${what} (${verdict.how})`);
+
+      // Run it, let the page settle, then look again.
+      if (d.stopped()) return d.say("task", "⏹ Task stopped.");
+      d.expectReport(tab, action);
+      await run(agentRunAction(action, tab, d.tabUrl(tab)));
+      await d.wait(action.action === "type" ? SETTLE_TYPING_MS : SETTLE_MS);
+      const failed = d.failure(tab);
+      if (failed) {
+        // The page's own report already says so in the feed.
+        const why = failed.replace(/_/g, " ");
+        history.push(`✕ NOT DONE (${why}): ${what}`);
+        if (guard.kind === "commit") {
+          decided.set(guard.fingerprint, "failed");
+          undone++;
+        }
+        lastOk = false;
+        break;
+      }
+      const verdict: StepVerdict = await agentVerifyStep(action, check.before, tab).catch(() => ({
+        verified: false,
+        how: "Flux couldn't look at the page afterwards",
+      }));
+      const kind = KIND_LABEL[guard.kind];
+      lastOk = verdict.verified;
+      if (verdict.verified) {
+        d.say("action", `${kind} · ${what} — ✓ ${verdict.how}`);
+        history.push(`✓ [${guard.kind}] ${what} (${verdict.how})`);
+      } else {
+        unverified++;
+        d.say("action", `${kind} · ${what} — applied, unverified: ${verdict.how}`);
+        history.push(`UNVERIFIED [${guard.kind}] ${what} (${verdict.how})`);
+        break;
+      }
+      // A commit, or a page that moved on: what's left was planned for another page.
+      if (guard.kind === "commit" || verdict.how === MOVED) break;
     }
   }
   d.say("task", `Reached the ${MAX_TASK_STEPS}-step limit — stopping.`);

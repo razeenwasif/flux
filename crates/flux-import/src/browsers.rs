@@ -28,6 +28,8 @@ pub struct FoundProfile {
     pub history: Option<u32>,
     /// Arc's pinned tabs and Favorites.
     pub pinned: u32,
+    /// Saved tab groups (the Chromium family's), with a page to bring.
+    pub tab_groups: u32,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, specta::Type)]
@@ -198,11 +200,12 @@ fn chromium_profiles(id: &str, since_ms: u64) -> Vec<FoundProfile> {
                 bookmarks: chromium_bookmarks(id, &dir).map_or(0, |b| b.len() as u32),
                 history,
                 pinned: 0,
+                tab_groups: crate::tabgroups::saved_groups(&dir).map_or(0, |g| g.len() as u32),
                 dir: dir.to_string_lossy().into_owned(),
             }
         })
         // A profile with nothing to bring is noise in the list.
-        .filter(|p| p.bookmarks > 0 || p.history.unwrap_or(0) > 0 || p.in_use)
+        .filter(|p| p.bookmarks > 0 || p.history.unwrap_or(0) > 0 || p.tab_groups > 0 || p.in_use)
         .collect();
     out.sort_by(|a, b| b.in_use.cmp(&a.in_use).then(a.name.cmp(&b.name)));
     if out.len() == 1 {
@@ -298,6 +301,7 @@ pub fn scan(since_ms: u64) -> Vec<FoundBrowser> {
                             "places.sqlite",
                         ),
                         pinned: 0,
+                        tab_groups: 0,
                     })
                     .collect();
                 match profiles.as_slice() {
@@ -366,6 +370,7 @@ fn scan_safari(since_ms: u64) -> Option<FoundBrowser> {
                     "History.db",
                 ),
                 pinned: 0,
+                tab_groups: 0,
             };
             Some(FoundBrowser {
                 id: "safari".into(),
@@ -495,6 +500,31 @@ pub fn bookmarks(id: &str, profile: &Path) -> Result<Vec<Bookmark>, ImportError>
         }
         _ => chromium_bookmarks(id, profile),
     }
+}
+
+// ─── Saved tab groups ───────────────────────────────────────────────────────
+
+/// A profile's saved tab groups as bookmarks, one folder a group under
+/// "<browser>/Tab groups". Bookmarks rather than open tabs: a group of forty
+/// shouldn't load forty pages, and a folder opens as a group when you want it.
+pub fn tab_groups(id: &str, profile: &Path) -> Result<Vec<Bookmark>, ImportError> {
+    let browser = name_of(id);
+    Ok(crate::tabgroups::saved_groups(profile)?
+        .into_iter()
+        .flat_map(|g| {
+            let title = if g.title.trim().is_empty() {
+                "Unnamed group".to_string()
+            } else {
+                g.title.replace('/', "-")
+            };
+            let folder = format!("{browser}/Tab groups/{title}");
+            g.tabs.into_iter().map(move |(name, url)| Bookmark {
+                name: if name.is_empty() { url.clone() } else { name },
+                url,
+                folder: folder.clone(),
+            })
+        })
+        .collect())
 }
 
 // ─── Arc's pinned sites ─────────────────────────────────────────────────────

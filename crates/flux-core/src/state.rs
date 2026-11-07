@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 pub type TabId = u64;
 
 /// What lives inside a tab. Flux tabs are first-class for BOTH web pages and
-/// terminal sessions — a Terminal tab hosts a flux-term surface where a
+/// terminal sessions — a Terminal tab hosts a terminal where a
 /// Browser tab hosts a webview, and everything else (pinning, clustering,
 /// focus) treats them identically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]

@@ -26,9 +26,6 @@
 //! default: `transcript` writes terminal output to disk, which is the user's
 //! call to make, not ours.
 //!
-//! flux-term (the WGPU grid/renderer) is untouched and remains the future
-//! native-render path; it would consume the same PTY bytes this module reads.
-//!
 //! **The shell on Windows** is MSYS2 (or Git-Bash) bash — see [`crate::msys`].
 //! It used to be `wsl.exe`, and the difference runs through this whole module:
 //! WSL is another operating system reached through a launcher, so the shell

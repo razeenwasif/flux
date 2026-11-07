@@ -2,9 +2,9 @@
 //!
 //! The browser holds its databases open while it runs, often in WAL mode, so
 //! we never touch them in place. An import copies the database (with its
-//! write-ahead log or journal) to a temporary folder and reads the copy; a
-//! count for the import list opens the original read-only and `immutable`,
-//! which takes no lock and may be a little behind. Both go through the
+//! write-ahead log or journal) to a private temporary folder and reads the
+//! copy; a count for the import list opens the original read-only and
+//! `immutable`, which takes no lock and may be a little behind. Both go through the
 //! system's `sqlite3` tool (every Mac has `/usr/bin/sqlite3`): bundling
 //! SQLite itself would cost about a megabyte of binary for one import.
 
@@ -14,6 +14,7 @@ use std::process::Command;
 
 use serde::de::DeserializeOwned;
 
+use crate::private_dir::PrivateDir;
 use crate::ImportError;
 
 /// The `sqlite3` tool: the system's on a Mac (an app launched from the Dock
@@ -36,23 +37,13 @@ pub(crate) fn tool() -> Option<PathBuf> {
 }
 
 /// `db` and whichever of its `-wal` / `-journal` exist, copied to a folder
-/// of their own. Returns the folder and the copy's path.
-fn snapshot(db: &Path) -> Result<(PathBuf, PathBuf), ImportError> {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-import-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    fs::create_dir_all(&dir)?;
+/// of their own. Returns the folder, which holds the copy until dropped, and
+/// the copy's path.
+fn snapshot(db: &Path) -> Result<(PrivateDir, PathBuf), ImportError> {
+    let dir = PrivateDir::new("flux-import")?;
     let name = db.file_name().unwrap_or_default();
-    let copy = dir.join(name);
-    if let Err(e) = fs::copy(db, &copy) {
-        let _ = fs::remove_dir_all(&dir);
-        return Err(e.into());
-    }
+    let copy = dir.path().join(name);
+    fs::copy(db, &copy)?;
     for side in ["-wal", "-journal"] {
         let mut from = db.as_os_str().to_owned();
         from.push(side);
@@ -111,10 +102,8 @@ pub(crate) fn query<T: DeserializeOwned>(
     file: &'static str,
 ) -> Result<Vec<T>, ImportError> {
     let tool = tool().ok_or_else(|| ImportError::Other("no sqlite3 tool to read with".into()))?;
-    let (dir, copy) = snapshot(db)?;
-    let out = run(&tool, &copy.to_string_lossy(), sql, file);
-    let _ = fs::remove_dir_all(&dir);
-    out
+    let (_dir, copy) = snapshot(db)?;
+    run(&tool, &copy.to_string_lossy(), sql, file)
 }
 
 /// Rows of `sql` against `db` itself, read-only and lock-free: for counts.
@@ -144,6 +133,29 @@ mod tests {
             immutable_uri(Path::new("/x/a?b#c")),
             "file:/x/a%3Fb%23c?immutable=1"
         );
+    }
+
+    #[test]
+    fn a_snapshot_is_private_and_goes_when_dropped() {
+        let source = PrivateDir::new("flux-sqlite-test").unwrap();
+        let db = source.path().join("History");
+        fs::write(&db, "main").unwrap();
+        fs::write(source.path().join("History-wal"), "wal").unwrap();
+        let (dir, copy) = snapshot(&db).unwrap();
+        assert_eq!(fs::read_to_string(&copy).unwrap(), "main");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("History-wal")).unwrap(),
+            "wal"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(dir.path()).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700);
+        }
+        let folder = dir.path().to_path_buf();
+        drop(dir);
+        assert!(!folder.exists());
     }
 
     #[test]

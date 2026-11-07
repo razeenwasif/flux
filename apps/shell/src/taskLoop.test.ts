@@ -37,7 +37,7 @@ const type = (selector: string): AgentAction => ({ action: "type", selector, tex
 const finish: AgentAction = { action: "finish", summary: "Order placed" };
 
 /** The planner's steps in order; each call also records the history it saw. */
-let plan: AgentAction[];
+let plan: (AgentAction | AgentAction[])[];
 let seen: string[][];
 /** Each step's kind and target, by selector (as the engine would classify it). */
 let guards: Record<string, StepCheck | StepCheck[]>;
@@ -63,7 +63,8 @@ beforeEach(() => {
   ipc.agentPageFacts.mockResolvedValue(page());
   ipc.agentTaskStep.mockImplementation(async (_goal: string, history: string[]) => {
     seen.push([...history]);
-    return plan.shift() ?? finish;
+    const next = plan.shift() ?? finish;
+    return Array.isArray(next) ? next : [next];
   });
   ipc.agentStepGuard.mockImplementation(async (a: AgentAction) => {
     const sel = "selector" in a ? a.selector : "";
@@ -235,5 +236,93 @@ describe("sign-in and CAPTCHA hand off", () => {
     await runTaskLoop("buy it", deps);
     expect(ipc.agentTaskStep).not.toHaveBeenCalled();
     expect(last()).toBe("⏹ Task stopped.");
+  });
+});
+
+describe("a batch: several steps from one look at the page", () => {
+  const moved: StepVerdict = { verified: true, how: "the page moved" };
+  const named = (kind: StepGuard["kind"], label: string, found = true): StepCheck => ({
+    ...check(kind, label),
+    before: page({ target: { found, label } as PageFacts["target"] }),
+  });
+
+  it("runs them in order for one model call, and looks again", async () => {
+    plan = [[type("#a"), type("#b"), click("#go")]];
+    await runTaskLoop("fill it in", deps);
+    expect(ran).toEqual(["#a", "#b", "#go"]);
+    expect(ipc.agentTaskStep).toHaveBeenCalledTimes(2);
+    expect(seen[1]).toHaveLength(3);
+    expect(last()).toBe("✓ Order placed");
+  });
+
+  it("still asks about the commit in it, once, and looks again after it", async () => {
+    plan = [[type("#a"), click("#send"), click("#after")]];
+    guards = { "#a": check("draft", "a"), "#send": check("commit", "send") };
+    await runTaskLoop("send it", deps);
+    expect(deps.decide).toHaveBeenCalledTimes(1);
+    expect(ran).toEqual(["#a", "#send"]);
+  });
+
+  it("doesn't run what's left when you skip the commit", async () => {
+    plan = [[click("#send"), type("#after")]];
+    guards = { "#send": check("commit", "send") };
+    decisions = ["skip"];
+    await runTaskLoop("send it", deps);
+    expect(ran).toEqual([]);
+  });
+
+  it("stops at the first step that fails", async () => {
+    plan = [[type("#a"), type("#b"), type("#c")]];
+    failures = { "#b": "page_changed" };
+    await runTaskLoop("fill it in", deps);
+    expect(ran).toEqual(["#a", "#b"]);
+    expect(seen[1]?.[1]).toBe("✕ NOT DONE (page changed): type into #b");
+  });
+
+  it("stops at a step the page doesn't show", async () => {
+    plan = [[click("#dead"), click("#next")]];
+    verdicts = { "#dead": { verified: false, how: "nothing on the page changed" } };
+    await runTaskLoop("go", deps);
+    expect(ran).toEqual(["#dead"]);
+  });
+
+  it("stops when the page moves: the rest was planned for the page it left", async () => {
+    plan = [[click("#link"), click("#old")]];
+    verdicts = { "#link": moved };
+    await runTaskLoop("go", deps);
+    expect(ran).toEqual(["#link"]);
+    expect(ipc.agentTaskStep).toHaveBeenCalledTimes(2);
+  });
+
+  it("is refused step by step, and a refused step ends it", async () => {
+    plan = [[type("#ok"), type("#password"), type("#after")]];
+    guards = { "#password": check("draft", "pw", "Flux's agent never types into a password field") };
+    await runTaskLoop("sign in", deps);
+    expect(ran).toEqual(["#ok"]);
+  });
+
+  it("hands over to a sign-in that appears partway through", async () => {
+    plan = [[click("#a"), click("#b")]];
+    guards = { "#b": { ...check("read", "b"), before: page({ sign_in: true }) } };
+    await runTaskLoop("go", deps);
+    expect(ran).toEqual(["#a"]);
+  });
+
+  it("a target that's gone goes back to the model, and isn't a refusal", async () => {
+    plan = [click("3:e1"), click("3:e2"), click("4:e1")];
+    guards = { "3:e1": named("read", "Gone", false), "3:e2": named("read", "Gone", false) };
+    await runTaskLoop("go", deps);
+    expect(ran).toEqual(["4:e1"]);
+    expect(seen[1]?.[0]).toContain("NOT DONE (it isn't on the page now)");
+    expect(last()).toBe("✓ Order placed");
+  });
+
+  it("names a ref's element, not the ref, in the feed and to the model", async () => {
+    plan = [click("7:e3")];
+    guards = { "7:e3": named("read", "More details") };
+    await runTaskLoop("go", deps);
+    const said = lines.join("\n") + seen.flat().join("\n");
+    expect(said).toContain("click “More details” (next)");
+    expect(said).not.toContain("7:e3");
   });
 });

@@ -47,8 +47,10 @@ pub async fn run_isolated(
 
 #[cfg(target_os = "macos")]
 mod mac {
+    use std::collections::BTreeMap;
     use std::ffi::CStr;
     use std::sync::mpsc::Sender;
+    use std::sync::Mutex;
 
     use block::ConcreteBlock;
     use objc::runtime::{Object, BOOL, NO};
@@ -57,6 +59,21 @@ mod mac {
     unsafe fn nsstring(s: &str) -> *mut Object {
         let obj: *mut Object = msg_send![class!(NSString), alloc];
         msg_send![obj, initWithBytes: s.as_ptr() length: s.len() encoding: 4usize]
+    }
+
+    /// The named world, held for the life of the app. WebKit forgets a world
+    /// nothing holds, and everything its scripts kept with it (the agent's refs,
+    /// agent-tree.js), so a call's own reference isn't enough.
+    unsafe fn held_world(world: &str) -> *mut Object {
+        static HELD: Mutex<BTreeMap<String, usize>> = Mutex::new(BTreeMap::new());
+        let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+        *held.entry(world.to_string()).or_insert_with(|| {
+            let name = nsstring(world);
+            let content_world: *mut Object = msg_send![class!(WKContentWorld), worldWithName: name];
+            let _: *mut Object = msg_send![content_world, retain];
+            let _: () = msg_send![name, release];
+            content_world as usize
+        }) as *mut Object
     }
 
     pub unsafe fn call(webview: *mut Object, world: &str, body: &str, tx: Sender<Option<String>>) {
@@ -88,8 +105,7 @@ mod mac {
             }
         });
         let block = block.copy();
-        let name = nsstring(world);
-        let content_world: *mut Object = msg_send![class!(WKContentWorld), worldWithName: name];
+        let content_world = held_world(world);
         let source = nsstring(body);
         let args: *mut Object = msg_send![class!(NSDictionary), dictionary];
         let no_frame: *mut Object = std::ptr::null_mut();
@@ -100,6 +116,5 @@ mod mac {
             inContentWorld: content_world
             completionHandler: &*block];
         let _: () = msg_send![source, release];
-        let _: () = msg_send![name, release];
     }
 }

@@ -9,6 +9,12 @@
 //! The address and model live in `model_server.json` in the app's data folder;
 //! the API key in the OS keyring, like the Gemini key (it's a credential, and
 //! Nexus issues a new one every time it serves).
+//!
+//! Or Gemini through the Antigravity CLI, signed in with your Google account
+//! (ADR 0020). That one leaves the machine, so it isn't the default model: it's
+//! the router's cloud route, switched on for as long as it's chosen here, which
+//! the agent panel shows as cloud. What must stay on this machine (form help,
+//! Sentinel) keeps using the default model.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -19,7 +25,8 @@ use serde::{Deserialize, Serialize};
 const SERVICE: &str = "flux.modelserver";
 const ACCOUNT: &str = "api-key";
 
-/// What's saved. `kind` is "local" (this machine's Ollama) or "openai".
+/// What's saved. `kind` is "local" (this machine's Ollama), "openai" (another
+/// machine), or "antigravity" (Gemini through the Antigravity CLI).
 #[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
 pub struct ModelServer {
     #[serde(default)]
@@ -120,6 +127,131 @@ pub fn backend() -> Box<dyn Inference> {
     }
 }
 
+/// The settings' location is known (startup has run `init`).
+pub fn ready() -> bool {
+    PATH.get().is_some()
+}
+
+/// Gemini through the Antigravity CLI is chosen.
+pub fn uses_antigravity() -> bool {
+    load().kind == "antigravity"
+}
+
+/// The Antigravity CLI. A Dock-launched app doesn't see the shell's PATH, so the
+/// places its installer uses come first, then the login shell's answer.
+fn find_agy() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let known = [
+        home.join(".local/bin/agy"),
+        PathBuf::from("/opt/homebrew/bin/agy"),
+        PathBuf::from("/usr/local/bin/agy"),
+    ];
+    if let Some(p) = known.into_iter().find(|p| p.is_file()) {
+        return Some(p);
+    }
+    #[cfg(unix)]
+    {
+        crate::exec::login_shell_which("agy").map(PathBuf::from)
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+
+/// The folder `agy` runs in: private, holding the hook that refuses it every
+/// tool but the one that returns an answer (flux_agent::antigravity).
+fn agy_workdir() -> Result<PathBuf, String> {
+    let base = PATH
+        .get()
+        .and_then(|p| p.parent())
+        .ok_or("settings aren't ready yet")?;
+    let dir = base.join("antigravity");
+    let hooks = dir.join(".agents");
+    std::fs::create_dir_all(&hooks).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| e.to_string())?;
+    }
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    std::fs::write(
+        hooks.join("hooks.json"),
+        flux_agent::antigravity::hooks_json(&exe),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// Whether the cloud route holds the Antigravity backend (rather than a Gemini
+/// key's, or nothing).
+static AGY_INSTALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Put the router's cloud route in line with what's chosen: Antigravity on while
+/// it's the model server, and taken down when it stops being.
+pub fn apply_cloud(router: &flux_agent::RoutingBackend) {
+    use std::sync::atomic::Ordering;
+    let cfg = load();
+    if cfg.kind != "antigravity" {
+        if AGY_INSTALLED.swap(false, Ordering::SeqCst) {
+            router.set_cloud(None);
+        }
+        return;
+    }
+    match agy_workdir() {
+        Ok(dir) => {
+            let model = if cfg.model.is_empty() {
+                DEFAULT_AGY_MODEL.to_string()
+            } else {
+                cfg.model
+            };
+            router.set_cloud(Some(Box::new(
+                flux_agent::antigravity::AntigravityBackend::new(Box::new(find_agy), &model, dir),
+            )));
+            flux_agent::route::request_cloud(true);
+            AGY_INSTALLED.store(true, Ordering::SeqCst);
+            tracing::warn!(target: "flux::agent", model, "Gemini through the Antigravity CLI — agent prompts (page text, notes, terminal output) leave this machine");
+        }
+        Err(e) => {
+            tracing::error!(target: "flux::agent", error = %e, "couldn't set up the Antigravity CLI; the agent stays local");
+            if AGY_INSTALLED.swap(false, Ordering::SeqCst) {
+                router.set_cloud(None);
+            }
+        }
+    }
+}
+
+const DEFAULT_AGY_MODEL: &str = "gemini-3.8-flash-medium";
+
+/// The models the Antigravity CLI offers this account. Fails when it isn't
+/// installed or isn't signed in, which is also how Settings checks it.
+#[tauri::command]
+pub async fn model_server_agy_models() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let bin =
+            find_agy().ok_or("the Antigravity CLI (agy) isn't installed, or Flux can't find it")?;
+        let out = std::process::Command::new(bin)
+            .arg("models")
+            .output()
+            .map_err(|e| e.to_string())?;
+        let models = flux_agent::antigravity::parse_models(&String::from_utf8_lossy(&out.stdout));
+        if models.is_empty() {
+            let why = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err(if why.is_empty() {
+                "agy lists no models: open it once in a terminal to sign in".to_string()
+            } else {
+                why
+            });
+        }
+        Ok(models)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// The remote server's settings, when one is in use (the agent panel's model
 /// menu lists its models instead of Ollama's).
 pub fn remote() -> Option<ModelServer> {
@@ -168,7 +300,7 @@ pub async fn model_server_set(
     model: String,
     key: Option<String>,
 ) -> Result<(), String> {
-    if kind != "local" && kind != "openai" {
+    if !matches!(kind.as_str(), "local" | "openai" | "antigravity") {
         return Err(format!("unknown model server kind {kind:?}"));
     }
     let url = url.trim().to_string();
@@ -187,8 +319,13 @@ pub async fn model_server_set(
                 .and_then(|m| m.into_iter().next())
                 .unwrap_or_default();
         }
+        if kind == "antigravity" && model.is_empty() {
+            model = DEFAULT_AGY_MODEL.to_string();
+        }
         save(&ModelServer { kind, url, model })?;
-        crate::agent_bridge::router().set_local(backend());
+        let router = crate::agent_bridge::router();
+        router.set_local(backend());
+        apply_cloud(router);
         Ok(())
     })
     .await

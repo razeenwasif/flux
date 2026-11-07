@@ -40,6 +40,7 @@ import {
   type AgentRoots,
   geminiHasKey,
   modelServerGet,
+  modelServerAgyModels,
   modelServerModels,
   modelServerSet,
   geminiVerifyKey,
@@ -434,7 +435,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
 
   // Where the agent's model runs: this Mac's Ollama, or a server on another
   // machine that speaks the OpenAI API (Nexus serving from a desktop's GPU).
-  const [msKind, setMsKind] = createSignal<"local" | "openai">("local");
+  const [msKind, setMsKind] = createSignal<"local" | "openai" | "antigravity">("local");
   const [msUrl, setMsUrl] = createSignal("");
   const [msModel, setMsModel] = createSignal("");
   const [msModels, setMsModels] = createSignal<string[]>([]);
@@ -455,7 +456,10 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     setMsBusy(true);
     setMsFlash("Connecting…");
     try {
-      const models = await modelServerModels(msUrl().trim(), msKey().trim() || undefined);
+      const models =
+        msKind() === "antigravity"
+          ? await modelServerAgyModels()
+          : await modelServerModels(msUrl().trim(), msKey().trim() || undefined);
       setMsModels(models);
       if (models.length && !models.includes(msModel())) setMsModel(models[0]!);
       setMsFlash(models.length ? `Connected · ${models.join(", ")}` : "Connected, but it lists no models");
@@ -475,7 +479,9 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
       setMsFlash(
         kind === "local"
           ? "The agent runs on this Mac (Ollama)"
-          : `The agent runs on ${msUrl().trim()}; this Mac's Ollama when it's out of reach`,
+          : kind === "antigravity"
+            ? `The agent uses ${msModel() || "Gemini"} through Antigravity; its prompts leave this Mac`
+            : `The agent runs on ${msUrl().trim()}; this Mac's Ollama when it's out of reach`,
       );
     } catch (e) {
       setMsFlash(String(e).replace(/^Error:\s*/, ""));
@@ -1472,7 +1478,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Show>
           <Row
             label="Model server"
-            hint="Where the agent's model runs. This Mac uses its Ollama. Another machine: a server that speaks the OpenAI API, like the one Nexus's Inference tab starts on your desktop's GPU (http://<node>:8080/v1, with the key from its Serving panel; Nexus issues a new key each time it serves). When that machine can't be reached, the agent uses this Mac's Ollama. The Indexer's embeddings always stay on this Mac."
+            hint="Where the agent's model runs. This Mac uses its Ollama. Gemini (Antigravity) sends the agent's prompts to Google through the Antigravity CLI. Another machine: a server that speaks the OpenAI API, like the one Nexus's Inference tab starts on your desktop's GPU (http://<node>:8080/v1, with the key from its Serving panel; Nexus issues a new key each time it serves). When that machine can't be reached, the agent uses this Mac's Ollama. The Indexer's embeddings always stay on this Mac."
           >
             <div class="set-stack-control">
               <div class="set-seg" role="radiogroup" aria-label="Model server">
@@ -1495,7 +1501,49 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                 >
                   Another machine
                 </button>
+                <button
+                  role="radio"
+                  aria-checked={msKind() === "antigravity"}
+                  classList={{ on: msKind() === "antigravity" }}
+                  onClick={() => {
+                    setMsKind("antigravity");
+                    void testModelServer();
+                  }}
+                >
+                  Gemini (Antigravity)
+                </button>
               </div>
+              <Show when={msKind() === "antigravity"}>
+                <div class="set-row-hint">
+                  Uses the Antigravity CLI (<code>agy</code>) signed in with your Google account, so no API
+                  key. The agent's prompts (page text, notes, terminal output) go to Google until you choose
+                  another server, and the agent panel shows it as cloud. Flux gives the model no tools, but
+                  the CLI adds its own instructions and your global Antigravity rules to every prompt, and
+                  each step takes several seconds. Form help and Sentinel's checks stay on this Mac.
+                </div>
+                <Show when={msModels().length > 0}>
+                  <select
+                    class="set-select"
+                    aria-label="Gemini model"
+                    value={msModel()}
+                    onChange={(e) => setMsModel(e.currentTarget.value)}
+                  >
+                    <For each={msModels()}>{(m) => <option value={m}>{m}</option>}</For>
+                  </select>
+                </Show>
+                <div style={{ display: "flex", gap: "8px", "flex-wrap": "wrap" }}>
+                  <button class="set-link-btn" disabled={msBusy()} onClick={() => void testModelServer()}>
+                    Check
+                  </button>
+                  <button
+                    class="set-link-btn"
+                    disabled={msBusy() || msModels().length === 0}
+                    onClick={() => void saveModelServer()}
+                  >
+                    Use it
+                  </button>
+                </div>
+              </Show>
               <Show when={msKind() === "openai"}>
                 <input
                   class="map-search-input"

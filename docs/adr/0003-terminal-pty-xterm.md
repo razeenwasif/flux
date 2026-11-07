@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted |
+| **Status** | Accepted. The decision to keep `flux-term` was reversed by [ADR 0019](0019-retire-flux-term.md) |
 | **Date** | 2026-06-13 |
 | **Deciders** | Flux Core Team |
 | **Relates to** | ADR 0001 (which specified a custom WGPU/Alacritty-style terminal) |
@@ -42,7 +42,7 @@ architecture every shipping Tauri/Electron terminal uses (Tabby, Wave, VS Code).
   when a terminal first opens — the base chrome bundle stays ~9.6 KB gzip,
   protecting the ADR 0001 TTI/JS budget.
 
-### `flux-term` is not deleted
+### `flux-term` is not deleted (no longer so: see ADR 0019)
 
 The WGPU crate stays. It remains the **future native-render path**: the PTY
 backend in this ADR produces the byte stream that *either* xterm.js or a

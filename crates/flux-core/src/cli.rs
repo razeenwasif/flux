@@ -61,6 +61,9 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<LaunchIntent, (String
                 let words: Vec<String> = args.by_ref().collect();
                 intent.ask = Some(words.join(" "));
             }
+            // For a window already running (lib.rs); nothing to do on a cold start.
+            #[cfg(feature = "native-smoke")]
+            "--smoke-task" | "--smoke-approve" => args.by_ref().for_each(drop),
             url if url.starts_with("http://") || url.starts_with("https://") => {
                 intent.urls.push(url.into());
             }

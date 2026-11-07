@@ -1072,6 +1072,23 @@ pub fn run(intent: cli::LaunchIntent) {
         // second process. Registered first so it intercepts before any other setup.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             use tauri::{Emitter, Manager};
+            // The native check of agent tasks (docs/native-smoke.md): start one, or
+            // say yes to its commit, from a terminal.
+            #[cfg(feature = "native-smoke")]
+            match argv.get(1).map(String::as_str) {
+                Some("--smoke-task") => {
+                    let _ = app.emit(
+                        "flux://smoke-task",
+                        argv.get(2).cloned().unwrap_or_default(),
+                    );
+                    return;
+                }
+                Some("--smoke-approve") => {
+                    let _ = app.emit("flux://smoke-task", String::new());
+                    return;
+                }
+                _ => {}
+            }
             // Reuse the same argv parser as cold launch; skip argv[0] (the exe path).
             if let Ok(intent) = crate::cli::parse(argv.into_iter().skip(1)) {
                 for url in intent.urls {
@@ -1534,6 +1551,7 @@ pub fn run(intent: cli::LaunchIntent) {
             modelserver::model_server_get,
             modelserver::model_server_set,
             modelserver::model_server_models,
+            modelserver::model_server_agy_models,
             gemini::gemini_has_key,
             gemini::gemini_verify_key,
             gemini::gemini_models,

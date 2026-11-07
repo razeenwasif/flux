@@ -3,7 +3,7 @@
 
 /**
  * What lives inside a tab. Flux tabs are first-class for BOTH web pages and
- * terminal sessions — a Terminal tab hosts a flux-term surface where a
+ * terminal sessions — a Terminal tab hosts a terminal where a
  * Browser tab hosts a webview, and everything else (pinning, clustering,
  * focus) treats them identically.
  */
@@ -312,13 +312,13 @@ export type KeysInfo = { commands: KeyCommand[]; reserved: ReservedKey[] }
 /**
  * One profile of a browser, as the import list shows it.
  */
-export type FoundProfile = { dir: string; name: string; in_use: boolean; bookmarks: number; history: number | null; pinned: number }
+export type FoundProfile = { dir: string; name: string; in_use: boolean; bookmarks: number; history: number | null; pinned: number; tab_groups: number }
 export type FoundBrowser = { id: string; name: string; state: string; detail: string; profiles: FoundProfile[] }
 /**
  * One profile to bring over.
  */
 export type ImportPick = { browser: string; dir: string }
-export type ImportResult = { bookmarks: number; history: number; pinned: number; failed: string[] }
+export type ImportResult = { bookmarks: number; history: number; pinned: number; tab_group_pages: number; failed: string[] }
 /**
  * A site for the new tab's shortcuts.
  */

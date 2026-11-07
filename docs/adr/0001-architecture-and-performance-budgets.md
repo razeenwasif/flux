@@ -82,7 +82,7 @@ Both were prototyped. **SolidJS** wins for the chrome layer:
 | Idle RAM, shell + daemon (excl. webviews, excl. model) | **< 150 MB** | RSS sampled 60 s post-boot, CI gate |
 | IPC round-trip, 1 KB payload (p99) | **< 1 ms** | `criterion` bench `ipc_roundtrip` |
 | DOM snapshot transfer, 5 MB (p99) | **< 12 ms** end-to-end | bench `dom_snapshot` |
-| Terminal frame time (4k cells dirty) | **< 8 ms** (sustained 120 fps) | `flux-term` GPU timestamp queries |
+| Terminal frame time (4k cells dirty) | **< 8 ms** (sustained 120 fps) | Not measured: `flux-term`, which this named, was retired ([ADR 0019](0019-retire-flux-term.md)) |
 | Terminal input → glyph latency | **< 15 ms** | photon-to-photon harness |
 | Agent first token (Gemma-4-12B Q4, warm) | **< 350 ms** | `flux-agent` bench, reference HW: M3 Pro / RTX 4070 |
 | Tab embedding (title + summary) | **< 5 ms/tab** | `flux-embed` bench |

@@ -490,6 +490,15 @@ const App: Component = () => {
     ),
   );
 
+  // The native check of agent tasks opens the panel to run one (docs/native-smoke.md).
+  if (import.meta.env.VITE_FLUX_NATIVE_SMOKE === "1") {
+    onMount(() => {
+      void import("@tauri-apps/api/event").then(({ listen }) =>
+        listen<string>("flux://smoke-task", () => setAgentOpen(true)),
+      );
+    });
+  }
+
   // Materialize CLI launch intent exactly once (`flux <url> -t`).
   onMount(async () => {
     // Event listeners are registered but NOT awaited. Each `listen()` is an IPC

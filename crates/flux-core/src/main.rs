@@ -7,6 +7,13 @@
 fn main() {
     // Every `flux::boot` mark in the log counts from here.
     flux_core::boot::start_clock();
+    // The Antigravity CLI's tool hook (modelserver.rs): one decision on stdout.
+    if std::env::args().nth(1).as_deref() == Some("--antigravity-gate") {
+        let mut input = String::new();
+        let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut input);
+        println!("{}", flux_agent::antigravity::gate(&input));
+        return;
+    }
     // Context subcommands (`flux dom`, `flux extract-json`, …) read the active
     // page from $FLUX_RPC_DIR and print it — never touch the GUI (#65/#4).
     if let Some(name) = std::env::args().nth(1) {

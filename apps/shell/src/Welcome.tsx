@@ -1,6 +1,6 @@
 /**
- * The welcome (Flux Next "welcome"): six steps on a first launch, each one
- * skippable: your name, bringing your browsing over (import.rs, flux-import's
+ * The welcome (Flux Next "welcome"): six full-window steps on a first launch,
+ * one question at a time, each one skippable: your name, bringing your browsing over (import.rs, flux-import's
  * browsers.rs), sites for the new tab, the launcher, the agent and how it
  * asks. The launcher's "Welcome to Flux" and "Import from another browser"
  * open it again. Over everything: it holds the pages out of sight while open.
@@ -79,7 +79,7 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
   // ── 2. Import ──
   const [browsers, setBrowsers] = createSignal<FoundBrowser[] | null>(null);
   const [picked, setPicked] = createSignal<Record<string, string>>({}); // browser → profile dir
-  const [bring, setBring] = createSignal({ bookmarks: true, history: true, pinned: true });
+  const [bring, setBring] = createSignal({ bookmarks: true, history: true, pinned: true, tabGroups: true });
   const [importing, setImporting] = createSignal(false);
   const [imported, setImported] = createSignal<ImportResult | null>(null);
   const scan = () => {
@@ -91,7 +91,8 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
         const pick: Record<string, string> = {};
         for (const b of list) {
           const p = b.profiles.find((x) => x.in_use) ?? b.profiles[0];
-          if (b.state === "ready" && p && (p.bookmarks || p.history || p.pinned)) pick[b.id] = p.dir;
+          if (b.state === "ready" && p && (p.bookmarks || p.history || p.pinned || p.tab_groups))
+            pick[b.id] = p.dir;
         }
         setPicked(pick);
       })
@@ -103,13 +104,15 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
     let bookmarks = 0;
     let history = 0;
     let pinned = 0;
+    let tabGroups = 0;
     for (const b of chosen()) {
       const p = profileOf(b);
       bookmarks += p?.bookmarks ?? 0;
       history += p?.history ?? 0;
       pinned += p?.pinned ?? 0;
+      tabGroups += p?.tab_groups ?? 0;
     }
-    return { bookmarks, history, pinned };
+    return { bookmarks, history, pinned, tabGroups };
   });
   const bookmarkFrom = () =>
     chosen()
@@ -117,7 +120,8 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
       .map((b) => b.name);
   const runImport = async () => {
     const picks: ImportPick[] = chosen().map((b) => ({ browser: b.id, dir: picked()[b.id]! }));
-    if (!picks.length || !(bring().bookmarks || bring().history || bring().pinned)) return next();
+    const b = bring();
+    if (!picks.length || !(b.bookmarks || b.history || b.pinned || b.tabGroups)) return next();
     setImporting(true);
     try {
       const r = await invoke<ImportResult>("import_run", {
@@ -125,12 +129,13 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
         bookmarks: bring().bookmarks,
         history: bring().history,
         pinned: bring().pinned,
+        tabGroups: bring().tabGroups,
       });
       setImported(r);
       window.dispatchEvent(new Event("flux:bookmarks-changed"));
       loadSites(); // the import's history ranks the next step's sites
     } catch (e) {
-      setImported({ bookmarks: 0, history: 0, pinned: 0, failed: [String(e)] });
+      setImported({ bookmarks: 0, history: 0, pinned: 0, tab_group_pages: 0, failed: [String(e)] });
     } finally {
       setImporting(false);
     }
@@ -141,6 +146,7 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
       r.bookmarks && plural(r.bookmarks, "bookmark"),
       r.history && plural(r.history, "page"),
       r.pinned && plural(r.pinned, "pinned site"),
+      r.tab_group_pages && plural(r.tab_group_pages, "page") + " from saved tab groups",
     ].filter(Boolean);
     return parts.length ? `Brought ${parts.join(", ")}.` : "Nothing new to bring: it's all here already.";
   };
@@ -250,37 +256,42 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
 
   return (
     <div class="wl-scrim">
+      <div class="wl-aurora" aria-hidden="true" />
       <div class="wl" role="dialog" aria-modal="true" aria-labelledby="wl-title" ref={card}>
-        <nav class="wl-rail" aria-label="Setup steps">
-          <div class="wl-mark">flux</div>
-          <ol>
-            <For each={STEPS}>
-              {(label, i) => (
-                <li>
-                  <button
-                    type="button"
-                    classList={{ on: step() === i(), done: step() > i() }}
-                    aria-current={step() === i() ? "step" : undefined}
-                    onClick={() => go(i())}
-                  >
-                    <span class="wl-dot" aria-hidden="true">
-                      {step() > i() ? "✓" : i() + 1}
-                    </span>
-                    {label}
-                  </button>
-                </li>
-              )}
-            </For>
-          </ol>
-          <button type="button" class="wl-close" onClick={props.onClose}>
-            Close setup
+        <header class="wl-top" data-tauri-drag-region>
+          <div class="wl-mark" data-tauri-drag-region>
+            flux
+          </div>
+          <nav aria-label="Setup steps">
+            <ol class="wl-steps">
+              <For each={STEPS}>
+                {(label, i) => (
+                  <li>
+                    <button
+                      type="button"
+                      classList={{ on: step() === i(), done: step() > i() }}
+                      aria-current={step() === i() ? "step" : undefined}
+                      aria-label={`Step ${i() + 1} of ${STEPS.length}: ${label}`}
+                      title={label}
+                      onClick={() => go(i())}
+                    />
+                  </li>
+                )}
+              </For>
+            </ol>
+          </nav>
+          <button
+            type="button"
+            class="wl-close"
+            aria-label="Close setup"
+            title="Close setup (Esc)"
+            onClick={props.onClose}
+          >
+            ✕
           </button>
-        </nav>
+        </header>
 
         <section class="wl-main">
-          <p class="wl-kicker">
-            <span class="wl-new">New</span> Step {step() + 1} of {STEPS.length}
-          </p>
           <div class="wl-body">
             <Switch>
               <Match when={step() === 0}>
@@ -313,21 +324,13 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
                     }}
                   </Show>
                 </p>
-                <div class="wl-card" data-legend="Import">
-                  <h2 class="wl-h2">Browsers to import from</h2>
+                <div class="wl-group">
                   <ul class="wl-browsers">
-                    <For each={browsers() ?? []}>
+                    <For each={(browsers() ?? []).filter((b) => b.state !== "missing")}>
                       {(b) => {
                         const on = () => !!picked()[b.id];
                         const p = () => profileOf(b) ?? b.profiles.find((x) => x.in_use) ?? b.profiles[0];
-                        const status = () =>
-                          b.state === "ready"
-                            ? `Detected: ${b.detail}`
-                            : b.state === "locked"
-                              ? `Detected, locked: ${b.detail}`
-                              : b.state === "empty"
-                                ? `Here: ${b.detail.toLowerCase()}`
-                                : `Not found: ${b.detail}`;
+                        const status = () => (b.state === "locked" ? `Locked: ${b.detail}` : b.detail);
                         const counts = () => {
                           const x = p();
                           if (!x || b.state !== "ready") return "";
@@ -335,6 +338,7 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
                             x.bookmarks && plural(x.bookmarks, "bookmark"),
                             x.history && plural(x.history, "page"),
                             x.pinned && `${fmt(x.pinned)} pinned`,
+                            x.tab_groups && plural(x.tab_groups, "tab group"),
                           ]
                             .filter(Boolean)
                             .join(" · ");
@@ -346,10 +350,7 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
                             </span>
                             <span class="wl-bname">
                               <strong>{b.name}</strong>
-                              <span class="wl-bstate">{status()}</span>
-                              <Show when={counts()}>
-                                <span class="wl-bcount">{counts()}</span>
-                              </Show>
+                              <span class="wl-bstate">{counts() || status()}</span>
                             </span>
                             <Show when={b.profiles.length > 1}>
                               <select
@@ -400,8 +401,7 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
                     </For>
                   </ul>
                 </div>
-                <div class="wl-card" data-legend="Bring">
-                  <h2 class="wl-h2">What to bring</h2>
+                <div class="wl-group">
                   <ul class="wl-bring">
                     <li>
                       <span>
@@ -453,11 +453,30 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
                         />
                       </li>
                     </Show>
+                    <Show when={totals().tabGroups}>
+                      <li>
+                        <span>
+                          <strong>Saved tab groups</strong>
+                          <span class="wl-bstate">
+                            {plural(totals().tabGroups, "group")}, each a bookmark folder you can open as a
+                            group
+                          </span>
+                        </span>
+                        <input
+                          type="checkbox"
+                          class="wl-check"
+                          aria-label="Bring saved tab groups"
+                          checked={bring().tabGroups}
+                          disabled={!!imported()}
+                          onChange={() => setBring((x) => ({ ...x, tabGroups: !x.tabGroups }))}
+                        />
+                      </li>
+                    </Show>
                   </ul>
-                  <p class="wl-note">
-                    Passwords stay where they are: the Vault imports them (flux://passwords).
-                  </p>
                 </div>
+                <p class="wl-note">
+                  Passwords stay where they are: the Vault imports them (flux://passwords).
+                </p>
               </Match>
 
               <Match when={step() === 2}>
@@ -534,7 +553,7 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
                   <kbd>{keyOf("toggle-agent") || "⌘⇧A"}</kbd> opens it beside the page. It answers from the
                   page you're on, your open tabs or your notes, and does small jobs on pages.
                 </p>
-                <div class="wl-card" data-legend="Model">
+                <div class="wl-group">
                   <Show when={models()} fallback={<p class="wl-sub">Looking for a model…</p>}>
                     {(m) => (
                       <Show
@@ -609,34 +628,41 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
               </Match>
             </Switch>
           </div>
+        </section>
 
-          <footer class="wl-foot">
-            <span class="wl-summary" role="status">
-              <Switch>
-                <Match when={step() === 1 && imported()}>
-                  <>
-                    {importSummary()}
-                    <Show when={imported()!.failed.length}>
-                      <span class="wl-failed"> Couldn't read: {imported()!.failed.join("; ")}</span>
-                    </Show>
-                  </>
-                </Match>
-                <Match when={step() === 1 && chosen().length}>
-                  {plural(chosen().length, "browser")}
-                  {bring().history && totals().history ? ` · about ${fmt(totals().history)} pages` : ""}
-                </Match>
-              </Switch>
-            </span>
-            <Show when={step() < STEPS.length - 1}>
-              <button type="button" class="wl-btn" onClick={() => go(step() + 1)} disabled={importing()}>
-                Skip
-              </button>
-            </Show>
+        <footer class="wl-foot">
+          <span class="wl-summary" role="status">
+            <Switch>
+              <Match when={step() === 1 && imported()}>
+                <>
+                  {importSummary()}
+                  <Show when={imported()!.failed.length}>
+                    <span class="wl-failed"> Couldn't read: {imported()!.failed.join("; ")}</span>
+                  </Show>
+                </>
+              </Match>
+              <Match when={step() === 1 && chosen().length}>
+                {plural(chosen().length, "browser")}
+                {bring().history && totals().history ? ` · about ${fmt(totals().history)} pages` : ""}
+              </Match>
+            </Switch>
+          </span>
+          <div class="wl-actions">
             <button type="button" class="wl-btn wl-primary" onClick={primary} disabled={importing()}>
               {primaryLabel()}
             </button>
-          </footer>
-        </section>
+            <Show when={step() < STEPS.length - 1}>
+              <button
+                type="button"
+                class="wl-btn wl-skip"
+                onClick={() => go(step() + 1)}
+                disabled={importing()}
+              >
+                Skip
+              </button>
+            </Show>
+          </div>
+        </footer>
       </div>
     </div>
   );
