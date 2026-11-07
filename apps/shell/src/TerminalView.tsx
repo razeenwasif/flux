@@ -105,6 +105,15 @@ const termTheme = () => {
   };
 };
 
+/** The text area in pixels, from the renderer's cell size. xterm has no public
+ *  way to ask; undefined until it has measured. */
+function pixelSize(term: XTerm): { width: number; height: number } | undefined {
+  const cell = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } } } })
+    ._core?._renderService?.dimensions?.css?.cell;
+  if (!cell || !(cell.width > 0) || !(cell.height > 0)) return undefined;
+  return { width: Math.round(cell.width * term.cols), height: Math.round(cell.height * term.rows) };
+}
+
 const TerminalView: Component<{
   session: number;
   /** The focused tab: takes the caret and becomes the agent's read target. */
@@ -529,13 +538,18 @@ const TerminalView: Component<{
     // arrives meanwhile waits, in order, so the first image isn't lost.
     let imagesLoading: Promise<void> | null = null;
     let imagesReady = false;
+    // Never longer than this: output that waits isn't acked, and unacked output
+    // stops the shell (termflow.ts), keystrokes and all.
+    const IMAGES_WAIT_MS = 1500;
     const loadImages = () =>
-      import("./termimages")
-        .then((m) => m.addImages(term))
-        .catch(() => {})
-        .then(() => {
-          imagesReady = true;
-        });
+      Promise.race([
+        import("./termimages")
+          .then((m) => m.addImages(term))
+          .catch(() => {}),
+        new Promise((done) => setTimeout(done, IMAGES_WAIT_MS)),
+      ]).then(() => {
+        imagesReady = true;
+      });
     channel.onmessage = (msg) => {
       const bytes = termBytes(msg);
       const show = () => term.write(bytes, () => ack(bytes.byteLength));
@@ -547,7 +561,7 @@ const TerminalView: Component<{
       const persist = props.persist ?? termPersist();
       // Settle dtach/tmux first, off the main thread (a login-shell lookup).
       if (persist === "live" || persist === "both") await terminalPrepareLive().catch(() => {});
-      await terminalSpawn(props.session, term.cols, term.rows, channel, persist);
+      await terminalSpawn(props.session, term.cols, term.rows, channel, persist, pixelSize(term));
       // TUI app launcher (#117): run the queued command now the PTY is live.
       const initCmd = takePendingCommand(props.session);
       if (initCmd) void terminalWrite(props.session, new TextEncoder().encode(initCmd + "\r"));
@@ -569,7 +583,7 @@ const TerminalView: Component<{
       // xterm's minimum grid on hide needlessly reflows its buffer and TUI.
       if (props.visible === false || host.clientWidth === 0 || host.clientHeight === 0) return;
       fit.fit();
-      void terminalResize(props.session, term.cols, term.rows);
+      void terminalResize(props.session, term.cols, term.rows, pixelSize(term));
     });
     ro.observe(host);
     if (props.autoFocus ?? true) term.focus();

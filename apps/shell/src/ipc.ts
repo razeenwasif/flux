@@ -1771,14 +1771,37 @@ export const terminalSpawn = (
   rows: number,
   onData: Channel<ArrayBuffer>,
   persist: TermPersist = termPersist(),
-) => invoke<void>("terminal_spawn", { session, cols, rows, onData, persist });
+  px?: { width: number; height: number },
+) =>
+  invoke<void>("terminal_spawn", {
+    session,
+    cols,
+    rows,
+    onData,
+    persist,
+    pixelWidth: px?.width ?? null,
+    pixelHeight: px?.height ?? null,
+  });
 
 /** Write input bytes (encoded keystrokes/paste) to the session's stdin. */
 export const terminalWrite = (session: number, data: Uint8Array) =>
   invoke<void>("terminal_write", { session, data: Array.from(data) });
 
-export const terminalResize = (session: number, cols: number, rows: number) =>
-  invoke<void>("terminal_resize", { session, cols, rows });
+/** `px`: the text area in pixels, so programs that place images (tmux, chafa)
+ *  can size them. */
+export const terminalResize = (
+  session: number,
+  cols: number,
+  rows: number,
+  px?: { width: number; height: number },
+) =>
+  invoke<void>("terminal_resize", {
+    session,
+    cols,
+    rows,
+    pixelWidth: px?.width ?? null,
+    pixelHeight: px?.height ?? null,
+  });
 
 export const terminalKill = (session: number) => invoke<void>("terminal_kill", { session });
 

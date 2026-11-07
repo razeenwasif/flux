@@ -138,14 +138,17 @@ pub fn terminal_spawn(
     // What this terminal should survive: "off" | "live" | "transcript" | "both".
     // `None` falls back to `FLUX_TERM_PERSIST`.
     persist: Option<String>,
+    // The text area in pixels, when the view knows it: see `terminal_resize`.
+    pixel_width: Option<u16>,
+    pixel_height: Option<u16>,
 ) -> Result<(), String> {
     let pty = native_pty_system();
     let pair = pty
         .openpty(PtySize {
             rows,
             cols,
-            pixel_width: 0,
-            pixel_height: 0,
+            pixel_width: pixel_width.unwrap_or(0),
+            pixel_height: pixel_height.unwrap_or(0),
         })
         .map_err(|e| format!("openpty: {e}"))?;
 
@@ -451,13 +454,17 @@ pub fn terminal_ack(manager: State<'_, TerminalManager>, session: u64, bytes: us
     }
 }
 
-/// Resize the PTY (fit-addon / window resize on the frontend).
+/// Resize the PTY (fit-addon / window resize on the frontend). The size in
+/// pixels too, as other terminals report it: tmux won't pass an inline image on
+/// without it, and shows a placeholder instead.
 #[tauri::command]
 pub fn terminal_resize(
     manager: State<'_, TerminalManager>,
     session: u64,
     cols: u16,
     rows: u16,
+    pixel_width: Option<u16>,
+    pixel_height: Option<u16>,
 ) -> Result<(), String> {
     let s = {
         let sessions = manager.sessions.lock();
@@ -469,8 +476,8 @@ pub fn terminal_resize(
         .resize(PtySize {
             rows,
             cols,
-            pixel_width: 0,
-            pixel_height: 0,
+            pixel_width: pixel_width.unwrap_or(0),
+            pixel_height: pixel_height.unwrap_or(0),
         })
         .map_err(|e| e.to_string());
     res
@@ -1931,6 +1938,8 @@ mod stub {
         _rows: u16,
         _on_data: Channel<InvokeResponseBody>,
         _persist: Option<String>,
+        _pixel_width: Option<u16>,
+        _pixel_height: Option<u16>,
     ) -> Result<(), String> {
         Err(UNAVAILABLE.into())
     }
@@ -1956,6 +1965,8 @@ mod stub {
         _session: u64,
         _cols: u16,
         _rows: u16,
+        _pixel_width: Option<u16>,
+        _pixel_height: Option<u16>,
     ) -> Result<(), String> {
         Err(UNAVAILABLE.into())
     }
