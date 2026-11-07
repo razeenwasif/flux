@@ -51,7 +51,7 @@
   --flux-ok: #8ef6c8;
   --flux-popover-fill: #141522;
 
-  --silk-image: url("/wallpapers/opal.jpg");
+  --silk-image: url("/wallpapers/opal.webp");
   --silk-scrim: linear-gradient(90deg, rgba(8, 8, 18, 0.5), rgba(8, 8, 18, 0.14) 62%);
 }
 :root[data-design][data-silk][data-wallpaper="abyss"] {
@@ -74,7 +74,7 @@
   --flux-text-dim: #bed3d6;
   --flux-text-mute: #93abaf;
   --flux-popover-fill: #0d1719;
-  --silk-image: url("/wallpapers/abyss.jpg");
+  --silk-image: url("/wallpapers/abyss.webp");
   --silk-scrim: linear-gradient(100deg, rgba(2, 7, 7, 0.5), rgba(2, 7, 7, 0) 45%);
 }
 :root[data-design][data-silk][data-wallpaper="ember"] {
@@ -97,7 +97,7 @@
   --flux-text-dim: #d6cbc3;
   --flux-text-mute: #ab9f97;
   --flux-popover-fill: #121718;
-  --silk-image: url("/wallpapers/ember.jpg");
+  --silk-image: url("/wallpapers/ember.webp");
   --silk-scrim: linear-gradient(180deg, rgba(3, 6, 6, 0.5), rgba(3, 6, 6, 0) 48%, rgba(3, 6, 6, 0.3));
 }
 :root[data-design][data-silk][data-wallpaper="aurora"] {
@@ -120,7 +120,7 @@
   --flux-text-dim: #c4d0e8;
   --flux-text-mute: #98a6c4;
   --flux-popover-fill: #0c1028;
-  --silk-image: url("/wallpapers/aurora.jpg");
+  --silk-image: url("/wallpapers/aurora.webp");
   --silk-scrim: linear-gradient(90deg, rgba(0, 0, 6, 0.55), rgba(0, 0, 6, 0) 50%);
 }
 /* Accent pinned to Opal's whatever the wallpaper ("accent follows" off). */

@@ -950,7 +950,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                     >
                       <span
                         class="silk-wall-thumb"
-                        style={{ "background-image": `url("/wallpapers/${w.id}.jpg")` }}
+                        style={{ "background-image": `url("/wallpapers/${w.id}.webp")` }}
                         aria-hidden="true"
                       />
                       <span class="silk-wall-name">

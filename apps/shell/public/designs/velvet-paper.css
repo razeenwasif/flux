@@ -3118,7 +3118,7 @@
     linear-gradient(rgba(14, 14, 28, 0.6), rgba(14, 14, 28, 0.6)) left 10px top 10px / 24% calc(100% - 20px)
       no-repeat,
     linear-gradient(90deg, #93e8d8, #d29cf6) left 34% top 14px / 40% 5px no-repeat,
-    url("/wallpapers/opal.jpg") center / cover;
+    url("/wallpapers/opal.webp") center / cover;
 }
 :root[data-design="velvet-paper"] .theme-name {
   padding: 0 4px;
