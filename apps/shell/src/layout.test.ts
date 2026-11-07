@@ -32,8 +32,21 @@ describe("reading space", () => {
     const want = { ...all, editor: false };
     expect(fitLayout(1100, 960, 0.5, want, widths).sidebar).toBe(false);
     expect(fitLayout(1100, 960, 0.5, want, widths).terminal).toBe(false);
-    expect(fitLayout(2800, 960, 0.5, want, widths)).toEqual(want);
+    expect(fitLayout(2800, 960, 0.5, want, widths)).toMatchObject(want);
     expect(want).toEqual({ ...all, editor: false });
+  });
+  it("shrinks the agent/terminal column to the room left rather than hiding it", () => {
+    const want = { ...all, editor: false, panel: false, bars: false, dock: false, connect: false };
+    // Dragged wider than the window allows: shown at what's left.
+    const fit = fitLayout(1300, 560, 0.5, want, { ...widths, stack: 820 });
+    expect(fit.terminal && fit.agent).toBe(true);
+    const room = 1300 - (560 + 24 + 72) - (widths.sidebar - 72);
+    expect(fit.stackWidth).toBe(room);
+    // As dragged, when it fits.
+    expect(fitLayout(1300, 560, 0.5, want, widths).stackWidth).toBe(widths.stack);
+    // Too little room even at its narrowest: hidden, as before.
+    expect(fitLayout(1000, 560, 0.5, want, { ...widths, stack: 820 }).terminal).toBe(false);
+    expect(fitLayout(1000, 560, 0.5, want, { ...widths, stack: 820 }).stackWidth).toBe(0);
   });
   it("charges the shared agent/terminal stack only once", () => {
     const fit = fitLayout(1300, 560, 0.5, { ...all, editor: false }, widths);
@@ -47,7 +60,7 @@ describe("reading space", () => {
           const fit = fitLayout(width, minimum, ratio, all, widths);
           const fixed =
             (fit.sidebar ? widths.sidebar : 72) +
-            (fit.agent || fit.terminal ? widths.stack : 0) +
+            fit.stackWidth +
             (fit.panel ? widths.panel : 0) +
             (fit.bars ? widths.bars : 0) +
             (fit.dock ? widths.dock : 0) +
@@ -68,7 +81,7 @@ describe("editor seam", () => {
     width:
       width -
       (fit.sidebar ? widths.sidebar : 72) -
-      (fit.agent || fit.terminal ? widths.stack : 0) -
+      fit.stackWidth -
       (fit.panel ? widths.panel : 0) -
       (fit.bars ? widths.bars : 0) -
       (fit.dock ? widths.dock : 0) -

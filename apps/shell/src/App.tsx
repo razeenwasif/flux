@@ -1676,16 +1676,26 @@ const App: Component = () => {
         dock: false,
         bars: false,
         editor: false,
+        stackWidth: 0,
       };
-    return fitLayout(winW(), pageMinimum(), editorColRatio(), want, {
+    return fitLayout(winW(), pageMinimum(), editorColRatio(), want, layoutWidths(stackW()));
+  });
+  function layoutWidths(stack: number) {
+    return {
       sidebar: sidebarW(),
-      stack: stackW(),
+      stack,
       panel: panelWidth(),
       bars: BARS_W,
       dock: dockW(),
       connect: connectW(),
-    });
-  });
+    };
+  }
+  /** The agent and terminal column's width on screen: as dragged, or less when
+   *  the window has less room (layout.ts). */
+  const shownStackW = () => responsive().stackWidth || stackW();
+  /** The widest it could be right now, so a drag stops at the edge of the room. */
+  const stackRoom = () =>
+    fitLayout(winW(), pageMinimum(), editorColRatio(), layoutIntent(), layoutWidths(1e6)).stackWidth;
 
   // The vertical terminal column (the persistent dev shell) shows whenever it's
   // toggled on and there's room — including alongside a terminal *tab*.
@@ -1713,7 +1723,7 @@ const App: Component = () => {
           panelColVisible() ? `${panelWidth()}px` : "0px",
           barsColVisible() ? `${BARS_W}px` : "0px",
           dockColVisible() ? `${dockW()}px` : "0px",
-          stackVisible() ? `${stackW()}px` : "0px",
+          stackVisible() ? `${shownStackW()}px` : "0px",
           connectColVisible() ? `${connectW()}px` : "0px",
         ].join(" ");
 
@@ -1973,7 +1983,7 @@ const App: Component = () => {
         <div
           class="pane-splitter"
           style={{
-            right: `${(connectColVisible() ? connectW() : 0) + (stackVisible() ? stackW() : 0) + dockW()}px`,
+            right: `${(connectColVisible() ? connectW() : 0) + (stackVisible() ? shownStackW() : 0) + dockW()}px`,
           }}
           onPointerDown={(e) => startPaneResize(e, dockW, setDockW, -1, "flux.w.dock", 260, 620)}
         />
@@ -1981,8 +1991,18 @@ const App: Component = () => {
       <Show when={stackVisible()}>
         <div
           class="pane-splitter"
-          style={{ right: `${(connectColVisible() ? connectW() : 0) + stackW()}px` }}
-          onPointerDown={(e) => startPaneResize(e, stackW, setStackW, -1, "flux.w.stack.v3", 260, 820)}
+          style={{ right: `${(connectColVisible() ? connectW() : 0) + shownStackW()}px` }}
+          onPointerDown={(e) =>
+            startPaneResize(
+              e,
+              shownStackW,
+              setStackW,
+              -1,
+              "flux.w.stack.v3",
+              260,
+              Math.max(260, Math.min(820, stackRoom())),
+            )
+          }
         />
       </Show>
 

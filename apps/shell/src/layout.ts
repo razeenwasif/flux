@@ -102,15 +102,20 @@ type Intent = {
 };
 type Widths = { sidebar: number; stack: number; panel: number; bars: number; dock: number; connect: number };
 
-/** Reserve page space first. Hidden panels retain their requested state for wider windows. */
+/** The narrowest the agent and terminal column is shown at. */
+export const STACK_MIN_PX = 260;
+
+/** Reserve page space first. Hidden panels retain their requested state for wider windows.
+ *  `stackWidth` is the width the agent and terminal column is shown at. */
 export function fitLayout(
   width: number,
   pageMinimum: number,
   editorRatio: number,
   want: Intent,
   widths: Widths,
-): Intent {
-  const out: Intent = {
+): Intent & { stackWidth: number } {
+  const out: Intent & { stackWidth: number } = {
+    stackWidth: 0,
     sidebar: false,
     agent: false,
     terminal: false,
@@ -133,9 +138,14 @@ export function fitLayout(
   // Reserve enough for the page to retain its minimum at the requested ratio.
   const ratio = Math.max(0.05, Math.min(0.95, editorRatio));
   out.editor = want.editor && allocate((pageMinimum + 8) / (1 - ratio) - pageMinimum);
-  if ((want.agent || want.terminal) && allocate(widths.stack)) {
+  // As wide as it was dragged, or as wide as there's room for. Hidden instead, it
+  // took its drag handle with it, and the saved width kept it hidden on every
+  // launch until the window grew.
+  const stack = Math.min(widths.stack, width - used);
+  if ((want.agent || want.terminal) && stack >= Math.min(STACK_MIN_PX, widths.stack) && allocate(stack)) {
     out.agent = want.agent;
     out.terminal = want.terminal;
+    out.stackWidth = stack;
   }
   for (const key of ["panel", "bars", "dock", "connect"] as const) {
     out[key] = want[key] && allocate(widths[key]);
