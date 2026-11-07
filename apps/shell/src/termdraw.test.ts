@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { canRunWasm } from "./termimages";
-import { ligatureRanges, mayHoldImage } from "./termdraw";
+import { keepDefaultBackgroundClear, ligatureRanges, mayHoldImage } from "./termdraw";
 
 const joined = (text: string) => ligatureRanges(text).map(([a, b]) => text.slice(a, b));
 const bytes = (s: string) => new TextEncoder().encode(s);
@@ -62,5 +62,43 @@ describe("canRunWasm", () => {
     } finally {
       WebAssembly.Module = real;
     }
+  });
+});
+
+describe("keepDefaultBackgroundClear", () => {
+  const HAS_EXTENDED = 1 << 28; // an underline, link or image
+  const fakeAddon = () => {
+    const drawn: [number, number][] = [];
+    class Rects {
+      _updateRectangle(_v: unknown, _at: number, _fg: number, _bg: number, x0: number, x1: number) {
+        drawn.push([x0, x1]);
+      }
+    }
+    return { addon: { _renderer: { _rectangleRenderer: { value: new Rects() } } }, drawn };
+  };
+
+  it("draws nothing for an underlined cell on the theme's background", () => {
+    const { addon, drawn } = fakeAddon();
+    expect(keepDefaultBackgroundClear(addon)).toBe(true);
+    const rects = addon._renderer._rectangleRenderer.value;
+    rects._updateRectangle(null, 0, 0, HAS_EXTENDED, 3, 9);
+    expect(drawn.at(-1)).toEqual([3, 3]);
+  });
+
+  it("still draws real backgrounds and inverse text", () => {
+    const { addon, drawn } = fakeAddon();
+    keepDefaultBackgroundClear(addon);
+    const rects = addon._renderer._rectangleRenderer.value;
+    rects._updateRectangle(null, 0, 0, 0x1000000 | 4 | HAS_EXTENDED, 3, 9); // palette colour 4
+    expect(drawn.at(-1)).toEqual([3, 9]);
+    rects._updateRectangle(null, 0, 0x2000000 | 0xff0000, 0x2000000 | 0x00ff00, 0, 2); // RGB
+    expect(drawn.at(-1)).toEqual([0, 2]);
+    rects._updateRectangle(null, 0, 0x4000000, 0, 1, 5); // inverse: the foreground fills it
+    expect(drawn.at(-1)).toEqual([1, 5]);
+  });
+
+  it("does nothing when the renderer isn't where it expects", () => {
+    expect(keepDefaultBackgroundClear({})).toBe(false);
+    expect(keepDefaultBackgroundClear({ _renderer: { _rectangleRenderer: { value: {} } } })).toBe(false);
   });
 });

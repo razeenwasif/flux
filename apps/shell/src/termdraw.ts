@@ -55,3 +55,35 @@ export function mayHoldImage(bytes: Uint8Array): boolean {
   }
   return false;
 }
+
+/** xterm's cell attribute bits (common/buffer/Constants). */
+const INVERSE = 0x4000000;
+const COLOR_MODE = 0x3000000; // 0: the theme's colour
+type DrawRect = (v: unknown, at: number, fg: number, bg: number, x0: number, x1: number, y: number) => void;
+const cleared = new WeakSet<object>();
+
+/**
+ * Keep cells on the theme's background clear under the WebGL renderer. It paints
+ * a rectangle for any cell whose background value isn't 0, and an underline, a
+ * link or an image sets a flag bit there, so those cells got the theme's colour
+ * at full opacity: black, as Flux's terminal background is transparent. A cell
+ * with the theme's background now draws an empty rectangle instead, which looks
+ * the same on any opaque theme. Reaches into the addon's internals, so if a
+ * future version moves them this does nothing and says so.
+ */
+export function keepDefaultBackgroundClear(webgl: object): boolean {
+  const renderer = (webgl as { _renderer?: { _rectangleRenderer?: { value?: object } } })._renderer;
+  const rects = renderer?._rectangleRenderer?.value;
+  const proto = rects && (Object.getPrototypeOf(rects) as { _updateRectangle?: DrawRect });
+  const draw = proto?._updateRectangle;
+  if (!proto || typeof draw !== "function") return false;
+  if (!cleared.has(proto)) {
+    cleared.add(proto);
+    proto._updateRectangle = function (this: unknown, v, at, fg, bg, x0, x1, y) {
+      const clear = !(fg & INVERSE) && (bg & COLOR_MODE) === 0;
+      // Zero width, rather than skipping: the slot is already counted.
+      draw.call(this, v, at, fg, bg, x0, clear ? x0 : x1, y);
+    };
+  }
+  return true;
+}

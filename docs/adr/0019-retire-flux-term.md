@@ -48,5 +48,6 @@ Ligatures and images are added on xterm.js (`termdraw.ts`):
 - **Negative:** the terminal's speed is bounded by the webview. ADR 0001's frame-time
   budget named a `flux-term` benchmark and has no measurement now. Reopen this if real
   output bursts become a bottleneck.
-- **Known limits:** no Kitty graphics protocol, and a black margin of under a cell at an
-  image's edge from xterm's WebGL renderer on a transparent background (BACKLOG #14).
+- **Known limits:** no Kitty graphics protocol (BACKLOG #14). xterm's WebGL renderer
+  painted image, underline and link cells opaque on the transparent background;
+  `termdraw.ts` corrects that from outside the addon, which an xterm upgrade could undo.

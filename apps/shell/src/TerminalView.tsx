@@ -34,7 +34,7 @@ import {
 } from "./terminals";
 import { openTab } from "./store";
 import { createAcker, termBytes, terminalAck } from "./termflow";
-import { ligatureRanges, mayHoldImage } from "./termdraw";
+import { keepDefaultBackgroundClear, ligatureRanges, mayHoldImage } from "./termdraw";
 import { speak, stopSpeaking } from "./speak";
 import LiquidBackground from "./LiquidBackground";
 import { hex, palette as pal, rgba } from "./palette";
@@ -263,6 +263,7 @@ const TerminalView: Component<{
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => webgl.dispose());
       term.loadAddon(webgl);
+      keepDefaultBackgroundClear(webgl);
     } catch {
       /* WebGL unavailable → DOM renderer (already active) */
     }
