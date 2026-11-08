@@ -17,9 +17,12 @@ use parking_lot::RwLock;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State, Url};
 
-/// Whether a webview's `proxy_url` takes effect in this build. WKWebView applies
-/// it only with tauri's `macos-proxy` feature (macOS 14+), which Flux doesn't
-/// enable, and Android/iOS ignore it: the page would silently connect directly.
+/// Whether this setting's proxy takes effect in this build. On macOS, Flux turns
+/// on tauri's `macos-proxy` feature for Tor tabs (tor.rs), but WebKit keeps a
+/// proxy on the data store, and ordinary tabs share one: a proxy given to one
+/// would carry over to every tab and outlive being switched off. Tor tabs are
+/// private, each with a store of its own, so they're safe. Android/iOS ignore
+/// it: the page would silently connect directly.
 pub const SUPPORTED: bool = !cfg!(any(
     target_os = "macos",
     target_os = "ios",

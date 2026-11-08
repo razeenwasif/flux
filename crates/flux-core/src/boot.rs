@@ -258,6 +258,7 @@ mod tests {
             custom_title: None,
             workspace: 1,
             private: false,
+            tor: false,
             container: 0,
         }
     }
@@ -360,6 +361,7 @@ mod tests {
         assert!(plan(&state, WINDOW).is_err(), "a terminal tab");
         let state = with_active(TabMeta {
             private: true,
+            tor: false,
             ..tab(1, "https://example.com/")
         });
         assert!(plan(&state, WINDOW).is_err(), "a private tab");

@@ -662,7 +662,15 @@ const Sidebar: Component<SidebarProps> = (props) => {
       }
     >
       <span class="tab-favicon" data-tab-id={p.tab.id}>
-        {p.tab.private ? "🕶" : isHibernated(p.tab.id) && !vp() ? "💤" : <Favicon tab={p.tab} />}
+        {p.tab.tor ? (
+          "🧅"
+        ) : p.tab.private ? (
+          "🕶"
+        ) : isHibernated(p.tab.id) && !vp() ? (
+          "💤"
+        ) : (
+          <Favicon tab={p.tab} />
+        )}
       </span>
       <Show
         when={editTab() === p.tab.id}
@@ -1602,6 +1610,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 }}
               >
                 🕶 Private tab
+              </button>
+              <button
+                onClick={() => {
+                  setPicker(false);
+                  void import("./tortab").then((m) => m.openTorTab(props.onToast));
+                }}
+              >
+                🧅 Tor tab
               </button>
               <button onClick={() => create("terminal")}>⌨ Terminal tab</button>
               <button onClick={() => create("files")}>📁 Files tab</button>

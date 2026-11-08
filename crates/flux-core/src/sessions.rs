@@ -413,6 +413,7 @@ mod tests {
                     custom_title: None,
                     workspace: 1,
                     private,
+                    tor: false,
                     container: 0,
                 },
             );

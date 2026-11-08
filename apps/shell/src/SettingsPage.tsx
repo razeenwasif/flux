@@ -8,6 +8,7 @@ import { density, setDensity, type Density } from "./interfacePreferences";
  * over what already existed, plus the privacy controls that had no home here.
  */
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
 
 import { terminalScreenReader, setTerminalScreenReader } from "./terminalAccessibility";
 import { settingsWriter } from "./settingsWriter";
@@ -743,6 +744,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const [httpAllow, setHttpAllow] = createSignal<string[]>([]); // HTTPS-only exempt
   // Outbound proxy (#63).
   const [proxy, setProxy] = createSignal("");
+  const [fpOn, setFpOn] = createSignal(true);
+  const toggleFp = () => {
+    const on = !fpOn();
+    setFpOn(on);
+    void invoke("fingerprint_set", { on }).catch(() => setFpOn(!on));
+  };
   const [proxyMsg, setProxyMsg] = createSignal("");
   const [proxyErr, setProxyErr] = createSignal(false);
   const saveProxy = async () => {
@@ -819,6 +826,10 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
 
     void proxyGet()
       .then((p) => setProxy(p ?? ""))
+      .catch(() => {});
+    // Fingerprint defences (#60). Here rather than in ipc.ts, which loads at startup.
+    void invoke<boolean>("fingerprint_get")
+      .then(setFpOn)
       .catch(() => {});
 
     const pollMem = () =>
@@ -1289,6 +1300,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             >
               <Toggle on={shieldsOn()} disabled={controlsDisabled()} onClick={toggleShields} />
             </Show>
+          </Row>
+          <Row
+            label="Randomize fingerprints"
+            hint="What a page reads back from a canvas, WebGL or audio carries a little noise, different for every site and every session, so sites can't recognise you by them. Nothing changes on screen. Turning Shields off for a site turns this off there too."
+          >
+            <Toggle on={fpOn()} onClick={toggleFp} />
           </Row>
           <Row
             label="HTTPS-only"

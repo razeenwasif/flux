@@ -83,6 +83,7 @@ mod tests {
             custom_title: None,
             workspace: 1,
             private: false,
+            tor: false,
             container: 0,
         }
     }

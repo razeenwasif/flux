@@ -311,6 +311,7 @@ export const tabCreate = (
   isPrivate?: boolean,
   container?: number,
   background?: boolean,
+  tor?: boolean,
 ) =>
   invoke<TabMeta>("tab_create", {
     kind,
@@ -318,6 +319,7 @@ export const tabCreate = (
     private: isPrivate ?? null,
     container: container ?? null,
     background: background ?? null,
+    tor: tor ?? null,
   });
 export const shellSnapshot = () => invoke<ShellSnapshot>("shell_snapshot");
 // ─── Multi-account containers (BACKLOG #59) — Container type from bindings.gen ──
@@ -929,6 +931,7 @@ export const httpsSetEnabled = (on: boolean) => invoke<void>("https_set_enabled"
 export const proxyGet = () => invoke<string | null>("proxy_get");
 /** Save the proxy endpoint (null/empty = direct). Rejects a non-http/socks5 URL. */
 export const proxySet = (url: string | null) => invoke<void>("proxy_set", { url });
+
 /** Allow (or stop allowing) a host to stay on plain HTTP under HTTPS-only. */
 export const httpsAllowSite = (host: string, allow: boolean) =>
   invoke<void>("https_allow_site", { host, allow });

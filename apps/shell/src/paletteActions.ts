@@ -164,6 +164,12 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
       run: () => void openTab("browser", undefined, true),
     },
     {
+      id: "new-tor",
+      label: "New Tor tab",
+      icon: "🧅",
+      run: () => void import("./tortab").then((m) => m.openTorTab((t) => toast(t, "warn", 6000))),
+    },
+    {
       id: "new-terminal",
       label: "New terminal tab",
       icon: "⌨",

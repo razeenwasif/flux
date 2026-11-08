@@ -69,6 +69,7 @@ const PAGES: &str = "Flux pages";
 pub const COMMANDS: &[Command] = &[
     c("new-tab", "New tab", "Open a tab in this space", TABS, &["Mod+T"]),
     c("new-private", "New private tab", "A tab that keeps no history or cookies", TABS, &["Shift+Mod+N"]),
+    c("new-tor", "New Tor tab", "A private tab that goes through Tor", TABS, &[]),
     c("new-terminal", "New terminal tab", "A shell in a tab of its own", TABS, &[]),
     c("new-files", "New files tab", "Browse your files in a tab", TABS, &[]),
     c("reopen-tab", "Reopen closed tab", "Bring back the last tab you closed", TABS, &["Shift+Mod+T"]),
@@ -614,6 +615,7 @@ mod menubar {
             &[
                 C("new-tab"),
                 C("new-private"),
+                C("new-tor"),
                 C("new-terminal"),
                 C("new-files"),
                 C("ws-new"),

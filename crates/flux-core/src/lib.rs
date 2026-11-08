@@ -31,6 +31,7 @@ pub mod extensions;
 pub mod favicon;
 pub mod feeds;
 pub mod files;
+pub mod fingerprint;
 pub mod focus;
 pub mod formhelp;
 pub mod framing;
@@ -74,6 +75,7 @@ pub mod persist;
 pub mod porcupine;
 pub mod prefetch;
 pub mod proxy;
+pub mod tor;
 pub mod pwa;
 pub mod reminders;
 pub mod rpc;
@@ -334,6 +336,10 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
             None => proxy::ProxyState::default(),
         },
     );
+    // Fingerprint defences (#60): the setting, and this session's secret.
+    app.manage(fingerprint::FingerprintState::restore(
+        app.path().app_data_dir().ok().map(|d| d.join("fingerprint.txt")),
+    ));
     // Tab sleep: the system's memory-pressure signal (macOS dispatch source).
     tabsleep::watch_memory_pressure(app.handle());
     // Content-blocker shields: the filter engine + per-site policy (#57).
@@ -1087,6 +1093,13 @@ pub fn run(intent: cli::LaunchIntent) {
                     let _ = app.emit("flux://smoke-task", String::new());
                     return;
                 }
+                // A Tor tab at a given address.
+                Some("--smoke-tor-url") => {
+                    if let Some(url) = argv.get(2) {
+                        let _ = app.emit("flux://smoke-tor", url.clone());
+                    }
+                    return;
+                }
                 // A keyboard command by name (keys.rs), as if pressed: "close-tab".
                 Some("--smoke-shortcut") => {
                     if let Some(name) = argv.get(2) {
@@ -1271,6 +1284,9 @@ pub fn run(intent: cli::LaunchIntent) {
             agent::agent_plan_steps,
             proxy::proxy_get,
             proxy::proxy_set,
+            fingerprint::fingerprint_get,
+            fingerprint::fingerprint_set,
+            tor::tor_status,
             agent::agent_next_step,
             agent::agent_edit_plan,
             agent::agent_translate,

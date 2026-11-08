@@ -75,6 +75,8 @@ pub fn tab_create(
     private: Option<bool>,
     container: Option<u32>,
     background: Option<bool>,
+    // A Tor tab (tor.rs): private, through Tor.
+    tor: Option<bool>,
 ) -> TabMeta {
     create_tab(
         &state,
@@ -83,6 +85,7 @@ pub fn tab_create(
         private,
         container,
         background.unwrap_or(false),
+        tor.unwrap_or(false),
     )
 }
 
@@ -94,6 +97,7 @@ fn create_tab(
     private: Option<bool>,
     container: Option<u32>,
     background: bool,
+    tor: bool,
 ) -> TabMeta {
     let id = state.alloc_tab_id();
     let (url, title) = match kind {
@@ -129,7 +133,9 @@ fn create_tab(
         folder: None,
         custom_title: None,
         workspace: state.active_workspace(),
-        private: private.unwrap_or(false),
+        // A Tor tab is always a private one.
+        private: private.unwrap_or(false) || tor,
+        tor,
         container: container.unwrap_or(0),
     };
     state.tabs.insert(id, meta.clone());
@@ -532,6 +538,7 @@ mod tests {
                 None,
                 None,
                 background,
+                false,
             )
         };
         let a = open("https://a.example/", false);
@@ -546,6 +553,23 @@ mod tests {
     }
 
     #[test]
+    fn a_tor_tab_is_always_private() {
+        let state = FluxState::new();
+        let tab = create_tab(
+            &state,
+            TabKind::Browser,
+            None,
+            Some(false),
+            None,
+            false,
+            true,
+        );
+        assert!(tab.tor && tab.private);
+        let plain = create_tab(&state, TabKind::Browser, None, None, None, false, false);
+        assert!(!plain.tor && !plain.private);
+    }
+
+    #[test]
     fn a_terminal_tab_starts_in_the_directory_it_was_opened_for() {
         let state = FluxState::new();
         let cwd_of = |url: Option<&str>| {
@@ -555,6 +579,7 @@ mod tests {
                 url.map(str::to_string),
                 None,
                 None,
+                false,
                 false,
             )
             .url
@@ -574,6 +599,7 @@ mod tests {
                 Some("https://x.example/".into()),
                 None,
                 None,
+                false,
                 false,
             )
             .id

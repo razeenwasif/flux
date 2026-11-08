@@ -72,7 +72,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 // entry diet took the app registry and app guides, @tauri-apps/api/window, the
 // palette's action list, the three prompt bars and the clocks out of the boot
 // bundle (55.5 → 43.5 KB). The eager floor is ~43.5 KB.
-const CHROME_JS_GZIP_BUDGET = 46 * 1024; // bytes
+// Raised 46 → 47 KB on 2026-11-08 (a loosening, approved by the maintainer): the
+// terminal, agent and Liquid Silk work since had filled it to 46.0 KB.
+const CHROME_JS_GZIP_BUDGET = 47 * 1024; // bytes
 // New independent gate: entry + desktopChrome registry, baselined in batch 3.
 // This is a lower bound, excluding other conditionally rendered lazy features.
 // Ratcheted 84 → 72 KB on 2026-10-13 with the entry diet above (81.5 → 70.1 KB).
@@ -81,7 +83,9 @@ const DESKTOP_PRELOAD_BUDGET = 72 * 1024;
 // only the start of what a desktop window parses before it settles. Baselined at
 // 240.0 KB after the entry diet that day; the bulk is xterm and its WebGL addon
 // (the terminal column is on by default) and the agent panel.
-const DEFAULT_BOOT_BUDGET = 242 * 1024;
+// Raised 242 → 243 KB on 2026-11-08 (a loosening, approved by the maintainer),
+// with the entry budget above: at 242.0 KB with the Tor tab in the sidebar.
+const DEFAULT_BOOT_BUDGET = 243 * 1024;
 // The lazy chunks the default layout loads at startup on a window wide enough to
 // show all of it (sidebar, editor column, bookmark bar, agent + terminal stack,
 // launcher and connections columns, the Indexer orb), beyond the entry and the

@@ -384,6 +384,16 @@ impl ShieldsState {
         css
     }
 
+    /// Shields on at all.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Relaxed)
+    }
+
+    /// Hosts the user turned Shields off for.
+    pub fn sites_off(&self) -> Vec<String> {
+        self.off_for.iter().map(|e| e.key().clone()).collect()
+    }
+
     /// Whether the rules should run on a page at `url` (on, and not turned off
     /// for its site). The native layers apply this per navigation.
     pub fn applies_to(&self, url: &str) -> bool {
@@ -655,6 +665,7 @@ pub fn shields_set_enabled(app: AppHandle, state: State<'_, ShieldsState>, on: b
     state.enabled.store(on, Ordering::Relaxed);
     state.save_prefs();
     crate::netfilter::reapply(&app);
+    crate::fingerprint::refresh(&app);
 }
 
 /// Turn shields on/off for one site (`on = false` allowlists the host).
@@ -667,6 +678,7 @@ pub fn shields_set_site(app: AppHandle, state: State<'_, ShieldsState>, host: St
     }
     state.save_prefs();
     crate::netfilter::reapply(&app);
+    crate::fingerprint::refresh(&app);
 }
 
 /// Let the user click an element on `tab_id`'s page to hide it there for good.

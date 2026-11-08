@@ -681,7 +681,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         folder: null,
         custom_title: null,
         workspace: mockActiveWs,
-        private: Boolean(args?.private),
+        private: Boolean(args?.private) || Boolean(args?.tor),
+        tor: Boolean(args?.tor),
         container: Number(args?.container ?? 0),
       };
       tabs.push(tab);
@@ -2165,6 +2166,12 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "md_note_delete":
       mockMdNotes.delete(String(args?.name));
+      return Promise.resolve(undefined as T);
+    case "tor_status":
+      return Promise.resolve(9050 as T);
+    case "fingerprint_get":
+      return Promise.resolve(true as T);
+    case "fingerprint_set":
       return Promise.resolve(undefined as T);
     case "model_server_get":
       return Promise.resolve({

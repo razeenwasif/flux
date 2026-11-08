@@ -66,6 +66,10 @@ pub struct TabMeta {
     /// history. Not persisted across restart (ephemeral by definition).
     #[serde(default)]
     pub private: bool,
+    /// A Tor tab (BACKLOG #63): private, and its traffic goes through Tor's SOCKS
+    /// port (tor.rs), with WebRTC switched off so it can't reveal the real address.
+    #[serde(default)]
+    pub tor: bool,
     /// Multi-account container (BACKLOG #59). 0 = Default (shared jar).
     #[serde(default)]
     pub container: u32,

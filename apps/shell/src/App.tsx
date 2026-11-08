@@ -500,9 +500,13 @@ const App: Component = () => {
   // The native check of agent tasks opens the panel to run one (docs/native-smoke.md).
   if (import.meta.env.VITE_FLUX_NATIVE_SMOKE === "1") {
     onMount(() => {
-      void import("@tauri-apps/api/event").then(({ listen }) =>
-        listen<string>("flux://smoke-task", () => setAgentOpen(true)),
-      );
+      void import("@tauri-apps/api/event").then(({ listen }) => {
+        void listen<string>("flux://smoke-task", () => setAgentOpen(true));
+        void listen<string>(
+          "flux://smoke-tor",
+          (e) => void import("./tortab").then((m) => m.openTorTab((t) => toast(t, "warn"), e.payload)),
+        );
+      });
     });
   }
 

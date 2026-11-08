@@ -470,16 +470,18 @@ mod real {
         // Private tabs (#59) use an in-memory session; container tabs (#59) get an
         // isolated cookie/storage jar: a per-container data dir, or on macOS a
         // per-container data store.
-        let (private, container) = app
+        let (private, container, tor) = app
             .try_state::<crate::state::FluxState>()
-            .and_then(|s| s.tabs.get(&tab_id).map(|t| (t.private, t.container)))
-            .unwrap_or((false, 0));
+            .and_then(|s| s.tabs.get(&tab_id).map(|t| (t.private, t.container, t.tor)))
+            .unwrap_or((false, 0, false));
         let app_for_load = app.clone();
         let app_for_title = app.clone();
         let app_for_nav = app.clone();
         let mut builder = WebviewBuilder::new(label(tab_id), WebviewUrl::External(target))
             .incognito(private)
             .initialization_script(&init)
+            // Every frame, ahead of the page (#60).
+            .initialization_script_for_all_frames(crate::fingerprint::script(app))
             // Pages navigate themselves (`location = …`, redirects), so the
             // parse_url check has to gate every later navigation too. A focus
             // session's blocked sites stop here too (focus.rs); on macOS
@@ -531,7 +533,18 @@ mod real {
         if let Some(user_agent) = crate::browser_identity::user_agent() {
             builder = builder.user_agent(user_agent);
         }
-        if let Some(proxy) = crate::proxy::for_webview(app)? {
+        if tor {
+            // Through Tor, or not at all: never a Tor tab that connects directly.
+            if !crate::tor::supported() {
+                return Err("Tor tabs need macOS 14 or later".into());
+            }
+            let port = crate::tor::port().ok_or(
+                "Tor isn't running on this Mac: start it (brew services start tor) or open Tor Browser",
+            )?;
+            builder = builder
+                .proxy_url(crate::tor::proxy_url(port))
+                .initialization_script_for_all_frames(crate::tor::NO_WEBRTC_JS);
+        } else if let Some(proxy) = crate::proxy::for_webview(app)? {
             builder = builder.proxy_url(proxy);
         }
         // A page opened hidden must not take the keyboard from the shell.
@@ -1510,6 +1523,7 @@ mod real {
         ));
         let mut builder = WebviewBuilder::new(panel_label(panel_id), WebviewUrl::External(target))
             .initialization_script(&init)
+            .initialization_script_for_all_frames(crate::fingerprint::script(&app))
             .on_navigation(|u| !super::is_app_origin(u));
         #[cfg(target_os = "macos")]
         if let Some(user_agent) = crate::browser_identity::user_agent() {

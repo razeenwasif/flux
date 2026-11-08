@@ -17,6 +17,8 @@ The build uses `native-smoke` and the `dev.flux.smoke` identifier. Its session, 
 
 ## Repeatable checks
 
+*Tor tabs:* with Tor running (`brew services start tor`), run Flux Smoke's binary with `--smoke-tor-url <url>`. `lsof -nP -iTCP@127.0.0.1:9050` must show WebKit's network process connected while the page loads, for an ordinary site and for a `.onion` address (which only Tor can resolve), and nothing for an ordinary tab.
+
 *Closed and unloaded tabs, without touching the window:* open a page that pings the server every half second (any local page with `setInterval(() => fetch(...), 500)`), as the only tab in an empty session, then run Flux Smoke's binary with `--smoke-shortcut close-tab` (any keyboard command by name works). The pings must stop at once; `flux::tab` logs "closing the tab's page". For the cap, open 20 heavy pages (`flux <url>` per tab) and sum `ps -axo rss,comm` over `WebKit.WebContent`: within a minute and a half, past Settings' cap, tabs log "unloading the tab's page" and the process count and memory fall.
 
 *Terminal images, without touching the window:* set `FLUX_SHELL` to a script that prints an image and reads the cursor back (`printf '\033[6n'`), then launch Flux Smoke (`-t` from a second launch opens a terminal if none is showing). `printf '\033[c'` must answer with a `4` in its list (Sixel), and the cursor must land several rows lower after each image, for Sixel and for iTerm's `File=inline=1;size=<bytes>:<base64>`. That shows the addon loaded on demand and its WebAssembly ran under the app's real content security policy.

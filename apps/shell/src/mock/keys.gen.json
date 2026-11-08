@@ -27,6 +27,15 @@
       "fixed": null
     },
     {
+      "id": "new-tor",
+      "title": "New Tor tab",
+      "detail": "A private tab that goes through Tor",
+      "group": "Tabs",
+      "keys": [],
+      "defaults": [],
+      "fixed": null
+    },
+    {
       "id": "new-terminal",
       "title": "New terminal tab",
       "detail": "A shell in a tab of its own",
