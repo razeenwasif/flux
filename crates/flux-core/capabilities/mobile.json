@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "flux-mobile",
+  "description": "Phones only: the chrome window may listen to the native tab views' events (ADR 0021). Not granted to tab webviews.",
+  "platforms": ["iOS", "android"],
+  "windows": ["main"],
+  "permissions": ["flux-webview:default"]
+}

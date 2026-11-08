@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- Flux on iPhone. `scripts/build-ios.sh` builds the iOS app and installs it on a paired iPhone. Every tab is a real WebKit page view. Swipe from the screen's edge to go back or forward. Links such as `mailto:` and `tel:` open in iOS. Closing a tab stops its video, and a page iOS unloads in the background comes back instead of going blank. Not on iOS yet: Shields, fingerprint defences, the agent reading pages, and find in page.
+- A new phone interface, built for iOS first and also used on Android:
+  - **Bottom bar:** in thumb's reach, with back, the address, the tab count and ⋯. Swipe the address sideways to change tabs, or up to see them all. The bar shrinks to just the site while you scroll down and comes back when you scroll up or tap it.
+  - **Status bar:** the strip under the clock takes the page's own colour.
+  - **Search:** fills the screen with the field resting on the keyboard. Open tabs, history and your search stack up from it, nearest first.
+  - **Tab grid:** page previews in two columns. Tap one to open it; tap × or swipe it away to close it.
+  - **⋯ menu:** a sheet you can drag down to close. Forward, Share, New tab and Agent sit on top, every Flux page below.
+  - **Icons:** line icons replace the emoji.
 - Fingerprint defences: what a page reads back from a canvas, WebGL or Web Audio carries a little noise, different for every site and every session, the way Brave does it, so sites can't recognise you by them across sites or sessions. Nothing changes on screen, and a site sees the same values all session, so it keeps working. On by default (Settings → Privacy → Randomize fingerprints); turning Shields off for a site turns it off there too.
 - Tor tabs: a private tab whose traffic goes through Tor (launcher → New Tor tab, or the new-tab menu; marked 🧅 in the tab list). Flux uses the Tor running on your Mac (`brew services start tor`, or Tor Browser), sends site names to Tor rather than looking them up itself, so `.onion` addresses work, and switches WebRTC off in the tab so it can't reveal your address. A new Tor tab opens on Tor's own check page. Needs macOS 14 or later.
 - A cap on loaded tabs: Settings → Memory → Keep at most (8 unless changed). Open more and the least recently used background tabs unload after half a minute, whatever their idle time, waking from a snapshot when you come back. Twenty heavy tabs opened at once in a test settled from 602 MB of page memory to 211 MB within a minute.

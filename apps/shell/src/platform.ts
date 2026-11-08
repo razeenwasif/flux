@@ -1,11 +1,18 @@
 /**
- * Platform detection for the shell (ADR 0012). Flux's Android build runs in the
- * system WebView, whose UA contains "Android" — desktop WebView2 / WebKitGTK
- * never do. This is a frontend-only signal (no IPC), used to strip desktop-only
- * chrome (title bar, resize grips, terminal column, split view, …) and switch to
- * a single-pane, drawer-sidebar layout on a phone.
+ * Platform detection for the shell (ADR 0012). Flux's phone builds run in the
+ * system WebView: Android's says "Android", iOS's says "iPhone" or "iPad" — and
+ * an iPad asking for desktop sites says "Macintosh", so a Mac UA with a touch
+ * screen is an iPad too. Desktop WebView2 / WebKitGTK / macOS WKWebView never
+ * match. A frontend-only signal (no IPC), used to strip desktop-only chrome
+ * (title bar, resize grips, terminal column, split view, …) and switch to the
+ * phone layout.
  */
-export const isMobile: boolean = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
+const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+export const isAndroid: boolean = /android/i.test(ua);
+export const isIOS: boolean =
+  /iPhone|iPad|iPod/.test(ua) ||
+  (/Macintosh/.test(ua) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1);
+export const isMobile: boolean = isAndroid || isIOS;
 
 /**
  * Windows, from the same UA signal (WebView2 always says "Windows NT";
@@ -17,7 +24,7 @@ export const isMobile: boolean = typeof navigator !== "undefined" && /android/i.
  * on Windows, a Unix socket elsewhere — so this flag has to be readable
  * synchronously (`editorboot.socketPath`).
  */
-export const isWindows: boolean = typeof navigator !== "undefined" && /windows/i.test(navigator.userAgent);
+export const isWindows: boolean = /windows/i.test(ua);
 
 /**
  * Mirror the flag onto <html> so CSS can reach surfaces the `.shell.mobile`
@@ -30,10 +37,9 @@ export const isWindows: boolean = typeof navigator !== "undefined" && /windows/i
  * element before the first paint, or the phone renders one blurred frame.
  */
 if (isMobile && typeof document !== "undefined") {
-  document.documentElement.classList.add("mobile");
+  document.documentElement.classList.add("mobile", isIOS ? "ios" : "android");
 }
 
 /** macOS, from the same UA signal: the WebKit-only paths (tab sleep's memory
  *  pressure, for one) key on it. */
-export const isMac: boolean =
-  typeof navigator !== "undefined" && /Macintosh|Mac OS X/i.test(navigator.userAgent);
+export const isMac: boolean = !isIOS && /Macintosh|Mac OS X/i.test(ua);

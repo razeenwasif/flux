@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "tauri": "tauri",
     "shell:dev": "npm run dev --workspace apps/shell",
     "shell:build": "npm run build --workspace apps/shell",
     "check": "cargo check --workspace && npm run typecheck --workspace apps/shell",

@@ -10416,90 +10416,20 @@ html.mobile .appdock-btn {
    Squaring the corners is worth having on its own: a rounded, overflow-hidden
    card forces the compositor to clip its contents against a rounded mask every
    frame. Nothing to clip against once the radius is zero. */
-.shell.mobile .content {
+/* `html.mobile` in front so these outrank the designs' own card rules
+   (`:root[data-design] .content` pads the card by 16px). */
+html.mobile .shell.mobile .content {
   grid-area: content;
   padding: 0;
 }
-.shell.mobile .content > .card,
-.shell.mobile .content-row > .card {
+html.mobile .shell.mobile .content-row {
+  padding-top: 0;
+}
+html.mobile .shell.mobile .content > .card,
+html.mobile .shell.mobile .content-row > .card {
   border: none;
   border-radius: 0;
   box-shadow: none;
-}
-
-/* The mobile menu drawer (replaces the desktop sidebar on the phone). */
-.shell.mobile .mobile-menu {
-  position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 86%;
-  max-width: 360px;
-  z-index: 60;
-  transform: translateX(-100%);
-  transition: transform 0.28s var(--ease-soft);
-  box-shadow: 0 0 44px rgba(0, 0, 0, 0.5);
-  background: var(--glass-fill-soft);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border-right: 1px solid var(--glass-rim-soft);
-  display: flex;
-  flex-direction: column;
-  padding: max(14px, env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom));
-  overflow-y: auto;
-}
-.shell.mobile.drawer-open .mobile-menu {
-  transform: translateX(0);
-}
-.mmenu-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-  padding: 4px 2px;
-}
-.mmenu-brand {
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  color: var(--text, #e8e6f0);
-}
-.mmenu-newtab {
-  border: 1px solid var(--glass-rim-soft);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text, #e8e6f0);
-  font-size: 14px;
-  padding: 8px 12px;
-  border-radius: 10px;
-}
-.mmenu-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.mmenu-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 7px;
-  padding: 12px 10px;
-  border: 1px solid var(--glass-rim-soft);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.045);
-  color: var(--text, #e8e6f0);
-  text-align: left;
-  min-height: 64px;
-}
-.mmenu-card:active {
-  background: rgba(255, 255, 255, 0.1);
-}
-.mmenu-ico {
-  font-size: 20px;
-  line-height: 1;
-}
-.mmenu-label {
-  font-size: 13px;
-  font-weight: 500;
 }
 
 /* Agent → full-screen overlay when open (it only mounts while open). */
@@ -10510,32 +10440,7 @@ html.mobile .appdock-btn {
   width: 100%;
   max-width: 100%;
   padding-top: max(10px, env(safe-area-inset-top));
-}
-
-.shell.mobile .mobile-drawer-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 55;
-  background: rgba(0, 0, 0, 0.45);
-}
-.shell.mobile .mobile-drawer-btn {
-  position: fixed;
-  top: max(10px, env(safe-area-inset-top));
-  left: 10px;
-  z-index: 54;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  border: 1px solid var(--glass-rim-soft);
-  background: var(--glass-fill-soft);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  color: var(--text, #eee);
-  font-size: 20px;
-  line-height: 1;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* ─── Mobile chrome (ADR 0012): the bar itself is in MobileChrome.css ─────── */
@@ -10545,20 +10450,13 @@ html.mobile .appdock-btn {
   gap: 8px;
   padding: 12px 14px;
 }
+/* 16px: anything smaller and iOS zooms the page in when the field takes focus. */
 .shell.mobile .start-search input {
-  font-size: 14px;
+  font-size: 16px;
 }
 .shell.mobile .start-engine {
   font-size: 10px;
   padding: 3px 8px;
-}
-
-/* Narrower than a stock 360px phone — e.g. Samsung's "Screen zoom" set larger,
-   which shrinks the CSS viewport. Tighten the bar so the omnibox keeps room. */
-@media (max-width: 359px) {
-  .mmenu-grid {
-    gap: 8px;
-  }
 }
 
 /* Mobile: the Indexer orb sits below the drawer/switcher/agent z-indexes so

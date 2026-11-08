@@ -269,8 +269,9 @@ const App: Component = () => {
   const savedLayout = parseLayout(localStorage.getItem("flux.layout.current"));
   const narrow = isMobile || window.innerWidth < 760;
   const [sidebarOpen, setSidebarOpen] = createSignal(!narrow && (savedLayout?.sidebar ?? true));
-  // Mobile Chrome-style tab switcher (ADR 0012).
-  const [mobileTabsOpen, setMobileTabsOpen] = createSignal(false);
+  // The phone's full-screen views over the page: search and the tab grid
+  // (MobileChrome, ADR 0012).
+  const [mobileSheet, setMobileSheet] = createSignal<"search" | "tabs" | null>(null);
   // Terminal column open by default (persisted — toggling off sticks).
   const [terminalOpen, setTerminalOpen] = createSignal(
     !narrow && (savedLayout?.terminal ?? localStorage.getItem("flux.term.open") !== "0"),
@@ -1366,9 +1367,9 @@ const App: Component = () => {
       openedWebviews.has(t.id) &&
       !isStartUrl(t.url) &&
       !pageOverlayActive() &&
-      // Mobile: the drawer, the full-screen agent, and the tab switcher are HTML
-      // overlays the native page would otherwise cover (ADR 0012, Milestone 2).
-      !(isMobile && (sidebarOpen() || agentOpen() || mobileTabsOpen()))
+      // Mobile: the menu sheet, the full-screen agent, search and the tab grid
+      // are HTML the native page would otherwise cover (ADR 0012).
+      !(isMobile && (sidebarOpen() || agentOpen() || mobileSheet()))
     )
       wv(webviewShow(t.id));
   };
@@ -1393,7 +1394,7 @@ const App: Component = () => {
   // native tab WebView (which sits above the shell) doesn't cover them.
   if (isMobile) {
     createEffect(() => {
-      if (sidebarOpen() || agentOpen() || mobileTabsOpen()) hideActivePage();
+      if (sidebarOpen() || agentOpen() || mobileSheet()) hideActivePage();
       else showActivePageIfClear();
     });
     onMount(() => {
@@ -1417,7 +1418,7 @@ const App: Component = () => {
         if (e.title && e.title !== tab.title) updateTabTitle(e.id, e.title);
       }).catch(() => {});
       void addPluginListener("flux-webview", "back", () => {
-        if (mobileTabsOpen()) setMobileTabsOpen(false);
+        if (mobileSheet()) setMobileSheet(null);
         else if (agentOpen()) setAgentOpen(false);
         else if (sidebarOpen()) setSidebarOpen(false);
       }).catch(() => {});
@@ -1846,20 +1847,21 @@ const App: Component = () => {
       class="shell"
       classList={{
         mobile: isMobile,
-        "drawer-open": isMobile && sidebarOpen(),
         "window-acrylic": windowAcrylic(),
       }}
       style={
         isMobile
-          ? // Phone: a Chrome-style top bar row over one full-bleed content cell.
-            // The top bar sits in its OWN row so the native page WebView (bounds =
-            // the content card) never covers it. Sidebar → drawer, agent → overlay
-            // (see .shell.mobile in theme.css); terminal/connections/web-panel
-            // columns are hidden (ADR 0012).
+          ? // Phone: the status-bar strip, one full-bleed content cell, and the
+            // bottom bar, each in its OWN row so the native page WebView (bounds =
+            // the content card) never covers the chrome. Sidebar → menu sheet,
+            // agent → overlay (see .shell.mobile in theme.css); terminal/
+            // connections/web-panel columns are hidden (ADR 0012).
             {
-              "grid-template-columns": "1fr",
-              "grid-template-rows": "auto 1fr",
-              "grid-template-areas": `"topbar" "content"`,
+              // minmax(0, …): a plain 1fr grows to its content's min-content
+              // width, and one wide page would push the bar off the screen.
+              "grid-template-columns": "minmax(0, 1fr)",
+              "grid-template-rows": "auto minmax(0, 1fr) auto",
+              "grid-template-areas": `"status" "content" "bar"`,
             }
           : {
               "grid-template-columns": columns(),
@@ -1873,18 +1875,24 @@ const App: Component = () => {
           <MobileChrome
             go={go}
             onMenu={() => setSidebarOpen(true)}
-            tabsOpen={mobileTabsOpen}
-            setTabsOpen={setMobileTabsOpen}
+            sheet={mobileSheet}
+            setSheet={setMobileSheet}
           />
         </Suspense>
       </Show>
-      {/* Phone: the sidebar is replaced by a purpose-built menu drawer (the Arc
-          sidebar is empty on mobile — tabs + omnibox live in MobileChrome). */}
+      {/* Phone: the sidebar is replaced by the ⋯ menu sheet (the Arc sidebar
+          is empty on mobile — tabs + address bar live in MobileChrome). It stays
+          mounted so it can slide; `open` follows the sidebar flag. */}
       <Show
         when={!isMobile}
         fallback={
           <Suspense>
-            <MobileMenu onNavigate={go} onClose={() => setSidebarOpen(false)} />
+            <MobileMenu
+              open={sidebarOpen()}
+              onNavigate={go}
+              onClose={() => setSidebarOpen(false)}
+              onAgent={() => setAgentOpen(true)}
+            />
           </Suspense>
         }
       >
@@ -2055,12 +2063,6 @@ const App: Component = () => {
 
       <Show when={!isMobile}>
         <ResizeHandles />
-      </Show>
-
-      {/* Mobile: the ⋮ menu (in MobileChrome's top bar) opens the sidebar as a
-          drawer holding all Flux destinations; a backdrop closes it. */}
-      <Show when={isMobile && sidebarOpen()}>
-        <div class="mobile-drawer-backdrop" onClick={() => setSidebarOpen(false)} />
       </Show>
 
       {/* The launcher (⌘K) — search, tabs, history, notes and commands, over a

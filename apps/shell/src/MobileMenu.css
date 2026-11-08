@@ -1,0 +1,147 @@
+/* The phone's ⋯ menu sheet (MobileMenu.tsx, ADR 0012). Loaded with the menu,
+   so it's out of the desktop's startup CSS (it used to sit in theme.css). */
+.mm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 59;
+  background: rgba(4, 2, 10, 0.5);
+  animation: mm-fade 0.2s ease;
+}
+@keyframes mm-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.shell.mobile .mobile-menu {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  max-height: 86vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 14px calc(18px + env(safe-area-inset-bottom, 0px));
+  border-radius: 28px 28px 0 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 120px), var(--velvet-800);
+  box-shadow:
+    0 -0.5px 0 var(--glass-rim),
+    0 -16px 48px rgba(0, 0, 0, 0.45);
+  color: var(--flux-text);
+  transform: translateY(105%);
+  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+  -webkit-overflow-scrolling: touch;
+}
+.shell.mobile .mobile-menu.open {
+  transform: translateY(0);
+}
+
+.mm-handle {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px 2px;
+  background: inherit;
+}
+.mm-grabber {
+  width: 38px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.25);
+}
+.mm-page {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 6px;
+  min-width: 0;
+}
+.mm-page-title,
+.mm-page-url {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mm-page-title {
+  font-size: 15px;
+  font-weight: 620;
+}
+.mm-page-url {
+  font-size: 12.5px;
+  color: var(--flux-text-dim);
+}
+
+.mm-actions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.mm-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 4px 10px;
+  border: none;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.1);
+  color: var(--flux-text);
+  font-size: 12px;
+  font-weight: 560;
+}
+.mm-action:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+.mm-action:disabled {
+  opacity: 0.35;
+}
+
+.mm-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px 6px;
+  padding: 6px 0 4px;
+}
+.mm-dest {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: none;
+  color: var(--flux-text);
+  -webkit-tap-highlight-color: transparent;
+}
+.mm-dest-ico {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background:
+    linear-gradient(160deg, rgba(var(--accent-rgb), 0.3), rgba(var(--accent-ai-rgb), 0.16)),
+    rgba(255, 255, 255, 0.04);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.18),
+    0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.mm-dest:active .mm-dest-ico {
+  transform: scale(0.94);
+  transition: transform 0.1s ease;
+}
+.mm-dest-label {
+  font-size: 11.5px;
+  font-weight: 520;
+  color: var(--flux-text-dim);
+  text-align: center;
+}

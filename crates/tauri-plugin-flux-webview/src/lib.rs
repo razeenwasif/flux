@@ -1,8 +1,10 @@
-//! Native `android.webkit.WebView` stack for Flux tabs on Android (ADR 0012,
-//! Milestone 2). Android has a single system WebView showing the Flux shell and
-//! no per-tab child-webview API, so this plugin manages real WebViews in a
-//! FrameLayout overlay positioned over the content card — the mobile analogue of
-//! the desktop multi-webview layer (`flux-core::webview`).
+//! Native per-tab WebViews for Flux on mobile (ADR 0012): `android.webkit.WebView`s
+//! in a FrameLayout overlay on Android (android/), `WKWebView`s over the shell's
+//! own WKWebView on iOS (ios/). A mobile app has a single system WebView showing
+//! the Flux shell and no per-tab child-webview API, so this plugin manages real
+//! WebViews positioned over the content card — the mobile analogue of the desktop
+//! multi-webview layer (`flux-core::webview`). Both sides take the same commands
+//! and send the same `nav` event.
 //!
 //! Flux calls this from Rust (`webview.rs`'s mobile arm) via `run_mobile_plugin`,
 //! not from the webview, so there is no JS command/permission surface. On desktop
@@ -59,6 +61,9 @@ impl<R: Runtime> FluxWebview<R> {
     pub fn reload(&self, id: i32) -> Result<()> {
         self.call("reload", IdArgs { id })
     }
+    pub fn stop(&self, id: i32) -> Result<()> {
+        self.call("stop", IdArgs { id })
+    }
 
     /// A tab's cached cover snapshot (base64 data URL), "" if none yet. Pulled on
     /// demand because images are too large for the plugin event channel.
@@ -77,7 +82,9 @@ impl<R: Runtime> FluxWebview<R> {
 
     #[cfg(mobile)]
     fn call(&self, cmd: &str, payload: impl serde::Serialize) -> Result<()> {
-        let _: Empty = self.handle.run_mobile_plugin(cmd, payload)?;
+        // Kotlin resolves with `{}`, Swift's bare `resolve()` with `null`: take
+        // either.
+        let _: serde_json::Value = self.handle.run_mobile_plugin(cmd, payload)?;
         Ok(())
     }
     #[cfg(not(mobile))]
@@ -97,11 +104,16 @@ impl<R: Runtime, T: Manager<R>> FluxWebviewExt<R> for T {
     }
 }
 
+#[cfg(target_os = "ios")]
+tauri::ios_plugin_binding!(init_plugin_flux_webview);
+
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("flux-webview")
         .setup(|app, api| {
-            #[cfg(mobile)]
+            #[cfg(target_os = "android")]
             let handle = api.register_android_plugin("dev.flux.webview", "FluxWebViewPlugin")?;
+            #[cfg(target_os = "ios")]
+            let handle = api.register_ios_plugin(init_plugin_flux_webview)?;
             #[cfg(not(mobile))]
             let _ = api;
             app.manage(FluxWebview::<R> {

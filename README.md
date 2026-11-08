@@ -58,6 +58,26 @@ npm run build
 > need WebView2 (Windows) or WKWebView (macOS)**. For real browsing, build and
 > run Flux **natively on Windows/macOS** with that OS's Rust + Node toolchain.
 
+## Mobile — iPhone (ADR 0021)
+
+Flux builds for iOS with **Tauri v2 mobile**, signed with your Apple Development
+identity and installed straight onto a paired iPhone:
+
+```sh
+bash scripts/build-ios.sh              # build, install and launch on the iPhone
+bash scripts/build-ios.sh --no-install # just build (→ crates/flux-core/gen/apple/build/arm64/Flux.ipa)
+```
+
+Debug builds can be driven from the Mac: `bash scripts/ios-drive.sh js script.js`
+runs a script in the app and prints what it returns, and `ios-drive.sh shot out.png`
+takes a screenshot (ADR 0021).
+
+One-time setup: Xcode (signed in, so it has made an Apple Development
+certificate), `rustup target add aarch64-apple-ios`, `brew install xcodegen`,
+and the iPhone paired with Developer Mode on (Settings → Privacy & Security). No
+iOS Simulator runtime is needed for a device build. The first launch may ask you
+to trust the developer in Settings → General → VPN & Device Management.
+
 ## Mobile — Android (ADR 0012)
 
 ### Native APK (recommended) — build here, install on the phone

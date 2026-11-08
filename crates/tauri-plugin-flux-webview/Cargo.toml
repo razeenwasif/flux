@@ -1,7 +1,7 @@
 [package]
 name = "tauri-plugin-flux-webview"
 version = "0.1.0"
-description = "Native android.webkit.WebView stack for Flux tabs on Android (ADR 0012, Milestone 2)"
+description = "Native per-tab WebViews for Flux on Android and iOS (ADR 0012)"
 edition.workspace = true
 license.workspace = true
 rust-version = "1.80"

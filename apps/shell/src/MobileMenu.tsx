@@ -1,10 +1,10 @@
 /**
- * Mobile navigation drawer (ADR 0012) — replaces the desktop Arc sidebar on the
- * phone, which was mostly empty there (tabs live in MobileChrome's switcher, the
- * omnibox in its top bar). This is the Chrome-style ⋮ menu: a grid of Flux
- * destinations + a new-tab action. Opened by the ⋮ button, closed by a tap.
+ * The phone's ⋯ menu (ADR 0012): a bottom sheet in place of the desktop
+ * sidebar. A row of actions on the current page (forward, share, new tab, the
+ * agent), then every Flux destination in a grid. Opened from the bar's ⋯;
+ * a tap outside, a drag down, or picking something closes it.
  */
-import { For, type Component } from "solid-js";
+import { For, Show, createSignal, type Component } from "solid-js";
 
 import {
   APPS_URL,
@@ -22,57 +22,155 @@ import {
   TASKS_URL,
   TRAIL_URL,
   VAULT_URL,
+  isStartUrl,
+  webviewForward,
 } from "./ipc";
-import { openTab } from "./store";
+import { Icon, type IconName } from "./mobileicons";
+import { activeTab, openTab } from "./store";
+import "./MobileMenu.css";
 
-const DESTINATIONS: { icon: string; label: string; url: string }[] = [
-  { icon: "✦", label: "Notebook", url: NOTEBOOK_URL },
-  { icon: "🧭", label: "Trail", url: TRAIL_URL },
-  { icon: "🕘", label: "History", url: HISTORY_URL },
-  { icon: "🔖", label: "Bookmarks", url: BOOKMARKS_URL },
-  { icon: "📚", label: "Saved", url: ARCHIVE_URL },
-  { icon: "📰", label: "Feeds", url: FEEDS_URL },
-  { icon: "🗃", label: "Sessions", url: SESSIONS_URL },
-  { icon: "🗂️", label: "Tasks", url: TASKS_URL },
-  { icon: "📊", label: "Resources", url: RESOURCES_URL },
-  { icon: "⚡", label: "Speed test", url: SPEEDTEST_URL },
-  { icon: "✦", label: "Omni", url: OMNI_URL },
-  { icon: "🧩", label: "Apps", url: APPS_URL },
-  { icon: "🔑", label: "Passwords", url: VAULT_URL },
-  { icon: "🔄", label: "Sync", url: SYNC_URL },
-  { icon: "⚙", label: "Settings", url: SETTINGS_URL },
+const DESTINATIONS: { icon: IconName; label: string; url: string }[] = [
+  { icon: "book", label: "Notebook", url: NOTEBOOK_URL },
+  { icon: "compass", label: "Trail", url: TRAIL_URL },
+  { icon: "clock", label: "History", url: HISTORY_URL },
+  { icon: "star", label: "Bookmarks", url: BOOKMARKS_URL },
+  { icon: "archive", label: "Saved", url: ARCHIVE_URL },
+  { icon: "rss", label: "Feeds", url: FEEDS_URL },
+  { icon: "layers", label: "Sessions", url: SESSIONS_URL },
+  { icon: "check", label: "Tasks", url: TASKS_URL },
+  { icon: "sparkle", label: "Omni", url: OMNI_URL },
+  { icon: "grid", label: "Apps", url: APPS_URL },
+  { icon: "key", label: "Passwords", url: VAULT_URL },
+  { icon: "sync", label: "Sync", url: SYNC_URL },
+  { icon: "gauge", label: "Resources", url: RESOURCES_URL },
+  { icon: "bolt", label: "Speed test", url: SPEEDTEST_URL },
+  { icon: "gear", label: "Settings", url: SETTINGS_URL },
 ];
 
-const MobileMenu: Component<{ onNavigate: (url: string) => void; onClose: () => void }> = (props) => {
+const MobileMenu: Component<{
+  open: boolean;
+  onNavigate: (url: string) => void;
+  onClose: () => void;
+  onAgent: () => void;
+}> = (props) => {
+  const pageUrl = () => {
+    const t = activeTab();
+    return t?.kind === "browser" && !isStartUrl(t.url) ? t.url : "";
+  };
+  const [copied, setCopied] = createSignal(false);
+
   const go = (url: string) => {
     props.onNavigate(url);
     props.onClose();
   };
+  const share = async () => {
+    const url = pageUrl();
+    if (!url) return;
+    const nav = navigator as Navigator & { share?: (d: { url: string; title?: string }) => Promise<void> };
+    try {
+      if (nav.share) {
+        await nav.share({ url, title: activeTab()?.title || undefined });
+        return props.onClose();
+      }
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") return; // the reader closed the share sheet
+    }
+    await navigator.clipboard?.writeText(url).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  };
+
+  // Drag the sheet down by its grabber or header to dismiss it.
+  let y0 = 0;
+  const [dy, setDy] = createSignal(0);
+
+  const actions = (): { icon: IconName; label: string; run: () => void; off?: boolean }[] => [
+    {
+      icon: "forward",
+      label: "Forward",
+      off: !pageUrl(),
+      run: () => {
+        const t = activeTab();
+        if (t?.kind === "browser") void webviewForward(t.id).catch(() => {});
+        props.onClose();
+      },
+    },
+    {
+      icon: copied() ? "link" : "share",
+      label: copied() ? "Copied" : "Share",
+      off: !pageUrl(),
+      run: () => void share(),
+    },
+    {
+      icon: "plus",
+      label: "New tab",
+      run: () => {
+        void openTab("browser");
+        props.onClose();
+      },
+    },
+    {
+      icon: "sparkle",
+      label: "Agent",
+      run: () => {
+        props.onClose();
+        props.onAgent();
+      },
+    },
+  ];
+
   return (
-    <nav class="mobile-menu">
-      <div class="mmenu-head">
-        <span class="mmenu-brand">Flux</span>
-        <button
-          class="mmenu-newtab"
-          onClick={() => {
-            void openTab("browser");
-            props.onClose();
+    <>
+      <Show when={props.open}>
+        <div class="mm-backdrop" onClick={() => props.onClose()} />
+      </Show>
+      <nav
+        class="mobile-menu"
+        classList={{ open: props.open }}
+        style={dy() ? { transform: `translateY(${dy()}px)`, transition: "none" } : undefined}
+        aria-hidden={!props.open}
+      >
+        <div
+          class="mm-handle"
+          onTouchStart={(e) => (y0 = e.touches[0]!.clientY)}
+          onTouchMove={(e) => setDy(Math.max(0, e.touches[0]!.clientY - y0))}
+          onTouchEnd={() => {
+            if (dy() > 80) props.onClose();
+            setDy(0);
           }}
         >
-          ＋ New tab
-        </button>
-      </div>
-      <div class="mmenu-grid">
-        <For each={DESTINATIONS}>
-          {(d) => (
-            <button class="mmenu-card" onClick={() => go(d.url)}>
-              <span class="mmenu-ico">{d.icon}</span>
-              <span class="mmenu-label">{d.label}</span>
-            </button>
-          )}
-        </For>
-      </div>
-    </nav>
+          <span class="mm-grabber" />
+          <Show when={pageUrl()}>
+            <div class="mm-page">
+              <span class="mm-page-title">{activeTab()?.title || pageUrl()}</span>
+              <span class="mm-page-url">{pageUrl()}</span>
+            </div>
+          </Show>
+        </div>
+        <div class="mm-actions">
+          <For each={actions()}>
+            {(a) => (
+              <button class="mm-action" disabled={a.off} onClick={a.run}>
+                <Icon name={a.icon} size={22} />
+                <span>{a.label}</span>
+              </button>
+            )}
+          </For>
+        </div>
+        <div class="mm-grid">
+          <For each={DESTINATIONS}>
+            {(d) => (
+              <button class="mm-dest" onClick={() => go(d.url)}>
+                <span class="mm-dest-ico">
+                  <Icon name={d.icon} size={21} />
+                </span>
+                <span class="mm-dest-label">{d.label}</span>
+              </button>
+            )}
+          </For>
+        </div>
+      </nav>
+    </>
   );
 };
 

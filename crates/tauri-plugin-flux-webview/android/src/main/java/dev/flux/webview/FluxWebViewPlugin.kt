@@ -408,6 +408,13 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(JSObject())
     }
 
+    @Command
+    fun stop(invoke: Invoke) {
+        val a = invoke.parseArgs(IdArgs::class.java)
+        activity.runOnUiThread { views[a.id]?.stopLoading() }
+        invoke.resolve(JSObject())
+    }
+
     /** The shell pulls a tab's cached cover snapshot over the normal IPC — images
      *  are too large for the plugin event channel. "" when nothing captured yet. */
     @Command
