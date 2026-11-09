@@ -24,6 +24,7 @@ import {
   type ServiceStatus,
 } from "./ipc";
 import { openTab } from "./store";
+import { isMobile } from "./platform";
 import "./NotebookPage.css";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -366,7 +367,7 @@ const NotebookPage: Component = () => {
           }}
         />
         <button class="nb-go" disabled={busy() || !q().trim()} onClick={() => void ask()}>
-          {busy() ? "Thinking…" : "Ask ⌘↵"}
+          {busy() ? "Thinking…" : isMobile ? "Ask" : "Ask ⌘↵"}
         </button>
       </div>
 

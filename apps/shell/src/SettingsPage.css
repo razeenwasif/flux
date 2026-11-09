@@ -482,3 +482,67 @@ html[data-density="comfortable"] .set-row {
   padding-top: 20px;
   padding-bottom: 20px;
 }
+
+/* ── Settings on a phone (ADR 0021) ───────────────────────────────────────
+   The container queries above already stack each row and turn the section
+   list into a row of tabs. A phone also gets tighter padding, the section tabs
+   as plain chips that scroll sideways (not a paper card), and 16px fields so
+   iOS doesn't zoom in on focus. `:root.mobile.mobile` outranks the designs'
+   `:root[data-design] .set-…` rules. */
+:root.mobile.mobile .set-page {
+  padding: 14px 14px 0;
+  /* No row gaps: the designs keep empty grid rows for the save and error
+     messages (which bring their own margins), and on a tall screen each empty
+     row's gap stacked up above the sections. */
+  row-gap: 0;
+}
+:root.mobile.mobile .set-page.set-page > .set-layout {
+  margin-top: 14px;
+}
+:root.mobile.mobile .set-page .hist-title {
+  font-size: 30px;
+}
+:root.mobile.mobile .set-layout {
+  gap: 12px;
+}
+:root.mobile.mobile .set-nav {
+  flex-direction: row;
+  align-self: stretch;
+  gap: 8px;
+  padding: 0 0 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  box-shadow: none;
+  scrollbar-width: none;
+}
+:root.mobile.mobile .set-nav::before,
+:root.mobile.mobile .set-nav::after {
+  display: none;
+}
+:root.mobile.mobile .set-nav button {
+  flex: none;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 14px;
+  white-space: nowrap;
+}
+:root.mobile.mobile .set-nav button[aria-current] {
+  background: rgba(var(--accent-rgb), 0.3);
+}
+:root.mobile.mobile .set-body {
+  gap: 26px;
+  /* No room for a desktop scrollbar: iOS's floats over the content. */
+  padding-right: 0;
+  padding-bottom: 24px;
+}
+:root.mobile.mobile .set-row {
+  padding: 14px 16px;
+}
+:root.mobile.mobile .set-search-bar input,
+:root.mobile.mobile
+  .set-page
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+  font-size: 16px;
+}

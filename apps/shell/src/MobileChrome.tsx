@@ -36,6 +36,7 @@ import {
 import {
   historyRecent,
   historySearch,
+  START_URL,
   isStartUrl,
   searchResolve,
   webviewReload,
@@ -120,6 +121,17 @@ const MobileChrome: Component<{
     return t && t.kind === "browser" && !isStartUrl(t.url) ? t.url : "";
   };
   const browserTabs = () => tabs().filter((t) => t.kind === "browser");
+  /** On one of Flux's own pages (Settings, Notebook, Trail…), not home: its
+   *  name, from its address, for the pill. Such a page has no web history to swipe back through,
+   *  so the island shows Home beside it. */
+  const fluxPage = () => {
+    const t = cur();
+    if (!t || t.kind !== "browser" || !t.url.startsWith("flux://") || t.url === START_URL) return "";
+    // From the address, not the tab's title: moving between Flux's pages in
+    // one tab leaves the title of the first.
+    const name = t.url.slice(7).split(/[/?#]/)[0] ?? "";
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  };
 
   // ── What the native views report: theme colour, progress, scroll direction.
   const [progress, setProgress] = createSignal<Record<number, number>>({});
@@ -413,6 +425,11 @@ const MobileChrome: Component<{
             </button>
           }
         >
+          <Show when={fluxPage()}>
+            <button class="mc-btn" onClick={() => props.go(START_URL)} aria-label="Home">
+              <Icon name="home" />
+            </button>
+          </Show>
           <div
             class="mc-pill"
             classList={{ act: !!curUrl() }}
@@ -427,8 +444,8 @@ const MobileChrome: Component<{
                 size={15}
               />
             </span>
-            <span class="mc-pill-text" classList={{ hint: !curUrl() }}>
-              {curUrl() ? hostOf(curUrl()) || curUrl() : "Search or enter website"}
+            <span class="mc-pill-text" classList={{ hint: !curUrl() && !fluxPage() }}>
+              {curUrl() ? hostOf(curUrl()) || curUrl() : fluxPage() || "Search or enter website"}
             </span>
             <Show when={curUrl()}>
               <button

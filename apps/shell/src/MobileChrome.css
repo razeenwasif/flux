@@ -454,7 +454,8 @@ html.mobile .mc-bar {
   padding: 0;
   background: none;
 }
-:root.mobile .files-panel {
+:root.mobile .files-panel,
+:root.mobile .kb-panel {
   width: 100%;
   height: 100%;
   border: none;
@@ -489,9 +490,14 @@ html.mobile .mc-bar {
   font-weight: 650;
   color: rgb(var(--accent-rgb));
 }
-:root.mobile .files-panel-x::after {
+/* Only the close button reads "Done"; "open as a full tab" (the Notebook
+   panel's other button) is left out, since the panel already fills the phone. */
+:root.mobile .files-panel-x[title^="Close"]::after {
   content: "Done";
   font-size: 16px;
+}
+:root.mobile .files-panel-x:not([title^="Close"]) {
+  display: none;
 }
 
 /* ── A page under the shell (iOS, ADR 0021). The page fills the screen beneath

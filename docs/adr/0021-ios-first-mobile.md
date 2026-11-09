@@ -245,6 +245,36 @@ to keep the field in view and brought the sheet up with it. Its first row is
 now Shields, so it looked like a Shields menu popping up. A closed sheet is now
 `visibility: hidden` once it has slid away.
 
+## Phone layouts for Settings, Notebook and Trail (9 Nov, BACKLOG #185)
+
+Each page gets a `:root.mobile.mobile` block in its own lazy stylesheet. The
+prefix outranks the designs' `:root[data-design] …` rules, and none of it
+loads at startup.
+- **Trail** was the broken one. On a phone it's one column: the title over its
+  subtitle, the time windows as a row that scrolls sideways, the scrubber's
+  controls wrapping under its track, and the graph taking the rest. The detail
+  pane, a fixed 320px column on a desktop, becomes a sheet over the graph
+  while a page is selected.
+- **Notebook** gets tighter padding, the title over its subtitle,
+  source-location rows that wrap (label on its own line), and the question box
+  over a full-width Ask (without "⌘↵"; a phone has no ⌘).
+- **Settings** already stacked its rows and turned its section list into tabs
+  with container queries. On a phone it gets tighter padding, the tabs as plain
+  chips, and full-width cards (no room kept for a desktop scrollbar). It also
+  loses the row gaps: the designs keep empty grid rows for save and error
+  messages, and their gaps had stacked up into a 42px hole above the sections.
+- Fields on all three use 16px text, because iOS zooms the page in when a
+  smaller field takes focus.
+- **Home from Flux's own pages.** Flux's pages have no web history to swipe
+  back through, and the island has no Back. So on a `flux://` page other than
+  home, the island shows a Home button, and the pill names the page (from its
+  address, since moving between Flux pages in one tab keeps the first title)
+  instead of "Search or enter website".
+- **The Notebook popout** (from home's dock) fills the phone like Files. Of
+  its two header buttons, only the close one reads "Done". The other ("open as
+  a full tab") is hidden, since the panel is already full screen. Before, both
+  read "Done", and tapping the wrong one turned the panel into a tab.
+
 ## Performance on an older phone (audit, 8 Nov)
 
 Measured on the iPhone 11 Pro Max (A13, 4 GB, iOS 18.7, 60 Hz) with `ios-drive.sh`.
@@ -304,7 +334,6 @@ App.tsx, because desktop preloads sit exactly at their 72 KB budget.
   - Find in page and zoom.
   - Opening `target=_blank` in a new tab; such links load in the same tab
     for now.
-  - Phone layouts for Files, Settings, Notebook and Trail (BACKLOG #185).
   - The start page's dock, which still offers Terminal and Editor.
 
 ## Verification

@@ -505,3 +505,91 @@
     padding-bottom: 7px;
   }
 }
+
+/* ── The Trail on a phone (ADR 0021) ──────────────────────────────────────
+   One column: the title with the subtitle under it, the time windows as a row
+   that scrolls sideways, the scrubber wrapping its controls under the track,
+   and the graph taking the rest. The detail pane, a fixed 320px column on a
+   desktop, becomes a sheet over the graph while a page is selected (tap the
+   page again, or empty graph, to close it). `:root.mobile.mobile` outranks the
+   designs' `:root[data-design] .trail-…` rules. */
+:root.mobile.mobile .trail {
+  padding: 14px 14px 12px;
+}
+:root.mobile.mobile .trail-head {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+:root.mobile.mobile .trail-brand {
+  font-size: 26px;
+  line-height: 1.1;
+}
+:root.mobile.mobile .trail-sub {
+  display: block;
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+:root.mobile.mobile .trail-controls {
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+:root.mobile.mobile .trail-window,
+:root.mobile.mobile .trail-forget,
+:root.mobile.mobile .trail-reload {
+  flex: none;
+}
+:root.mobile.mobile .trail-win-btn {
+  padding: 7px 14px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+:root.mobile.mobile .trail-forget,
+:root.mobile.mobile .trail-reload {
+  padding: 8px 14px;
+  font-size: 13px;
+}
+:root.mobile.mobile .trail-scrub {
+  flex-wrap: wrap;
+  margin: 2px 0 18px;
+}
+:root.mobile.mobile .trail-scrub-track {
+  flex: 1 0 100%;
+}
+:root.mobile.mobile .trail-body {
+  position: relative;
+  flex-direction: column;
+  gap: 0;
+}
+:root.mobile.mobile .trail-body::after {
+  display: none;
+}
+:root.mobile.mobile .trail-graph {
+  flex: 1 1 auto;
+}
+:root.mobile.mobile .trail-empty {
+  padding: 0 12%;
+}
+:root.mobile.mobile .trail-detail {
+  display: none;
+}
+:root.mobile.mobile .trail-detail.open {
+  display: flex;
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  z-index: 3;
+  max-height: 60%;
+  border-radius: 22px;
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+  animation: trail-sheet 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes trail-sheet {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+}

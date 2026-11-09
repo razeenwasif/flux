@@ -9,6 +9,8 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ### Added
 - Flux on iPhone, with Flux's own icon. `scripts/build-ios.sh` builds the iOS app and installs it on a paired iPhone. Every tab is a real WebKit page view. Swipe from the screen's edge to go back or forward. Links such as `mailto:` and `tel:` open in iOS. Closing a tab stops its video, and a page iOS unloads in the background comes back instead of going blank. Not on iOS yet: fingerprint defences, the agent reading pages, and find in page.
+- On a phone, Flux's own pages (Settings, Notebook, Trail…) name themselves in the address pill and show a Home button in the island.
+- Settings, Notebook and the Trail fit a phone. The Trail is one column with its graph full width, and a page's details slide up as a sheet. Notebook's source locations and question box stack, and Settings has tighter cards and its sections as chips. Fields no longer make iOS zoom in.
 - Shields on iPhone. Ads and trackers are blocked with the same EasyList and EasyPrivacy rules as on the Mac, run inside WebKit. The ⋯ menu shows how many were blocked on the page, with a switch to turn Shields off for that site.
 - A new phone interface, built for iOS first and also used on Android:
   - **Bottom bar:** a frosted-glass island floating over the page, in thumb's reach, with the address, the tab count and ⋯. Swipe the address sideways to change tabs; swipe from the screen's edge to go back. Pages run full height under it, and while you scroll down it shrinks to a small pill with the site.
