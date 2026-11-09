@@ -33,6 +33,18 @@ pub struct IdArgs {
     pub id: i32,
 }
 
+/// Shields for the iOS tab views (ADR 0021): the content-blocker JSON to compile
+/// into a WKContentRuleList (and its stamp, which names the compiled list), the
+/// global switch, and the hosts where Shields is off.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShieldsArgs {
+    pub path: Option<String>,
+    pub stamp: Option<String>,
+    pub enabled: bool,
+    pub off: Vec<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NavArgs {

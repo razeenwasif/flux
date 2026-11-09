@@ -49,13 +49,18 @@ fn tab_of(label: &str) -> Option<TabId> {
 }
 
 /// Whether blocked requests are counted here. Windows sees every request;
-/// macOS once the WebKit callback is in place (the first page's install).
+/// macOS once the WebKit callback is in place (the first page's install); iOS
+/// always, since the tab plugin is the navigation delegate that hears them.
 pub fn reports_blocks() -> bool {
     #[cfg(target_os = "macos")]
     {
         mac::hooked()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "ios")]
+    {
+        true
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     {
         false
     }
@@ -151,8 +156,15 @@ fn page_changed(tab: TabId) {
 #[cfg(target_os = "macos")]
 fn blocked_natively(label: &str, page: &str, url: &str) {
     let Some(app) = APP.get() else { return };
-    let tab = tab_of(label);
     tracing::debug!(target: "flux::netfilter", label, url, "WebKit blocked");
+    record_block(app, tab_of(label), page, url);
+}
+
+/// Count a request WebKit's rules blocked (macOS here, iOS through
+/// `ios_shields`): the session and page tallies, the tracker graph, and the
+/// shell's badge.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub(crate) fn record_block(app: &AppHandle, tab: Option<TabId>, page: &str, url: &str) {
     if let Some(s) = app.try_state::<crate::shields::ShieldsState>() {
         s.record_native_block(tab, url);
     }
@@ -162,6 +174,12 @@ fn blocked_natively(label: &str, page: &str, url: &str) {
     if let Some(tab) = tab {
         page_changed(tab);
     }
+}
+
+/// Give this module the app handle without a desktop webview install (iOS).
+#[cfg(target_os = "ios")]
+pub(crate) fn set_app(app: &AppHandle) {
+    let _ = APP.set(app.clone());
 }
 
 // Each install owns its report. A late compile from a closed/recreated webview

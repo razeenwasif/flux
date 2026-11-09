@@ -9,9 +9,9 @@
  */
 const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
 export const isAndroid: boolean = /android/i.test(ua);
+// A non-empty UA means `navigator` exists, so the second test needs no guard.
 export const isIOS: boolean =
-  /iPhone|iPad|iPod/.test(ua) ||
-  (/Macintosh/.test(ua) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1);
+  /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 export const isMobile: boolean = isAndroid || isIOS;
 
 /**

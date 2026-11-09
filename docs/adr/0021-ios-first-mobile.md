@@ -205,6 +205,46 @@ native layer instead, the way Safari tints its bar:
 (iOS), as does the system back (Android). Swiping up on the bar no longer opens
 the tab grid, because it fought iOS's swipe up to go home.
 
+## Shields on iOS (9 Nov)
+
+WKWebView gives Rust no per-request hook, unlike Android's
+`shouldInterceptRequest`. So iOS runs Shields the way macOS does: as a
+`WKContentRuleList` inside WebKit.
+- **One source of rules.** Shields already writes its lists as WebKit
+  content-blocker JSON (`webkit-cb.json`, capped at 75,000 rules).
+- **Rust tells the plugin.** `ios_shields.rs` sends the JSON's path and stamp,
+  the global switch and the hosts where Shields is off, through the plugin's
+  `shields` command. It does so at boot, after each list refresh, and on every
+  switch change.
+- **Compiled once.** The plugin compiles a list named after the stamp, but only
+  when WebKit's store doesn't already have it. Compiled lists survive
+  relaunches, and older ones are pruned.
+- **Decided per site.** The list goes on or off a tab as each main-frame
+  navigation is decided, for the host it's going to.
+- **Blocks are counted.** WebKit reports each block to the plugin through the
+  private `_webView:contentRuleListWithIdentifier:performedAction:forURL:`.
+  The plugin passes it on to `flux_ios_shields_blocked`, a C function in Rust,
+  which feeds the same session and page counts, tracker graph and badge
+  (`netfilter::record_block`, now shared with macOS). So the status reports
+  backend `webkit` with counts.
+- **A Shields row in the ⋯ sheet.** The phone had no Shields UI. The row shows
+  what the page had blocked and holds the site's switch; a change reloads the
+  page.
+
+Checked on the phone: the rules (7.4 MB of JSON) compiled to a 26.7 MB list in
+WebKit's store. A Google results page had 30–34 requests blocked. Turning
+Shields off for www.google.com and back on round-tripped through
+`shields_set_site`, the plugin and a reload.
+
+Not yet on iOS: element hiding from the picker (cosmetic rules written into
+the JSON do apply) and HTTPS-only upgrades. Neither has a hook here.
+
+**The keyboard and the closed sheet.** The ⋯ sheet waits below the screen's
+edge when closed. When the keyboard opened for search, iOS scrolled the shell
+to keep the field in view and brought the sheet up with it. Its first row is
+now Shields, so it looked like a Shields menu popping up. A closed sheet is now
+`visibility: hidden` once it has slid away.
+
 ## Performance on an older phone (audit, 8 Nov)
 
 Measured on the iPhone 11 Pro Max (A13, 4 GB, iOS 18.7, 60 Hz) with `ios-drive.sh`.
@@ -259,8 +299,6 @@ App.tsx, because desktop preloads sit exactly at their 72 KB budget.
 - The stand-in `xcrun` is a workaround for a Tauri CLI check. Installing a
   simulator runtime makes it step aside on its own.
 - Not yet on iOS:
-  - Shields. Android filters each request through JNI; iOS needs the filter
-    lists compiled to `WKContentRuleList`.
   - Fingerprint defences and other page scripts, which need `WKUserScript`s.
   - `eval` into a page, so no agent DOM or Reader yet.
   - Find in page and zoom.

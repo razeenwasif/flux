@@ -5,7 +5,7 @@
  * a tap outside, a drag down, or picking something closes it.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { For, Show, createSignal, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, type Component } from "solid-js";
 
 import {
   APPS_URL,
@@ -24,7 +24,12 @@ import {
   TRAIL_URL,
   VAULT_URL,
   isStartUrl,
+  shieldsSetEnabled,
+  shieldsSetSite,
+  shieldsStatus,
   webviewForward,
+  webviewReload,
+  type ShieldsStatus,
 } from "./ipc";
 import { Icon, type IconName } from "./mobileicons";
 import { activeTab, openTab } from "./store";
@@ -60,6 +65,40 @@ const MobileMenu: Component<{
     return t?.kind === "browser" && !isStartUrl(t.url) ? t.url : "";
   };
   const [copied, setCopied] = createSignal(false);
+
+  // Shields for this page: what it blocked, and the site's switch. Read each
+  // time the sheet opens; a change reloads the page so it takes effect.
+  const [shields, setShields] = createSignal<ShieldsStatus | null>(null);
+  const loadShields = () => {
+    const t = activeTab();
+    void shieldsStatus(t?.kind === "browser" ? t.id : null)
+      .then(setShields)
+      .catch(() => setShields(null));
+  };
+  createEffect(() => {
+    if (props.open) loadShields();
+  });
+  const host = () => {
+    try {
+      return new URL(pageUrl()).hostname;
+    } catch {
+      return "";
+    }
+  };
+  const shieldsUp = () => {
+    const s = shields();
+    return !!s && s.enabled && !s.sites_off.includes(host());
+  };
+  const toggleShields = async () => {
+    const s = shields();
+    const h = host();
+    if (!s || !h) return;
+    if (!s.enabled) await shieldsSetEnabled(true).catch(() => {});
+    else await shieldsSetSite(h, !shieldsUp()).catch(() => {});
+    loadShields();
+    const t = activeTab();
+    if (t?.kind === "browser") void webviewReload(t.id).catch(() => {});
+  };
 
   const go = (url: string) => {
     props.onNavigate(url);
@@ -148,6 +187,30 @@ const MobileMenu: Component<{
             </div>
           </Show>
         </div>
+        <Show when={pageUrl() ? shields() : null}>
+          {(s) => (
+            <button class="mm-shield" classList={{ off: !shieldsUp() }} onClick={() => void toggleShields()}>
+              <span class="mm-shield-ico">
+                <Icon name="shield" size={20} />
+              </span>
+              <span class="mm-shield-main">
+                <span class="mm-shield-title">
+                  {!s().enabled
+                    ? "Shields are off everywhere"
+                    : shieldsUp()
+                      ? "Shields up"
+                      : `Shields down for ${host()}`}
+                </span>
+                <span class="mm-shield-sub">
+                  {shieldsUp()
+                    ? `${s().page_blocked} ad${s().page_blocked === 1 ? "" : "s"} and trackers blocked on this page`
+                    : "Ads and trackers load here"}
+                </span>
+              </span>
+              <span class="mm-switch" classList={{ on: shieldsUp() }} aria-hidden="true" />
+            </button>
+          )}
+        </Show>
         <div class="mm-actions">
           <For each={actions()}>
             {(a) => (

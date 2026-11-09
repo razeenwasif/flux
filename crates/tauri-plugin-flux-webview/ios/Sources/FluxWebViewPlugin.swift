@@ -148,6 +148,21 @@ final class Folders {
   }
 }
 
+struct ShieldsArgs: Decodable {
+  /// webkit-cb.json, Shields' rules as WebKit content-blocker JSON.
+  let path: String?
+  /// What those rules were made from: names the compiled list.
+  let stamp: String?
+  let enabled: Bool
+  /// Hosts where Shields is off.
+  let off: [String]
+}
+
+/// Rust's side of a block WebKit reported (flux-core's ios_shields.rs).
+@_silgen_name("flux_ios_shields_blocked")
+private func fluxIosShieldsBlocked(
+  _ tab: Int32, _ page: UnsafePointer<CChar>, _ url: UnsafePointer<CChar>)
+
 struct ChromeArgs: Decodable {
   /// The status strip's height and the bottom bar's, in points.
   let top: Double
@@ -226,6 +241,11 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
   private var topH: CGFloat = 0
   private var barH: CGFloat = 0
   private var pageShown = false
+  /// Shields (ADR 0021): the compiled rules, and the switches from Rust.
+  private var rules: WKContentRuleList?
+  private var rulesStamp = ""
+  private var shieldsOn = true
+  private var shieldsOff = Set<String>()
   private var views: [Int: WKWebView] = [:]
   private var watches: [Int: [NSKeyValueObservation]] = [:]
   private var thumbs: [Int: String] = [:]
@@ -535,6 +555,9 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
     guard let url = action.request.url, let scheme = url.scheme?.lowercased() else {
       return decisionHandler(.allow)
     }
+    // Shields is decided per site as a page starts: on or off for the host
+    // it's going to.
+    if action.targetFrame?.isMainFrame ?? true { applyRules(webView, host: url.host) }
     if ["http", "https", "about", "blob", "data", "file"].contains(scheme) {
       return decisionHandler(.allow)
     }
@@ -718,6 +741,88 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
   /// own view controller, so it's a real sheet over everything, native tabs
   /// included (WebKit's navigator.share showed a cut-off popover). Resolves
   /// with whether something was shared.
+  // MARK: Shields
+
+  /// The rules and switches, from Rust (ios_shields.rs): at boot, after the
+  /// lists refresh, and whenever a switch changes.
+  @objc public func shields(_ invoke: Invoke) throws {
+    let a = try invoke.parseArgs(ShieldsArgs.self)
+    DispatchQueue.main.async {
+      self.shieldsOn = a.enabled
+      self.shieldsOff = Set(a.off)
+      if let path = a.path, let stamp = a.stamp, stamp != self.rulesStamp {
+        self.loadRules(path: path, stamp: stamp)
+      } else {
+        self.applyAll()
+      }
+    }
+    invoke.resolve()
+  }
+
+  /// The compiled list for these rules: WebKit's store keeps it across
+  /// launches, so it's compiled only when the rules change (tens of thousands
+  /// of rules take a few seconds to compile on an older phone).
+  private func loadRules(path: String, stamp: String) {
+    rulesStamp = stamp
+    let id = "flux-shields-" + stamp
+    guard let store = WKContentRuleListStore.default() else { return }
+    store.lookUpContentRuleList(forIdentifier: id) { found, _ in
+      if let found = found { return self.useRules(found, id: id, store: store) }
+      DispatchQueue.global(qos: .utility).async {
+        guard let json = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+        DispatchQueue.main.async {
+          store.compileContentRuleList(forIdentifier: id, encodedContentRuleList: json) {
+            list, error in
+            if let list = list {
+              self.useRules(list, id: id, store: store)
+            } else {
+              NSLog("[flux] shields: rules didn't compile: \(String(describing: error))")
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private func useRules(_ list: WKContentRuleList, id: String, store: WKContentRuleListStore) {
+    DispatchQueue.main.async {
+      self.rules = list
+      self.applyAll()
+      // Drop lists compiled from older rules.
+      store.getAvailableContentRuleListIdentifiers { ids in
+        for old in ids ?? [] where old.hasPrefix("flux-shields-") && old != id {
+          store.removeContentRuleList(forIdentifier: old) { _ in }
+        }
+      }
+    }
+  }
+
+  private func applyAll() {
+    for wv in views.values { applyRules(wv, host: wv.url?.host) }
+  }
+
+  /// Put the rules on a tab or take them off, as the switches say for `host`.
+  private func applyRules(_ wv: WKWebView, host: String?) {
+    let ucc = wv.configuration.userContentController
+    ucc.removeAllContentRuleLists()
+    guard let rules = rules, shieldsOn else { return }
+    if let host = host, shieldsOff.contains(host) { return }
+    ucc.add(rules)
+  }
+
+  /// WebKit's private report that a rule list acted on a request (the same one
+  /// macOS uses). Only blocked loads count.
+  @objc(_webView:contentRuleListWithIdentifier:performedAction:forURL:)
+  func ruleListAction(_ webView: WKWebView, identifier: String, action: NSObject, url: URL) {
+    guard (action.value(forKey: "blockedLoad") as? Bool) == true, let id = idOf(webView) else {
+      return
+    }
+    let page = webView.url?.absoluteString ?? ""
+    page.withCString { p in
+      url.absoluteString.withCString { u in fluxIosShieldsBlocked(Int32(id), p, u) }
+    }
+  }
+
   /// The bars' heights, sent by the shell whenever they change (the bottom bar
   /// shrinks while a page scrolls down).
   @objc public func setChrome(_ invoke: Invoke) throws {

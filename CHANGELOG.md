@@ -8,7 +8,8 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
-- Flux on iPhone, with Flux's own icon. `scripts/build-ios.sh` builds the iOS app and installs it on a paired iPhone. Every tab is a real WebKit page view. Swipe from the screen's edge to go back or forward. Links such as `mailto:` and `tel:` open in iOS. Closing a tab stops its video, and a page iOS unloads in the background comes back instead of going blank. Not on iOS yet: Shields, fingerprint defences, the agent reading pages, and find in page.
+- Flux on iPhone, with Flux's own icon. `scripts/build-ios.sh` builds the iOS app and installs it on a paired iPhone. Every tab is a real WebKit page view. Swipe from the screen's edge to go back or forward. Links such as `mailto:` and `tel:` open in iOS. Closing a tab stops its video, and a page iOS unloads in the background comes back instead of going blank. Not on iOS yet: fingerprint defences, the agent reading pages, and find in page.
+- Shields on iPhone. Ads and trackers are blocked with the same EasyList and EasyPrivacy rules as on the Mac, run inside WebKit. The ⋯ menu shows how many were blocked on the page, with a switch to turn Shields off for that site.
 - A new phone interface, built for iOS first and also used on Android:
   - **Bottom bar:** a frosted-glass island floating over the page, in thumb's reach, with the address, the tab count and ⋯. Swipe the address sideways to change tabs; swipe from the screen's edge to go back. Pages run full height under it, and while you scroll down it shrinks to a small pill with the site.
   - **Around the notch:** pages fill the screen up to the top. The strip behind the notch takes the page's colour (on home, the wallpaper's), and the clock and icons turn dark over light pages.

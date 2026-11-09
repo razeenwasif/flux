@@ -64,6 +64,11 @@ impl<R: Runtime> FluxWebview<R> {
     pub fn stop(&self, id: i32) -> Result<()> {
         self.call("stop", IdArgs { id })
     }
+    /// Shields' rules and switches, for the native layer to apply (iOS; the
+    /// Android side asks Rust per request instead).
+    pub fn shields(&self, args: ShieldsArgs) -> Result<()> {
+        self.call("shields", args)
+    }
     /// Unload a background tab's view but keep its cover (tab sleep).
     pub fn hibernate(&self, id: i32) -> Result<()> {
         self.call("hibernate", IdArgs { id })

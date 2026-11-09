@@ -319,6 +319,15 @@ impl ShieldsState {
         p.exists().then_some(p)
     }
 
+    /// What `webkit-cb.json` was made from (its stamp): names the compiled
+    /// list, so a native layer recompiles only when the rules change.
+    pub fn content_blocker_stamp(&self) -> Option<String> {
+        let p = self.filters_dir.as_ref()?.join(CB_STAMP_FILE);
+        std::fs::read_to_string(p)
+            .ok()
+            .map(|s| s.trim().to_string())
+    }
+
     /// Swap in a rebuilt rule set and invalidate the decision cache — every
     /// memoized verdict was computed against the old rules (#99).
     fn install_filter(&self, filter: Filter) {
@@ -499,7 +508,11 @@ impl ShieldsState {
         ShieldsStatus {
             backend: if cfg!(windows) {
                 "webview2"
-            } else if cfg!(any(target_os = "macos", target_os = "linux")) {
+            } else if cfg!(any(
+                target_os = "macos",
+                target_os = "linux",
+                target_os = "ios"
+            )) {
                 "webkit"
             } else {
                 "unsupported"
@@ -666,6 +679,8 @@ pub fn shields_set_enabled(app: AppHandle, state: State<'_, ShieldsState>, on: b
     state.save_prefs();
     crate::netfilter::reapply(&app);
     crate::fingerprint::refresh(&app);
+    #[cfg(target_os = "ios")]
+    crate::ios_shields::sync(&app);
 }
 
 /// Turn shields on/off for one site (`on = false` allowlists the host).
@@ -679,6 +694,8 @@ pub fn shields_set_site(app: AppHandle, state: State<'_, ShieldsState>, host: St
     state.save_prefs();
     crate::netfilter::reapply(&app);
     crate::fingerprint::refresh(&app);
+    #[cfg(target_os = "ios")]
+    crate::ios_shields::sync(&app);
 }
 
 /// Let the user click an element on `tab_id`'s page to hide it there for good.
@@ -732,7 +749,11 @@ pub fn shields_check(
 pub fn shields_refresh(app: AppHandle) {
     // Forced: the plain refresh skips lists under five days old, which after
     // the boot refresh is nearly always all of them.
-    std::thread::spawn(move || app.state::<ShieldsState>().refresh_lists(true));
+    std::thread::spawn(move || {
+        app.state::<ShieldsState>().refresh_lists(true);
+        #[cfg(target_os = "ios")]
+        crate::ios_shields::sync(&app);
+    });
 }
 
 /// The session's hot rule set — the filters that actually fired, busiest first

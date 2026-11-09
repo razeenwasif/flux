@@ -5,6 +5,8 @@ pub mod agent;
 pub mod agent_bridge;
 #[cfg(target_os = "android")]
 mod android_jni;
+#[cfg(target_os = "ios")]
+mod ios_shields;
 pub mod archive;
 pub mod audioviz;
 pub mod bindings;
@@ -382,12 +384,21 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
     // the managed ShieldsState (ADR 0012, M3).
     #[cfg(target_os = "android")]
     android_jni::set_app_handle(app.handle().clone());
+    // iOS Shields: the rules run inside WebKit as a WKContentRuleList (the tab
+    // plugin compiles webkit-cb.json), which reports blocks back here.
+    #[cfg(target_os = "ios")]
+    ios_shields::init(app.handle());
     // Fetch/refresh the big filter lists (EasyList/EasyPrivacy) off the
     // main thread — parsing tens of thousands of rules is heavy.
     #[cfg(not(feature = "native-smoke"))]
     {
         let handle = app.handle().clone();
-        std::thread::spawn(move || handle.state::<shields::ShieldsState>().refresh());
+        std::thread::spawn(move || {
+            handle.state::<shields::ShieldsState>().refresh();
+            // The full lists may have rewritten webkit-cb.json.
+            #[cfg(target_os = "ios")]
+            ios_shields::sync(&handle);
+        });
     }
     // HTTPS-only mode (#58) — shares the request interceptor with shields.
     app.manage(
