@@ -4,6 +4,7 @@
  * agent), then every Flux destination in a grid. Opened from the bar's ⋯;
  * a tap outside, a drag down, or picking something closes it.
  */
+import { invoke } from "@tauri-apps/api/core";
 import { For, Show, createSignal, type Component } from "solid-js";
 
 import {
@@ -52,6 +53,7 @@ const MobileMenu: Component<{
   onNavigate: (url: string) => void;
   onClose: () => void;
   onAgent: () => void;
+  onFiles: () => void;
 }> = (props) => {
   const pageUrl = () => {
     const t = activeTab();
@@ -63,21 +65,20 @@ const MobileMenu: Component<{
     props.onNavigate(url);
     props.onClose();
   };
+  /** The system share sheet, presented natively by the tab plugin: WebKit's
+   *  navigator.share showed a cut-off popover inside the app. Copies the link
+   *  if the plugin can't. */
   const share = async () => {
     const url = pageUrl();
     if (!url) return;
-    const nav = navigator as Navigator & { share?: (d: { url: string; title?: string }) => Promise<void> };
+    props.onClose();
     try {
-      if (nav.share) {
-        await nav.share({ url, title: activeTab()?.title || undefined });
-        return props.onClose();
-      }
-    } catch (e) {
-      if ((e as Error)?.name === "AbortError") return; // the reader closed the share sheet
+      await invoke("plugin:flux-webview|share", { url, title: activeTab()?.title || null });
+    } catch {
+      await navigator.clipboard?.writeText(url).catch(() => {});
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
     }
-    await navigator.clipboard?.writeText(url).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
   };
 
   // Drag the sheet down by its grabber or header to dismiss it.
@@ -158,6 +159,18 @@ const MobileMenu: Component<{
           </For>
         </div>
         <div class="mm-grid">
+          <button
+            class="mm-dest"
+            onClick={() => {
+              props.onClose();
+              props.onFiles();
+            }}
+          >
+            <span class="mm-dest-ico">
+              <Icon name="folder" size={21} />
+            </span>
+            <span class="mm-dest-label">Files</span>
+          </button>
           <For each={DESTINATIONS}>
             {(d) => (
               <button class="mm-dest" onClick={() => go(d.url)}>

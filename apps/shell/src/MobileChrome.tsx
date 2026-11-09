@@ -8,16 +8,19 @@
  * (the search view, the tab grid) is an overlay that App hides the page for
  * while it's up (`sheet`).
  *
- * - The bar: back, the address pill (tap to search, swipe sideways to change
- *   tabs), the tab count, and ⋯ for the menu sheet. It shrinks to a slim strip
- *   showing just the site while the page scrolls down, and comes back when it
- *   scrolls up or the strip is tapped.
+ * - The bar: a frosted-glass island floating over the page with the address
+ *   pill (tap to search, swipe sideways to change tabs), the tab count, and ⋯
+ *   for the menu sheet. No back button: the edge swipe goes back (iOS) and so
+ *   does the system back (Android). It shrinks to a small pill showing just the
+ *   site while the page scrolls down, and comes back when it scrolls up or the
+ *   pill is tapped.
  * - The search view: the field sits on the keyboard, suggestions stack up
  *   from it, nearest first: open tabs, history, and the search itself.
  * - The tab grid: page covers in two columns; tap to open, × or swipe a card
  *   away to close it.
  */
-import { addPluginListener } from "@tauri-apps/api/core";
+import { addPluginListener, invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import {
   For,
   Show,
@@ -35,7 +38,6 @@ import {
   historySearch,
   isStartUrl,
   searchResolve,
-  webviewBack,
   webviewReload,
   webviewStop,
   webviewThumbnail,
@@ -51,6 +53,7 @@ import {
   focusTab,
   isLoading,
   openTab,
+  setFilesPanelOpen,
   setTabThumb,
   tabs,
   tabThumb,
@@ -67,16 +70,42 @@ const hostOf = (url: string): string => {
   }
 };
 
-/** A page's theme colour is only used if it's dark enough for white status-bar
- *  text, the only kind the shell asks for; a light one falls back to velvet. */
-const darkEnough = (hex: string): boolean => {
-  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-  if (!m) return false;
-  const [r = 0, g = 0, b = 0] = m.slice(1, 4).map((x) => parseInt(x, 16) / 255);
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.45;
-};
+type Nav = { id: number; progress?: number; loading?: boolean };
 
-type Nav = { id: number; theme?: string; progress?: number; loading?: boolean };
+const hex = (r: number, g: number, b: number) =>
+  "#" + [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+
+/** The colour along the top of Flux's own background: the wallpaper's top edge
+ *  (Liquid Silk paints it on body::before), else the body's colour. */
+async function topColor(): Promise<string> {
+  const before = getComputedStyle(document.body, "::before").backgroundImage;
+  const url = /url\("?([^")]+)"?\)/.exec(before)?.[1];
+  if (url) {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const c = document.createElement("canvas");
+    c.width = 24;
+    c.height = 2;
+    const ctx = c.getContext("2d");
+    if (ctx) {
+      ctx.drawImage(img, 0, 0, img.naturalWidth, Math.max(1, img.naturalHeight * 0.05), 0, 0, 24, 2);
+      const d = ctx.getImageData(0, 0, 24, 2).data;
+      let r = 0,
+        g = 0,
+        b = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        r += d[i]!;
+        g += d[i + 1]!;
+        b += d[i + 2]!;
+      }
+      const n = d.length / 4;
+      return hex(r / n, g / n, b / n);
+    }
+  }
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(document.body).backgroundColor);
+  return m ? hex(+m[1]!, +m[2]!, +m[3]!) : "";
+}
 type Scroll = { id: number; down: boolean };
 
 const MobileChrome: Component<{
@@ -93,30 +122,108 @@ const MobileChrome: Component<{
   const browserTabs = () => tabs().filter((t) => t.kind === "browser");
 
   // ── What the native views report: theme colour, progress, scroll direction.
-  const [themes, setThemes] = createSignal<Record<number, string>>({});
   const [progress, setProgress] = createSignal<Record<number, number>>({});
   const [compact, setCompact] = createSignal(false);
+  /** Tabs whose native cover may be newer than the one the grid has. */
+  const staleThumbs = new Set<number>();
   onMount(() => {
     const subs: Promise<{ unregister: () => Promise<void> }>[] = [
       addPluginListener<Nav>("flux-webview", "nav", (e) => {
-        if (e.theme !== undefined) setThemes((m) => ({ ...m, [e.id]: e.theme! }));
+        // A page that finished loading has a new cover natively.
+        if (e.loading === false) staleThumbs.add(e.id);
         if (e.progress !== undefined)
           setProgress((m) => ({ ...m, [e.id]: e.loading === false ? 1 : e.progress! }));
       }),
       addPluginListener<Scroll>("flux-webview", "scroll", (e) => {
         if (e.id === activeId()) setCompact(e.down);
       }),
+      // iOS's memory warning, passed on as the desktop's pressure event so the
+      // shell's tab sleep unloads idle background tabs. iOS sends no all-clear,
+      // so it's followed by one a few seconds later.
+      addPluginListener("flux-webview", "memory", () => {
+        void emit("flux://memory-pressure", "critical");
+        setTimeout(() => void emit("flux://memory-pressure", "normal"), 5000);
+      }),
     ];
     onCleanup(() => subs.forEach((p) => void p.then((s) => s.unregister()).catch(() => {})));
   });
+  // The bar's height, for anything laid out above it (the Files page).
+  // The bars' heights: for anything laid out above the bar (the Files page),
+  // and for the native pages under them, which get them as insets. With them
+  // goes the colour for the strip behind the notch over Flux's own pages:
+  // WebKit draws nothing there, so the native layer shows, and it takes the
+  // top edge of the wallpaper (iOS, ADR 0021).
+  let bar: HTMLElement | undefined;
+  let strip: HTMLDivElement | undefined;
+  let fill = "";
+  const send = () => {
+    if (!bar || !strip) return;
+    const top = strip.offsetHeight;
+    // From the island's top to the screen's foot: the page is inset by all of
+    // it, the margin under the island included.
+    const bottom = Math.round(innerHeight - bar.getBoundingClientRect().top);
+    document.documentElement.style.setProperty("--mc-bar-h", `${bottom}px`);
+    void invoke("plugin:flux-webview|set_chrome", { top, bottom, fill: fill || null }).catch(() => {});
+  };
+  const sampleFill = async () => {
+    fill = await topColor().catch(() => "");
+    send();
+  };
+  onMount(() => {
+    if (!bar || !strip) return;
+    const ro = new ResizeObserver(send);
+    ro.observe(bar);
+    ro.observe(strip);
+    // A new wallpaper or design changes the colour.
+    const mo = new MutationObserver(() => void sampleFill());
+    mo.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-wallpaper", "data-design"],
+    });
+    void sampleFill();
+    onCleanup(() => {
+      ro.disconnect();
+      mo.disconnect();
+    });
+  });
+
+  // iOS lays each page under the shell (ADR 0021): while one is on screen the
+  // shell goes transparent, so the bars are glass over the page.
+  onMount(() => {
+    const sub = addPluginListener<{ visible: boolean }>("flux-webview", "page", (e) =>
+      document.documentElement.classList.toggle("native-page", e.visible),
+    );
+    onCleanup(() => void sub.then((s) => s.unregister()).catch(() => {}));
+  });
+  // Links sent with Share → Flux from another app (iOS share extension, ADR
+  // 0021) each open in a new tab. Flux takes them at start (a share can launch
+  // it), when told one arrived, and on coming back to the front.
+  const takeOpened = () =>
+    void invoke<string[]>("plugin:flux-webview|take_opened")
+      .then((links) => {
+        for (const url of links) void openTab("browser", url);
+      })
+      .catch(() => {});
+  onMount(() => {
+    takeOpened();
+    const sub = addPluginListener("flux-webview", "opened", takeOpened);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") takeOpened();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", onVisible);
+      void sub.then((s) => s.unregister()).catch(() => {});
+    });
+  });
+
+  // Files is a full page over the tab on a phone, so going somewhere else (a
+  // new address, another tab) closes it.
+  createEffect(on([activeId, () => activeTab()?.url], () => setFilesPanelOpen(false), { defer: true }));
+
   // A different tab, or a sheet, starts from the full bar.
   createEffect(on([activeId, props.sheet], () => setCompact(false), { defer: true }));
 
-  const tint = () => {
-    const id = activeId();
-    const c = id != null && curUrl() ? themes()[id] : "";
-    return c && darkEnough(c) ? c : "";
-  };
   const pct = () => {
     const id = activeId();
     return id == null ? 1 : (progress()[id] ?? (isLoading() ? 0.1 : 1));
@@ -149,10 +256,6 @@ const MobileChrome: Component<{
     if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) {
       swiped = true;
       setDrag(Math.max(-90, Math.min(90, dx * 0.6)));
-    } else if (dy < -40 && Math.abs(dy) > Math.abs(dx) * 1.5 && !swiped) {
-      // Swipe up from the bar: the tab grid.
-      swiped = true;
-      props.setSheet("tabs");
     }
   };
   const onTouchEnd = () => {
@@ -245,10 +348,16 @@ const MobileChrome: Component<{
   };
 
   // ── Tab grid: covers are cached natively and pulled when the grid opens
-  // (the plugin event channel drops payloads this large).
+  // (the plugin event channel drops payloads this large). Only the ones that
+  // can have changed: the tab just left (its cover is retaken on the way
+  // out), pages that finished loading since, and tabs without one yet.
+  // Pulling every cover on every open cost an IPC and a JPEG decode per tab.
   createEffect(() => {
     if (props.sheet() !== "tabs") return;
+    const act = activeId();
     for (const t of browserTabs()) {
+      if (t.id !== act && !staleThumbs.has(t.id) && tabThumb(t.id)) continue;
+      staleThumbs.delete(t.id);
       void webviewThumbnail(t.id)
         .then((d) => {
           if (d) setTabThumb(t.id, d);
@@ -257,6 +366,10 @@ const MobileChrome: Component<{
     }
   });
   const closeGrid = () => props.setSheet(null);
+  const [gridMounted, setGridMounted] = createSignal(false);
+  createEffect(() => {
+    if (props.sheet() === "tabs") setGridMounted(true);
+  });
 
   const Favicon: Component<{ host: string; size: number }> = (p) => {
     createEffect(() => ensureFavicon(p.host));
@@ -276,9 +389,10 @@ const MobileChrome: Component<{
 
   return (
     <>
-      <div class="mc-status" style={tint() ? { background: tint() } : undefined} />
+      <div class="mc-status" ref={strip} />
 
       <footer
+        ref={bar}
         class="mc-bar"
         classList={{ compact: compact() }}
         onTouchStart={onTouchStart}
@@ -299,14 +413,6 @@ const MobileChrome: Component<{
             </button>
           }
         >
-          <button
-            class="mc-btn"
-            disabled={!curUrl()}
-            onClick={() => navActive(webviewBack)}
-            aria-label="Back"
-          >
-            <Icon name="back" />
-          </button>
           <div
             class="mc-pill"
             classList={{ act: !!curUrl() }}
@@ -437,8 +543,10 @@ const MobileChrome: Component<{
         </div>
       </Show>
 
-      <Show when={props.sheet() === "tabs"}>
-        <div class="mc-tabs">
+      {/* Mounted on first open and then kept, shown and hidden: rebuilding the
+          cards on every open re-decoded every cover. */}
+      <Show when={gridMounted()}>
+        <div class="mc-tabs" classList={{ open: props.sheet() === "tabs" }}>
           <div class="mc-grid">
             <For each={browserTabs()}>
               {(t) => {

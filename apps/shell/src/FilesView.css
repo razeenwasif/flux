@@ -606,3 +606,215 @@
     transform: translateX(-50%);
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Files on a phone (ADR 0021): one column, places as chips, tall rows.
+   `:root.mobile.mobile` outranks the designs' `:root[data-design] .files-…`
+   rules (one class more), so these hold in every design.
+   ════════════════════════════════════════════════════════════════════════ */
+:root.mobile.mobile .files {
+  --files-col: minmax(0, 1fr) auto;
+  background: none;
+}
+
+/* Toolbar: back and up, the folder's name, new folder and search; the filter
+   underneath at full width. Forward, refresh (the listing watches the disk),
+   the preview pane and semantic ranking are desktop affordances. */
+:root.mobile.mobile .files-toolbar {
+  flex-wrap: wrap;
+  gap: 6px 4px;
+  padding: 8px 10px 10px;
+  border-bottom: 0.5px solid var(--glass-rim-soft);
+  background: none;
+  box-shadow: none;
+}
+:root.mobile.mobile .files-nav[title="Forward"],
+:root.mobile.mobile .files-act[title="Refresh"],
+:root.mobile.mobile .files-act[title="Preview pane"],
+:root.mobile.mobile .files-act[title^="Semantic"],
+:root.mobile.mobile .files-act[title^="Rank matches"] {
+  display: none;
+}
+:root.mobile.mobile .files-nav,
+:root.mobile.mobile .files-act {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 20px;
+  color: var(--flux-text);
+  background: none;
+}
+:root.mobile.mobile .files-act.on {
+  background: rgba(var(--accent-rgb), 0.25);
+}
+/* Only the current folder's name: Up and Back cover the rest of the path. */
+:root.mobile.mobile .files-crumbs {
+  padding: 0 4px;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+:root.mobile.mobile .files-crumbs > :not(:last-child) {
+  display: none;
+}
+:root.mobile.mobile .files-crumbs .files-crumb:last-child {
+  max-width: none;
+  font-family: inherit;
+  padding: 0;
+  font-size: 17px;
+  font-weight: 650;
+  color: var(--flux-text);
+  background: none;
+}
+:root.mobile.mobile .files-search {
+  order: 10;
+  flex: 1 0 100%;
+  width: auto;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 12px;
+  /* 16px or more, or iOS zooms in when the field takes focus. */
+  font-size: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+}
+
+/* Body: the chips over the list; no preview pane. */
+:root.mobile.mobile .files-body,
+:root.mobile.mobile .files-body.preview-on {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+}
+:root.mobile.mobile .files-preview {
+  display: none;
+}
+
+/* Places as a sideways row of chips. */
+:root.mobile.mobile .files-rail {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  scrollbar-width: none;
+}
+:root.mobile.mobile .files-rail::before,
+:root.mobile.mobile .files-rail::after,
+:root.mobile.mobile .files-main::before,
+:root.mobile.mobile .files-main::after,
+:root.mobile.mobile .files-rail-section,
+:root.mobile.mobile .files-disk {
+  display: none;
+}
+:root.mobile.mobile .files-loc {
+  flex: none;
+  width: auto;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.1);
+  color: var(--flux-text);
+  font-size: 14px;
+  font-weight: 520;
+  white-space: nowrap;
+}
+:root.mobile.mobile .files-loc.active {
+  background: rgba(var(--accent-rgb), 0.3);
+}
+:root.mobile.mobile .files-loc.active .files-loc-icon {
+  color: var(--flux-text);
+}
+:root.mobile.mobile .files-browse {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--glass-rim-soft);
+  color: var(--flux-text-dim);
+}
+
+/* The list: full width, no column heads, no sideways scroll. */
+:root.mobile.mobile .files-main {
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+}
+:root.mobile.mobile .files-main-meta,
+:root.mobile.mobile .files-pads,
+:root.mobile.mobile .files-head {
+  display: none;
+}
+:root.mobile.mobile .files-hscroll {
+  overflow-x: hidden;
+}
+:root.mobile.mobile .files-hscroll > .files-head,
+:root.mobile.mobile .files-hscroll > .files-create,
+:root.mobile.mobile .files-hscroll > .files-list {
+  min-width: 0;
+}
+
+/* Rows: an icon tile and the name; size above the date on the right. */
+:root.mobile.mobile .files-row {
+  height: 56px;
+  padding: 0 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 1fr 1fr;
+  column-gap: 12px;
+  border-radius: 0;
+  box-shadow: inset 0 -0.5px 0 rgba(255, 255, 255, 0.06);
+  -webkit-tap-highlight-color: transparent;
+}
+:root.mobile.mobile .files-row:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+:root.mobile.mobile .files-row.selected {
+  background: rgba(var(--accent-rgb), 0.18);
+}
+:root.mobile.mobile .files-cell.name {
+  grid-row: 1 / 3;
+  gap: 12px;
+  font-size: 15.5px;
+}
+:root.mobile.mobile .files-cell.size,
+:root.mobile.mobile .files-cell.modified {
+  font-family: inherit;
+}
+:root.mobile.mobile .files-cell.size {
+  grid-row: 1;
+  align-self: end;
+  font-size: 12px;
+}
+:root.mobile.mobile .files-cell.modified {
+  grid-row: 2;
+  align-self: start;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+}
+:root.mobile.mobile .files-row .file-icon,
+:root.mobile.mobile .files-row .files-type {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 10px;
+  line-height: 1;
+}
+
+:root.mobile.mobile .files-statusbar {
+  padding: 8px 16px;
+  font-size: 12px;
+  border-top: 0.5px solid var(--glass-rim-soft);
+  background: none;
+}

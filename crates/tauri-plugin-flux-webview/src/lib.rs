@@ -64,6 +64,10 @@ impl<R: Runtime> FluxWebview<R> {
     pub fn stop(&self, id: i32) -> Result<()> {
         self.call("stop", IdArgs { id })
     }
+    /// Unload a background tab's view but keep its cover (tab sleep).
+    pub fn hibernate(&self, id: i32) -> Result<()> {
+        self.call("hibernate", IdArgs { id })
+    }
 
     /// A tab's cached cover snapshot (base64 data URL), "" if none yet. Pulled on
     /// demand because images are too large for the plugin event channel.

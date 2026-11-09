@@ -6,10 +6,29 @@
   iOS 27 stops any app built with its SDK at launch unless the app uses
   scenes. The tao in Tauri 2.11 makes its window the old way, so Flux declares
   one scene here, and FluxSceneDelegate (tauri-plugin-flux-webview's iOS
-  package) moves tao's window into it when it connects.
+  package) moves tao's view controller into a window made for it.
 -->
 <plist version="1.0">
 <dict>
+	<!-- Flux's Documents folder (where Files opens) shows in the iOS Files app
+	     as On My iPhone › Flux, and files there open in place. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<!-- flux-browser://open?url=… : how the "Send to Flux" share extension
+	     (ios/ShareExtension) hands Flux a link to open in a new tab. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.flux.browser.open</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>flux-browser</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -53,6 +53,53 @@ if [ ! -d "gen/apple" ]; then
   npx --no-install tauri ios init --ci
 fi
 
+# The app icon: Flux's own, full-bleed and opaque as iOS wants it
+# (icons/ios). Copied in every build, so a project scaffolded before the icons
+# existed doesn't keep Tauri's default.
+cp -f icons/ios/AppIcon-*.png gen/apple/Assets.xcassets/AppIcon.appiconset/
+
+# The "Send to Flux" share extension (ios/ShareExtension) isn't something
+# Tauri's project template knows about: add its target to the generated spec
+# (once) and regenerate the Xcode project. The app embeds it under PlugIns.
+SPEC=gen/apple/project.yml
+if ! grep -q '^  flux-share:' "$SPEC"; then
+  echo "==> Adding the share extension to the Xcode project"
+  VERSION="$(python3 -c 'import json;print(json.load(open("tauri.conf.json"))["version"])')"
+  python3 - "$SPEC" "$APPLE_DEVELOPMENT_TEAM" "$VERSION" <<'PY'
+import sys
+spec, team, version = sys.argv[1:4]
+s = open(spec).read()
+# The app depends on (and so embeds) the extension.
+s = s.replace("    dependencies:\n      - framework: libapp.a",
+              "    dependencies:\n      - target: flux-share\n      - framework: libapp.a", 1)
+s = s.rstrip("\n") + f"""
+  flux-share:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: ../../ios/ShareExtension
+        excludes: [Info.plist]
+    settings:
+      base:
+        PRODUCT_NAME: FluxShare
+        PRODUCT_BUNDLE_IDENTIFIER: dev.flux.browser.share
+        DEVELOPMENT_TEAM: {team}
+        CODE_SIGN_STYLE: Automatic
+        INFOPLIST_FILE: ../../ios/ShareExtension/Info.plist
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SWIFT_VERSION: "5.0"
+        MARKETING_VERSION: "{version}"
+        CURRENT_PROJECT_VERSION: "{version}"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+"""
+open(spec, "w").write(s)
+PY
+  grep -q '      - target: flux-share' "$SPEC" || { echo "Couldn't add the share extension to $SPEC." >&2; exit 1; }
+  (cd gen/apple && xcodegen generate --spec project.yml --quiet)
+fi
+
 # Tauri's CLI won't build anything for iOS until an iOS Simulator runtime is
 # installed (it reads `xcrun simctl list runtimes --json`), although a device
 # build never uses one. Without a runtime, answer that one query with a stand-in

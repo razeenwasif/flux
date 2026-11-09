@@ -54,12 +54,15 @@ import {
   type FsHit,
   type QuickLocation,
 } from "./ipc";
+import { invoke } from "@tauri-apps/api/core";
+import { isIOS, isMobile } from "./platform";
 import { openTab } from "./store";
 import { crumbs, toFileUrl } from "./filepaths";
 import { cardLayout } from "./design";
 import "./FilesView.css";
 
-const ROW_H = 30;
+/** Rows are taller on a phone: a finger, not a pointer, picks them. */
+const ROW_H = isMobile ? 56 : 30;
 /** The most entries one metadata pass asks for; mirrors `STAT_CAP` in files.rs. */
 const STAT_CAP = 5000;
 /** One collator for every comparison. `a.localeCompare(b, undefined, opts)`
@@ -329,6 +332,40 @@ const FilesView: Component<{
       void load(p);
     }
   };
+  // ── iOS: folders picked through the system picker (iCloud Drive, On My
+  // iPhone…), which the plugin keeps open across launches (ADR 0021).
+  type Picked = { name: string; path: string };
+  const loadPicked = async () => {
+    const picked = await invoke<Picked[]>("plugin:flux-webview|folders").catch(() => [] as Picked[]);
+    setPlaces((ps) => [
+      ...ps.filter((p) => p.kind !== "picked"),
+      ...picked.map((f) => ({ name: f.name, path: f.path, kind: "picked" })),
+    ]);
+  };
+  const browse = async () => {
+    const f = await invoke<Picked | null>("plugin:flux-webview|pick_folder").catch(() => null);
+    if (!f) return;
+    await loadPicked();
+    navigate(f.path);
+  };
+
+  // ── Phone: one tap opens, a long press brings up the actions menu.
+  let pressTimer: ReturnType<typeof setTimeout> | undefined;
+  let pressed = false;
+  const pressStart = (e: TouchEvent, i: number, entry: FileEntry) => {
+    pressed = false;
+    const t = e.touches[0];
+    if (!t) return;
+    const { clientX: x, clientY: y } = t;
+    clearTimeout(pressTimer);
+    pressTimer = setTimeout(() => {
+      pressed = true;
+      selectOnly(i);
+      setMenu({ x, y, entry });
+    }, 480);
+  };
+  const pressEnd = () => clearTimeout(pressTimer);
+
   const goUp = () => {
     const par = listing()?.parent;
     if (par) navigate(par);
@@ -337,7 +374,11 @@ const FilesView: Component<{
   onMount(async () => {
     await load(props.path);
     if (disposed) return;
+    // iOS moves the app's container on every reinstall, so a folder saved last
+    // time can be gone: open the default place instead of an error.
+    if (isIOS && props.path && error() && !listing()) await load("");
     setPlaces(await fsQuickLocations().catch(() => []));
+    if (isIOS) void loadPicked();
     if (vp()) void tasksDisks().then(setDisks, () => undefined);
     // Live watch: re-list (debounced) when the shown directory changes on disk.
     const un = await onFsChanged((p) => {
@@ -1118,7 +1159,7 @@ const FilesView: Component<{
         {/* data-legend: the card titles Velvet Paper (design.ts) sets into each pane's edge. */}
         <nav class="files-rail" data-legend="Places">
           <div class="files-rail-section">Quick access</div>
-          <For each={places().filter((p) => p.kind === "home" || p.kind === "folder")}>
+          <For each={places().filter((p) => p.kind === "home" || p.kind === "folder" || p.kind === "picked")}>
             {(p) => (
               <RailItem
                 p={p}
@@ -1131,6 +1172,14 @@ const FilesView: Component<{
               />
             )}
           </For>
+          <Show when={isIOS}>
+            <button class="files-loc files-browse" onClick={() => void browse()}>
+              <span class="files-loc-icon">
+                <NewFolderIcon />
+              </span>
+              Browse…
+            </button>
+          </Show>
           <Show when={places().some((p) => p.kind === "linux")}>
             <div class="files-rail-section">Linux</div>
             <For each={places().filter((p) => p.kind === "linux")}>
@@ -1336,8 +1385,15 @@ const FilesView: Component<{
                               }}
                               style={{ top: `${idx() * ROW_H}px` }}
                               draggable={!renaming()}
-                              onClick={(e) => onRowClick(idx(), e)}
+                              onClick={(e) => {
+                                if (!isMobile) return onRowClick(idx(), e);
+                                if (pressed || renaming()) return;
+                                openEntry(entry);
+                              }}
                               onDblClick={() => openEntry(entry)}
+                              onTouchStart={isMobile ? (e) => pressStart(e, idx(), entry) : undefined}
+                              onTouchMove={isMobile ? pressEnd : undefined}
+                              onTouchEnd={isMobile ? pressEnd : undefined}
                               onContextMenu={(e) => {
                                 if (!selected().has(entry.name)) selectOnly(idx());
                                 openMenu(e, entry);

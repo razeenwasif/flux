@@ -295,6 +295,42 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the folders command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-folders",
+          "markdownDescription": "Enables the folders command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the folders command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-folders",
+          "markdownDescription": "Denies the folders command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the forget_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-forget-folder",
+          "markdownDescription": "Enables the forget_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the forget_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-forget-folder",
+          "markdownDescription": "Denies the forget_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the pick_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pick-folder",
+          "markdownDescription": "Enables the pick_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pick_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pick-folder",
+          "markdownDescription": "Denies the pick_folder command without any pre-configured scope."
+        },
+        {
           "description": "Enables the register_listener command without any pre-configured scope.",
           "type": "string",
           "const": "allow-register-listener",
@@ -319,10 +355,46 @@
           "markdownDescription": "Denies the remove_listener command without any pre-configured scope."
         },
         {
-          "description": "Lets the shell listen to the tab views' events (nav, scroll, back). Every command stays Rust-only.\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Enables the set_chrome command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-chrome",
+          "markdownDescription": "Enables the set_chrome command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_chrome command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-chrome",
+          "markdownDescription": "Denies the set_chrome command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the share command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-share",
+          "markdownDescription": "Enables the share command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the share command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-share",
+          "markdownDescription": "Denies the share command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the take_opened command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-take-opened",
+          "markdownDescription": "Enables the take_opened command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the take_opened command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-take-opened",
+          "markdownDescription": "Denies the take_opened command without any pre-configured scope."
+        },
+        {
+          "description": "Lets the shell listen to the tab views' events (nav, scroll, back), open the system share sheet, pick folders through iOS, and take links shared to Flux. The tab commands stay Rust-only.\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-share`\n- `allow-pick-folder`\n- `allow-folders`\n- `allow-forget-folder`\n- `allow-take-opened`\n- `allow-set-chrome`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Lets the shell listen to the tab views' events (nav, scroll, back). Every command stays Rust-only.\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Lets the shell listen to the tab views' events (nav, scroll, back), open the system share sheet, pick folders through iOS, and take links shared to Flux. The tab commands stay Rust-only.\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-share`\n- `allow-pick-folder`\n- `allow-folders`\n- `allow-forget-folder`\n- `allow-take-opened`\n- `allow-set-chrome`"
         }
       ]
     }

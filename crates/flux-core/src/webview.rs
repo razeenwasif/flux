@@ -2466,6 +2466,7 @@ mod stub {
     id_cmd!(webview_forward => forward);
     id_cmd!(webview_reload => reload);
     id_cmd!(webview_stop => stop);
+    id_cmd!(webview_hibernate => hibernate);
 
     /// Not wired to the native WebView yet — accepted as no-ops so the shell's
     /// routine calls during browsing don't error (Milestone 2 follow-ons).
@@ -2480,7 +2481,6 @@ mod stub {
     }
     noop_cmd!(webview_preconnect(tab_id: TabId, hosts: Vec<String>));
     noop_cmd!(webview_devtools(tab_id: TabId));
-    noop_cmd!(webview_hibernate(tab_id: TabId));
     noop_cmd!(webview_memory_low(tab_id: TabId));
     noop_cmd!(webview_capture_state(tab_id: TabId));
     noop_cmd!(webview_find(tab_id: TabId, query: String, forward: bool));

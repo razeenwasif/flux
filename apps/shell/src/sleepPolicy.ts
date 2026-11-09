@@ -22,13 +22,16 @@
  * the lists.
  */
 import type { SleepCheck } from "./ipc";
+import { isMobile } from "./platform";
 
 export type Pressure = "normal" | "warn" | "critical";
 
 export const SUSPEND_AFTER_MS = 5 * 60_000;
 export const WARM_SET = 4;
 export const HEAVY_MB = 256;
-export const DEFAULT_MAX_LIVE = 8;
+/** Loaded tabs kept unless changed in Settings. Fewer on a phone, where each
+ *  page shares a few GB with everything else the phone is running. */
+export const DEFAULT_MAX_LIVE = isMobile ? 4 : 8;
 /** Where Settings → Memory → Keep at most is saved. */
 export const MAX_LIVE_KEY = "flux.hibernate.cap";
 

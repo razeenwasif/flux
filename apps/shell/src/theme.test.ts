@@ -130,16 +130,15 @@ describe("mobile backdrop blur", () => {
       // previous block/comment — what's between them is the selector list.
       const open = css.lastIndexOf("{", m.index);
       if (open < 0) continue;
+      // The end of whichever came last; "*/" is two characters, so a rule right
+      // after a comment would otherwise keep its "/".
       const prev = Math.max(
-        css.lastIndexOf("}", open),
-        css.lastIndexOf("{", open - 1),
-        css.lastIndexOf("*/", open),
+        css.lastIndexOf("}", open) + 1,
+        css.lastIndexOf("{", open - 1) + 1,
+        css.lastIndexOf("*/", open) + 2,
       );
       out.push({
-        selector: css
-          .slice(prev + 1, open)
-          .replace(/\s+/g, " ")
-          .trim(),
+        selector: css.slice(prev, open).replace(/\s+/g, " ").trim(),
         value: m[1]!.trim(),
       });
     }

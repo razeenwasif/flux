@@ -587,7 +587,7 @@ pub async fn fs_list(path: String) -> Result<DirListing, String> {
 fn list_dir(path: &str) -> Result<DirListing, String> {
     // Empty / "~" → home (the Files popout panel opens with no path on first use).
     let path = if path.is_empty() || path == "~" {
-        home_dir()
+        fs_home()
     } else {
         // …and a Windows path on the Linux build is a mounted drive (#176).
         native_path(path)
@@ -673,7 +673,7 @@ pub async fn fs_list_stream(path: String, on_msg: Channel<ListMsg>) -> Result<()
 
 fn stream_dir(path: &str, on_msg: &Channel<ListMsg>) -> Result<(), String> {
     let path = if path.is_empty() || path == "~" {
-        home_dir()
+        fs_home()
     } else {
         native_path(path)
     };
@@ -755,7 +755,7 @@ fn stat_entries(dir: &str, names: &[String]) -> Vec<EntryMeta> {
         return Vec::new();
     }
     let dir = if dir.is_empty() || dir == "~" {
-        home_dir()
+        fs_home()
     } else {
         native_path(dir)
     };
@@ -898,7 +898,7 @@ fn fuzzy_score(needle: &str, hay: &str) -> Option<i32> {
 
 fn search_tree(root: &str, query: &str, limit: usize) -> Result<Vec<SearchHit>, String> {
     let root = if root.is_empty() || root == "~" {
-        home_dir()
+        fs_home()
     } else {
         root.to_string()
     };
@@ -952,9 +952,22 @@ fn search_tree(root: &str, query: &str, limit: usize) -> Result<Vec<SearchHit>, 
     Ok(scored.into_iter().map(|(_, h)| h).collect())
 }
 
+/// Where Files opens. On iOS that's the app's Documents folder (the only part
+/// of its container meant for the user, and what the iOS Files app shows as
+/// On My iPhone › Flux), not the container root with its Library and tmp.
 #[tauri::command]
 pub fn fs_home() -> String {
+    #[cfg(target_os = "ios")]
+    return ios_documents();
+    #[cfg(not(target_os = "ios"))]
     home_dir()
+}
+
+#[cfg(target_os = "ios")]
+fn ios_documents() -> String {
+    let d = format!("{}/Documents", home_dir());
+    let _ = std::fs::create_dir_all(&d);
+    d
 }
 
 /// Quick-access locations: home + its common subfolders, drive roots, and (on
@@ -966,6 +979,18 @@ pub async fn fs_quick_locations() -> Vec<QuickLocation> {
         .unwrap_or_default()
 }
 
+/// iOS: only Flux's own Documents folder; the rest of the device is reached
+/// through folders picked in iOS's picker (the shell adds those).
+#[cfg(target_os = "ios")]
+fn quick_locations() -> Vec<QuickLocation> {
+    vec![QuickLocation {
+        name: "On My iPhone".into(),
+        path: ios_documents(),
+        kind: "home",
+    }]
+}
+
+#[cfg(not(target_os = "ios"))]
 fn quick_locations() -> Vec<QuickLocation> {
     let mut out = Vec::new();
     let home = home_dir();

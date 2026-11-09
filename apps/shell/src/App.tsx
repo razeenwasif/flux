@@ -1892,6 +1892,7 @@ const App: Component = () => {
               onNavigate={go}
               onClose={() => setSidebarOpen(false)}
               onAgent={() => setAgentOpen(true)}
+              onFiles={openFilesPanel}
             />
           </Suspense>
         }

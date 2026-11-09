@@ -59,6 +59,10 @@ const ATTR = "data-silk-waves";
 const SilkWaves: Component = () => {
   onMount(() => {
     const root = document.documentElement;
+    // Not on a phone: its web view never reports focus, so the waves never run
+    // there, and the full-screen WebGL canvas cost a context and a shader
+    // compile per visit to home, to show the still image already underneath.
+    if (root.classList.contains("mobile")) return;
     const canvas = document.createElement("canvas");
     canvas.setAttribute("aria-hidden", "true");
     Object.assign(canvas.style, {

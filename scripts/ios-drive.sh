@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Drive a debug build of Flux on a USB/Wi-Fi-paired iPhone from this Mac
 # (ADR 0021). Debug builds carry a small hook (DebugDrive in the plugin's Swift
-# package): this script copies a script into the app's Documents folder, pokes
+# package): this script copies a script into the app's Caches folder, pokes
 # the app with a Darwin notification, and copies the result back.
 #
 #   bash scripts/ios-drive.sh js  <file.js|->   run in the shell (or a tab: first line `//tab:<id>`)
@@ -34,13 +34,17 @@ case "${1:-}" in
     fetch() {
       rm -f "$TMP/out.json"
       xcrun devicectl device copy from --device "$DEVICE" --domain-type appDataContainer \
-        --domain-identifier "$BUNDLE" --source Documents/flux-debug/out.json \
+        --domain-identifier "$BUNDLE" --source Library/Caches/flux-debug/out.json \
         --destination "$TMP/out.json" -q >/dev/null 2>&1 || true
-      [ -f "$TMP/out.json" ] && python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("seq",""))' "$TMP/out.json" || echo ""
+      # The app may still be writing it: an unreadable file is "no answer yet".
+      [ -f "$TMP/out.json" ] && python3 -c '
+import json,sys
+try: print(json.load(open(sys.argv[1])).get("seq",""))
+except Exception: print("")' "$TMP/out.json" 2>/dev/null || echo ""
     }
     BEFORE="$(fetch)"
     dc device copy to --device "$DEVICE" --domain-type appDataContainer --domain-identifier "$BUNDLE" \
-      --source "$TMP/in.js" --destination Documents/flux-debug/in.js
+      --source "$TMP/in.js" --destination Library/Caches/flux-debug/in.js
     dc device notification post --device "$DEVICE" --name dev.flux.debug.run
     for _ in $(seq 1 30); do
       NOW="$(fetch)"

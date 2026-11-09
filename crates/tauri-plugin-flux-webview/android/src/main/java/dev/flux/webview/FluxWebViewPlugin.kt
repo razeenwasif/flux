@@ -53,6 +53,12 @@ class IdArgs {
 }
 
 @InvokeArg
+class ShareArgs {
+    var url: String = ""
+    var title: String? = null
+}
+
+@InvokeArg
 class NavArgs {
     var id: Int = 0
     var url: String = "about:blank"
@@ -380,6 +386,21 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(JSObject())
     }
 
+    /** Unload a background tab (tab sleep): destroy its WebView, keep its cover
+     *  for the switcher. The shell opens it again when the tab comes back. */
+    @Command
+    fun hibernate(invoke: Invoke) {
+        val a = invoke.parseArgs(IdArgs::class.java)
+        activity.runOnUiThread {
+            views.remove(a.id)?.let { wv ->
+                if (current === wv) current = null
+                (wv.parent as? ViewGroup)?.removeView(wv)
+                wv.destroy()
+            }
+        }
+        invoke.resolve(JSObject())
+    }
+
     @Command
     fun navigate(invoke: Invoke) {
         val a = invoke.parseArgs(NavArgs::class.java)
@@ -406,6 +427,23 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         val a = invoke.parseArgs(IdArgs::class.java)
         activity.runOnUiThread { views[a.id]?.reload() }
         invoke.resolve(JSObject())
+    }
+
+    /** The system share sheet for a page, from the shell's ⋯ menu. */
+    @Command
+    fun share(invoke: Invoke) {
+        val a = invoke.parseArgs(ShareArgs::class.java)
+        activity.runOnUiThread {
+            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(android.content.Intent.EXTRA_TEXT, a.url)
+                a.title?.let { putExtra(android.content.Intent.EXTRA_SUBJECT, it) }
+            }
+            activity.startActivity(android.content.Intent.createChooser(send, a.title))
+        }
+        val o = JSObject()
+        o.put("completed", true)
+        invoke.resolve(o)
     }
 
     @Command

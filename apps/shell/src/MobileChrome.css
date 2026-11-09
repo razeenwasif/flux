@@ -11,37 +11,54 @@
   grid-area: status;
   height: env(safe-area-inset-top, 0px);
   background: var(--velvet-900);
-  transition: background-color 0.3s ease;
 }
 
+/* The bar: a frosted-glass island floating above the home indicator, inset
+   from the screen's edges. Over a page (iOS) the page runs on under it and
+   shows through, blurred; over Flux's own pages it floats on the velvet. */
 .mc-bar {
   grid-area: bar;
   position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: 56px;
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015)), var(--velvet-800);
-  border-top: 0.5px solid var(--glass-rim-soft);
+  gap: 2px;
+  min-height: 52px;
+  margin: 6px 12px max(8px, calc(env(safe-area-inset-bottom, 0px) - 8px));
+  padding: 5px 6px 5px 5px;
+  border-radius: 28px;
+  overflow: hidden;
+  background: rgba(30, 22, 46, 0.55);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.18),
+    0 0 0 0.5px rgba(255, 255, 255, 0.1),
+    0 10px 30px rgba(0, 0, 0, 0.35);
   color: var(--flux-text);
   touch-action: pan-y;
   -webkit-user-select: none;
   user-select: none;
 }
+/* The island's frost: a deliberate exception to the phone's no-blur rule
+   (ADR 0012's cost model). It's one small element, and the audit on an
+   iPhone 11 Pro Max measured blur at no frame cost (ADR 0021). */
+html.mobile .mc-bar {
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+/* Shrunk while the page scrolls down: a small pill with the site. */
 .mc-bar.compact {
+  justify-self: center;
   min-height: 0;
-  padding-top: 4px;
-  padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px));
+  padding: 6px 16px;
+  border-radius: 16px;
 }
 
 .mc-progress {
   position: absolute;
-  top: -1px;
-  left: 0;
-  right: 0;
-  height: 2.5px;
+  top: 0;
+  left: 22px;
+  right: 22px;
+  height: 2px;
+  border-radius: 1px;
   transform-origin: left center;
   background: linear-gradient(90deg, rgb(var(--accent-ai-rgb)), rgb(var(--accent-rgb)));
   transition: transform 0.25s var(--ease-soft);
@@ -316,6 +333,9 @@
 }
 
 /* ── The tab grid. */
+.mc-tabs:not(.open) {
+  display: none;
+}
 .mc-tabs {
   position: fixed;
   inset: 0;
@@ -424,4 +444,89 @@
   color: rgb(var(--accent-rgb));
   font-size: 16px;
   font-weight: 650;
+}
+
+/* ── The Files popout on a phone: a full page between the status strip and the
+   bar, not a floating glass panel (--mc-bar-h comes from MobileChrome). */
+:root.mobile .files-panel-backdrop {
+  top: env(safe-area-inset-top, 0px);
+  bottom: var(--mc-bar-h, 0px);
+  padding: 0;
+  background: none;
+}
+:root.mobile .files-panel {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: linear-gradient(170deg, var(--velvet-700), var(--velvet-900));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root.mobile .files-panel-head {
+  padding: 6px 8px 6px 16px;
+  border-bottom: none;
+}
+:root.mobile .files-panel-title::first-letter {
+  /* The title's 🗁 has no glyph on iOS. */
+  font-size: 0;
+}
+:root.mobile .files-panel-title {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--flux-text-dim);
+}
+:root.mobile .files-panel-x {
+  width: auto;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 12px;
+  /* "Done" in place of ✕, the iOS way. */
+  font-size: 0;
+  font-weight: 650;
+  color: rgb(var(--accent-rgb));
+}
+:root.mobile .files-panel-x::after {
+  content: "Done";
+  font-size: 16px;
+}
+
+/* ── A page under the shell (iOS, ADR 0021). The page fills the screen beneath
+   a transparent shell, so everything between the bars is see-through and the
+   bars are glass: the page shows through them, blurred, and runs up behind the
+   notch. `native-page` is set while a page is on screen (the plugin's `page`
+   event). */
+html.native-page,
+html.native-page body,
+html.native-page .shell.mobile,
+html.native-page .shell.mobile .content,
+html.native-page .shell.mobile .content-row,
+html.native-page .shell.mobile .content > .card,
+html.native-page .shell.mobile .content-row > .card {
+  background: transparent !important;
+}
+/* Liquid Silk's softened wallpaper (body::before) and the card's fill. */
+html.native-page body::before,
+html.native-page body::after,
+html.native-page .shell.mobile::before,
+html.native-page .shell.mobile::after,
+html.native-page .shell.mobile .card::before,
+html.native-page .shell.mobile .card::after {
+  display: none !important;
+}
+html.native-page .shell.mobile .content > .card > *,
+html.native-page .shell.mobile .content-row > .card > * {
+  visibility: hidden;
+}
+/* Behind the notch: WebKit draws nothing in the strip under the status bar, so
+   it's left clear and the native layer underneath shows, coloured as the page
+   or as the top of the wallpaper (ADR 0021). */
+html.ios .mc-status {
+  background: transparent;
+}
+html.native-page .mc-pill {
+  background: rgba(255, 255, 255, 0.12);
 }
