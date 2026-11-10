@@ -21,6 +21,7 @@ import {
 } from "solid-js";
 import { readerStructure, type ReaderBlock, type ReadingStructure } from "./ipc";
 import { closeReader, readerBlocks, readerTitle } from "./store";
+import "./ReaderView.css";
 
 const ReaderBlockView: Component<{ b: ReaderBlock; idx: number }> = (props) => {
   const b = props.b;

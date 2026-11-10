@@ -1,0 +1,332 @@
+/* Moved out of theme.css so it loads with OmniDashboard's lazy chunk instead of
+   blocking first paint (BACKLOG #184). Tokens, themes and shared primitives
+   stay in theme.css; rules here keep their original relative order. */
+
+.omni {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  padding: 22px 26px 40px;
+  color: var(--flux-text-dim);
+}
+/* #119 Omni graph view */
+.omni-viewtoggle {
+  display: inline-flex;
+  gap: 2px;
+  margin-right: 10px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(120, 130, 200, 0.08);
+  border: 1px solid var(--flux-border);
+}
+.omni-viewtoggle button {
+  font-size: 12px;
+  padding: 3px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--flux-text-mute);
+  background: none;
+  border: none;
+}
+.omni-viewtoggle button.on {
+  color: var(--velvet-800);
+  background: linear-gradient(135deg, var(--flux-teal), var(--flux-violet));
+  font-weight: 600;
+}
+.omni-graph {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 150px);
+  min-height: 360px;
+  border-radius: var(--flux-radius-card, 14px);
+  overflow: hidden;
+  border: 1px solid var(--flux-border);
+  background: radial-gradient(120% 120% at 50% 40%, rgba(20, 16, 48, 0.6), rgba(7, 5, 15, 0.85));
+}
+.omni-graph-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+.omni-graph-canvas:active {
+  cursor: grabbing;
+}
+.omni-graph-hud {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+  background: rgba(10, 8, 24, 0.6);
+  padding: 4px 10px;
+  border-radius: 999px;
+  pointer-events: auto;
+}
+.omni-graph-err {
+  color: var(--flux-magenta, var(--flux-magenta));
+}
+.omni-graph-tip {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  font-size: 12px;
+  color: var(--flux-text);
+  background: rgba(10, 8, 24, 0.82);
+  border: 1px solid rgba(var(--accent-rgb), 0.25);
+  padding: 6px 12px;
+  border-radius: 8px;
+  pointer-events: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.omni-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.omni-brand {
+  font-size: 17px;
+  font-weight: 650;
+  color: var(--flux-text);
+  letter-spacing: 0.01em;
+}
+.omni-spark {
+  color: var(--flux-teal);
+}
+.omni-sub {
+  color: var(--flux-text-mute);
+  font-weight: 500;
+  font-size: 13px;
+  margin-left: 4px;
+}
+.omni-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+}
+.omni-status.off {
+  color: #ffffff;
+}
+.omni-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--flux-teal);
+  box-shadow: 0 0 8px var(--flux-teal);
+  animation: omni-pulse 2s ease-in-out infinite;
+}
+
+.omni-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.omni-card {
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--flux-surface);
+  border: 1px solid var(--glass-rim-soft);
+}
+.omni-card.accent {
+  border-color: rgba(var(--accent-ai-rgb), 0.4);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-ai-rgb), 0.12);
+}
+.omni-card-num {
+  font-size: 28px;
+  font-weight: 680;
+  color: var(--flux-text);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.omni-card-num.sm {
+  font-size: 17px;
+  font-weight: 620;
+}
+.omni-card.accent .omni-card-num {
+  color: var(--flux-violet);
+}
+.omni-card-label {
+  font-size: 12px;
+  color: var(--flux-text-dim);
+  margin-top: 6px;
+  font-weight: 550;
+}
+.omni-card-sub {
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  margin-top: 2px;
+}
+
+.omni-panel {
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--flux-surface);
+  border: 1px solid var(--glass-rim-soft);
+}
+.omni-panel-h {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--flux-text-dim);
+  margin-bottom: 13px;
+}
+.omni-note {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--flux-text-mute);
+}
+.omni-note code {
+  background: var(--flux-surface-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10.5px;
+}
+
+.omni-segbars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.omni-segrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.omni-segidx {
+  font-size: 11px;
+  color: var(--flux-text-mute);
+  width: 26px;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.omni-segbar {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--flux-surface-2);
+  overflow: hidden;
+  flex: none;
+  min-width: 8px;
+}
+.omni-segfill {
+  display: block;
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--flux-teal), var(--flux-violet) 55%, var(--flux-magenta));
+}
+.omni-segn {
+  font-size: 11px;
+  color: var(--flux-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.omni-sites {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 9px;
+}
+.omni-site {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 9px;
+  align-items: baseline;
+  text-align: left;
+  padding: 11px 13px;
+  border-radius: 11px;
+  background: var(--flux-bg);
+  border: 1px solid var(--glass-rim-soft);
+}
+.omni-site:hover {
+  background: var(--flux-surface-2);
+  border-color: rgba(var(--accent-rgb), 0.3);
+}
+.omni-bang {
+  grid-row: 1 / 3;
+  align-self: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--flux-teal);
+  background: var(--flux-teal-dim);
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.omni-site-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--flux-text);
+}
+.omni-site-blurb {
+  font-size: 11px;
+  color: var(--flux-text-mute);
+  grid-column: 2;
+}
+
+.omni-toplist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: omni-rank;
+}
+.omni-topitem {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.omni-topitem:hover {
+  background: var(--flux-surface-2);
+}
+.omni-top-title {
+  font-size: 13px;
+  color: var(--flux-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.omni-top-rank {
+  font-size: 11.5px;
+  color: var(--flux-teal);
+  font-variant-numeric: tabular-nums;
+}
+.omni-top-url {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--flux-text-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.omni-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--flux-text-mute);
+  font-size: 13px;
+}
+.omni-empty.sm {
+  padding: 14px;
+  font-size: 12px;
+}

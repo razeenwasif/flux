@@ -8,6 +8,7 @@ import { Portal } from "solid-js/web";
 
 import { watchPanelOpen, setWatchPanelOpen, openTab } from "./store";
 import { watchList, watchRemove, watchCheckNow, watchMarkSeen, type WatchItem } from "./ipc";
+import "./WatchPanel.css";
 
 const host = (url: string) => {
   try {

@@ -8,6 +8,7 @@ import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import { FEEDS_URL, feedAdd, feedItems, feedRemove, feedsList, type Feed, type FeedItem } from "./ipc";
 import { openTab, titleInternalTab } from "./store";
 import { openLinkMenu } from "./linkMenu";
+import "./FeedsPage.css";
 
 function hostOf(url: string): string {
   try {

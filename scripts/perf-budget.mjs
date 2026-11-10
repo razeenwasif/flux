@@ -9,7 +9,7 @@
  *                                  route chunks (PdfViewer, ArchivePage, …) are
  *                                  excluded from this entry metric; explicit
  *                                  desktop preloads are counted separately.
- *   • Desktop entry + explicit preloads ≤ 72 KiB (shared static dependencies included).
+ *   • Desktop entry + explicit preloads ≤ 73 KiB (shared static dependencies included).
  *   • Default desktop boot JS — everything a fresh desktop window loads at
  *                                  startup with the default layout: the above plus
  *                                  the lazy columns and panes it shows.
@@ -78,7 +78,11 @@ const CHROME_JS_GZIP_BUDGET = 47 * 1024; // bytes
 // New independent gate: entry + desktopChrome registry, baselined in batch 3.
 // This is a lower bound, excluding other conditionally rendered lazy features.
 // Ratcheted 84 → 72 KB on 2026-10-13 with the entry diet above (81.5 → 70.1 KB).
-const DESKTOP_PRELOAD_BUDGET = 72 * 1024;
+// Raised 72 → 73 KB on 2026-11-11 (owner-approved) for #184: moving the Omni,
+// Reader, Watch and Feeds rules into their own lazy sheets added each sheet's
+// name to the entry's preload map (+117 B; it sat 18 B under 72 KB), and took
+// 1.9 KB off the startup stylesheet, so first paint got smaller overall.
+const DESKTOP_PRELOAD_BUDGET = 73 * 1024;
 // Default desktop boot, added 2026-10-13 (performance audit): the entry chunk is
 // only the start of what a desktop window parses before it settles. Baselined at
 // 240.0 KB after the entry diet that day; the bulk is xterm and its WebGL addon

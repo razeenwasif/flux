@@ -19,6 +19,7 @@ import {
   type OmniSite,
   type OmniStats,
 } from "./ipc";
+import "./OmniDashboard.css";
 
 const REFRESH_MS = 2500;
 
