@@ -7128,6 +7128,11 @@ body.busy .start-card {
 /* The voice chip is shared with the agent panel, so it stays here; the rest of
    the Notebook is in NotebookPage.css. */
 .nb-voice,
+/* Fairy's eye (FairyEye.tsx) beside her name in a chip or a reply label. */
+.fairy-eye {
+  flex: none;
+  vertical-align: -2px;
+}
 .agent-voice {
   display: inline-flex;
   align-items: center;

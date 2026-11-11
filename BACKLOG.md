@@ -450,3 +450,14 @@ by what one change would close.
 | 224 | P2 | **Glass cost** (P6, P12, P13, P2 phone): budget and minify `velvet-paper.css` and `liquid-silk.css`; no backdrop-filter behind a page that covers it; inner cards without their own blur; and try Silk with no blur on the phone (a visible change, so it wants a look on the device first). |
 | 225 | P3 | **Smaller costs** (P15, P16 rest, P17, P18, P20, and the audit's low list): noise only short audio buffers and reuse one scratch canvas in `fingerprint.js`; a token-only sheet for the HUD; skip re-downloading a pending update; append-only journals for History, Trail and KB; per-site storage sizes (see #206); the launcher's per-keystroke remounts, the Shields popover's polling, Omni re-embedding tabs per keystroke, and the site-time and focus timers that never stop. |
 | 226 | P1 | **Dependency updates** (audit): `cargo update` for rustls ≥ 0.23.46, rustls-webpki ≥ 0.103.16 and tokio ≥ 1.53.3; npm solid-js, vite and vitest. Not done in the pass because it downloads packages, which needs the owner's go-ahead. |
+
+## Epic: Fairy
+
+Fairy is the user's assistant app (the Lyra repo): an agent harness on their
+Claude Code, Codex and Antigravity subscriptions and the DeepSeek API.
+
+| # | P | Item |
+|---|---|---|
+| 227 | ✅ | **Ask Fairy about the page** (done 2026-11-11): a scope chip with her eye (`FairyEye.tsx`) in the agent panel; `fairy.rs` talks to `flux.sock` in Fairy's data folder (Lyra's `desktop/flux-link.mjs`, on the `chat-link.mjs` protocol Tachyon also uses). Conversation only; private and Tor pages never sent. |
+| 228 | P1 | **Fairy drives Flux** (the goal). Flux offers Fairy browser tools through her tool registry (`desktop/tool-registry.mjs`): read a page, find on it, open a tab, click and type. Every action goes through Flux's own checks: `steps::classify`, the sensitive-site refusal, the committed-URL binding and an approval for commits, shown in Fairy's approval card (`desktop/approvals.mjs`) or Flux's. Needs: a tool socket separate from the chat socket (tools are not conversation), per-call tab binding, a per-site policy (#208), and private and Tor tabs kept out (#209). |
+

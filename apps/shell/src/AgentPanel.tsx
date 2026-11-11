@@ -68,6 +68,8 @@ import {
   calLocalEvents,
   onAgentStatus,
   onAgentReport,
+  fairyStatus,
+  type FairyStatus,
 } from "./agentIpc";
 import {
   agentChat,
@@ -146,6 +148,7 @@ import {
 import { FLUX_APPS } from "./apps";
 import { APP_GUIDES } from "./appGuides";
 import AgentAurora from "./AgentAurora";
+import FairyEye from "./FairyEye";
 import {
   heyGemmaEnabled,
   listening,
@@ -191,6 +194,8 @@ type FeedItem = {
   /** A restyle draft previewing on the page (RestyleCard.tsx). Live only. */
   restyle?: BoostDraft;
   voice?: string;
+  /** Who answered, when it wasn't Flux's own agent (Fairy). */
+  from?: string;
   tabId?: number;
   expectedUrl?: string;
 };
@@ -273,6 +278,8 @@ const AgentPanel: Component = () => {
     if (working() || taskRunning()) return;
     currentId = ""; // the current conversation is already saved under its id
     currentOffRecord = false;
+    // Fairy keeps her own side of the conversation; start hers afresh too.
+    if (scope() === "fairy") void import("./fairy").then((m) => m.fairyNew()).catch(() => {});
     setFeed([]);
     setFeedEpoch((n) => n + 1);
     setChatsMenu(false);
@@ -306,6 +313,7 @@ const AgentPanel: Component = () => {
   let replyGen = 0;
   const cancelReply = () => {
     replyGen++;
+    if (fairyAsking) void import("./fairy").then((m) => m.fairyStop()).catch(() => {});
     stopSpeaking();
     setBusy(false);
   };
@@ -326,7 +334,16 @@ const AgentPanel: Component = () => {
   // in every open browser tab in the active workspace; "thread" is the page's
   // PERSISTENT conversation (ADR 0011) — the same thread the Trail shows,
   // re-attached here whenever you're on the page.
-  const [scope, setScope] = createSignal<"page" | "tabs" | "notes" | "thread">("page");
+  const [scope, setScope] = createSignal<"page" | "tabs" | "notes" | "thread" | "fairy">("page");
+  // Fairy, your assistant app: offered when she's on this Mac (fairy.rs).
+  const [fairy, setFairy] = createSignal<FairyStatus | null>(null);
+  const fairyName = () => fairy()?.name || "Fairy";
+  const refreshFairy = () =>
+    void fairyStatus()
+      .then(setFairy)
+      .catch(() => {});
+  onMount(refreshFairy);
+  let fairyAsking = false;
   // The active page's Trail thread (null = no Visit: internal page/private tab).
   const [pageThread, setPageThread] = createSignal<TabThread | null>(null);
   // Which visit's history was already replayed into the feed (avoid repeats).
@@ -2277,6 +2294,23 @@ const AgentPanel: Component = () => {
     return false;
   };
 
+  /** Ask Fairy, streaming her reply into one bubble labelled with her name
+   *  (fairy.ts, loaded on first use). */
+  const askFairy = async (q: string) => {
+    const gen = ++replyGen;
+    setBusy(true);
+    fairyAsking = true;
+    try {
+      await (
+        await import("./fairy")
+      ).askInFeed(q, fairyName(), activeId() ?? null, setFeed, () => gen === replyGen);
+    } finally {
+      fairyAsking = false;
+      setBusy(false);
+      refreshFairy();
+    }
+  };
+
   const send = async (
     p: string,
     /** Set when re-entering after note detection declined: skip the detector
@@ -2318,6 +2352,12 @@ const AgentPanel: Component = () => {
         setPrompt("");
         setFeed((f) => [...f, { role: "user", text: p }]);
         void planNote(note[1].trim(), true);
+        return;
+      }
+      // With Fairy chosen, everything but a slash command is a question for her.
+      if (scope() === "fairy" && !p.startsWith("/")) {
+        setPrompt("");
+        void askFairy(p);
         return;
       }
       // Plain language that asks for *work* goes to the same loop (#158). Ordinary
@@ -3399,6 +3439,14 @@ const AgentPanel: Component = () => {
                       <Show when={item().image}>
                         <img class="agent-thumb" src={item().image} alt="attachment" />
                       </Show>
+                      <Show when={item().from}>
+                        <div
+                          class="agent-voice"
+                          title="Fairy answered on her own model, so the question and page went to that service"
+                        >
+                          <FairyEye /> {item().from}
+                        </div>
+                      </Show>
                       <Show when={item().voice}>
                         <div class="agent-voice" title="A fine-tuned domain specialist answered">
                           ⚛ {item().voice} specialist
@@ -3588,6 +3636,18 @@ const AgentPanel: Component = () => {
           >
             ✦ My notes
           </button>
+          <Show when={fairy()?.installed}>
+            <button
+              classList={{ "agent-scope": true, on: scope() === "fairy" }}
+              title="Your assistant app, on her own cloud model: the question and page leave this Mac (never from a private or Tor tab)"
+              onClick={() => {
+                setScope("fairy");
+                refreshFairy();
+              }}
+            >
+              <FairyEye /> {fairyName()}
+            </button>
+          </Show>
           {/* The page's persistent Trail conversation, re-attached (ADR 0011).
               Only offered when the page has a Visit to hang the thread on. */}
           <Show when={pageThread()}>
@@ -3717,11 +3777,13 @@ const AgentPanel: Component = () => {
                     ? "thinking…"
                     : attachment()
                       ? "Ask about the attachment…"
-                      : scope() === "notes"
-                        ? "Ask your notes & papers…"
-                        : scope() === "tabs"
-                          ? "Ask across tabs · /act · /task"
-                          : "Ask · attach 📎 · /act · /task"
+                      : scope() === "fairy"
+                        ? `Ask ${fairyName()} · leaves this Mac`
+                        : scope() === "notes"
+                          ? "Ask your notes & papers…"
+                          : scope() === "tabs"
+                            ? "Ask across tabs · /act · /task"
+                            : "Ask · attach 📎 · /act · /task"
               }
               disabled={working() || taskRunning()}
               style={{

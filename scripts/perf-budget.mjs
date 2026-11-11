@@ -89,7 +89,10 @@ const DESKTOP_PRELOAD_BUDGET = 73 * 1024;
 // (the terminal column is on by default) and the agent panel.
 // Raised 242 → 243 KB on 2026-11-08 (a loosening, approved by the maintainer),
 // with the entry budget above: at 242.0 KB with the Tor tab in the sidebar.
-const DEFAULT_BOOT_BUDGET = 243 * 1024;
+// Raised 243 → 244 KB on 2026-11-11 (approved by the maintainer) for Fairy in
+// the agent panel: her chip, eye and reply label load with it; asking her is a
+// lazy chunk (fairy.ts).
+const DEFAULT_BOOT_BUDGET = 244 * 1024;
 // The lazy chunks the default layout loads at startup on a window wide enough to
 // show all of it (sidebar, editor column, bookmark bar, agent + terminal stack,
 // launcher and connections columns, the Indexer orb), beyond the entry and the

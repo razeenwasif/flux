@@ -31,6 +31,7 @@ pub mod embedding;
 pub mod error;
 pub mod exec;
 pub mod extensions;
+pub mod fairy;
 pub mod favicon;
 pub mod feeds;
 pub mod files;
@@ -1411,6 +1412,10 @@ pub fn run(intent: cli::LaunchIntent) {
             todos::todos_clear_done,
             favicon::favicon,
             favicon::site_icon,
+            fairy::fairy_status,
+            fairy::fairy_ask,
+            fairy::fairy_stop,
+            fairy::fairy_new,
             history::history_recent,
             history::history_search,
             history::history_delete,

@@ -187,3 +187,7 @@ export const systemStats = () => invoke<SystemStats>("system_stats");
 /** The active page's persistent thread (re-attach by visit) — null when the
  *  tab has no current Visit (internal pages, private tabs). */
 export const traceTabThread = (tabId: number) => invoke<TabThread | null>("trace_tab_thread", { tabId });
+
+/** Whether Fairy, your assistant app, is on this Mac and running (fairy.rs). */
+export type FairyStatus = { installed: boolean; running: boolean; name: string | null };
+export const fairyStatus = () => invoke<FairyStatus>("fairy_status");
