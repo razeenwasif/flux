@@ -65,6 +65,7 @@ pub mod netspeed;
 pub mod mdnotes;
 pub mod notes;
 pub mod nvim;
+pub mod notch;
 pub mod notewrite;
 pub mod ocr;
 pub mod omni;
@@ -1408,6 +1409,8 @@ pub fn run(intent: cli::LaunchIntent) {
             todos::todos_clear_done,
             favicon::favicon,
             favicon::site_icon,
+            notch::window_notch,
+            notch::window_notch_active,
             fairy::fairy_status,
             fairy::fairy_ask,
             fairy::fairy_stop,

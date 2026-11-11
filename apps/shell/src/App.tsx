@@ -1631,6 +1631,10 @@ const App: Component = () => {
       case "devtools":
         navActive((id) => webviewDevtools(id));
         return true;
+      case "notch-fullscreen":
+        // The window around the notch, menu bar and Dock hidden (notchMode.ts).
+        void import("./notchMode").then((m) => m.toggleNotch(() => activeTab()?.title || "Flux"));
+        return true;
       case "focus-mode": {
         const on = !focusMode();
         setFocusMode(on);

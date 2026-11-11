@@ -316,6 +316,12 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
     },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
     { id: "focus-mode", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
+    {
+      id: "notch-fullscreen",
+      label: "Full screen around the notch",
+      icon: "⌃",
+      run: () => dispatch("notch-fullscreen"),
+    },
     { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
     { id: "resources", label: "Open Resource monitor", icon: "📊", run: () => go(RESOURCES_URL) },
     { id: "tasks", label: "Open Tasks", icon: "☑️", run: () => go(TASKS_URL) },

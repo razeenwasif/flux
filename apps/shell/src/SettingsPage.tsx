@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { terminalScreenReader, setTerminalScreenReader } from "./terminalAccessibility";
 import { settingsWriter } from "./settingsWriter";
 import { protectionMetrics, requestControlsHint } from "./protectionStatus";
-import { isWindows } from "./platform";
+import { isMac, isWindows } from "./platform";
 import type { FormHelpPrefs, ShieldsStatus } from "./ipc";
 import { Row, Toggle } from "./SettingsControls";
 import SettingsNavigator, { Section } from "./SettingsNavigator";
@@ -221,6 +221,17 @@ function parseElevenLabsVoiceRef(input: string): ElevenLabsVoiceRef {
  *  to the startup bundle's preload map. */
 const MAX_LIVE_KEY = "flux.hibernate.cap";
 const [maxLiveTabs, setMaxLiveRaw] = createSignal(Number(localStorage.getItem(MAX_LIVE_KEY)) || 8);
+// Full screen around the notch (notchMode.ts) keeps the menu bar pinned.
+const NOTCH_MENU_KEY = "flux.notch.menuBar";
+const [notchMenuBar, setNotchMenuBarRaw] = createSignal(localStorage.getItem(NOTCH_MENU_KEY) === "1");
+const setNotchMenuBar = (on: boolean) => {
+  setNotchMenuBarRaw(on);
+  try {
+    localStorage.setItem(NOTCH_MENU_KEY, on ? "1" : "0");
+  } catch {
+    /* kept for this run */
+  }
+};
 const setMaxLiveTabs = (n: number) => {
   setMaxLiveRaw(n);
   try {
@@ -1040,6 +1051,14 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           >
             <Toggle on={windowAcrylic()} onClick={() => setWindowAcrylic(!windowAcrylic())} />
           </Row>
+          <Show when={isMac}>
+            <Row
+              label="Keep the menu bar in full screen"
+              hint="Full screen around the notch (⌥⌘F) keeps the menu bar pinned at the top and fills the screen below it, instead of wrapping around the notch. The Dock stays hidden. Takes effect the next time you press ⌥⌘F."
+            >
+              <Toggle on={notchMenuBar()} onClick={() => setNotchMenuBar(!notchMenuBar())} />
+            </Row>
+          </Show>
         </Section>
 
         <Section title="Search">

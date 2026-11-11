@@ -620,6 +620,19 @@
       "fixed": null
     },
     {
+      "id": "notch-fullscreen",
+      "title": "Full screen around the notch",
+      "detail": "Cover the whole screen, menu bar and Dock hidden; columns beside the notch run to the top",
+      "group": "Panels",
+      "keys": [
+        "Alt+Cmd+F"
+      ],
+      "defaults": [
+        "Alt+Cmd+F"
+      ],
+      "fixed": null
+    },
+    {
       "id": "bookmark-bar",
       "title": "Toggle bookmark bar",
       "detail": "Show or hide the bookmark bar",

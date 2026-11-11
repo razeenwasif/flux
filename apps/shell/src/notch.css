@@ -1,0 +1,36 @@
+/* Full screen around the notch (notchMode.ts). The column the notch sits over
+   starts below it; the others run to the top beside it. */
+.shell.notched > .under-notch {
+  align-self: end;
+  height: calc(100% - var(--notch-band));
+}
+
+/* Either side of the notch: the tab's title, and the time. */
+.notch-band {
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--notch-band);
+  z-index: 5;
+  pointer-events: none;
+}
+.notch-band > span {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--flux-text-dim);
+}
+.notch-left {
+  justify-content: flex-end;
+}
+.notch-right {
+  justify-content: flex-start;
+  font-variant-numeric: tabular-nums;
+}
