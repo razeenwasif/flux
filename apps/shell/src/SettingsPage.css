@@ -257,7 +257,7 @@
     text-align: left;
   }
 }
-/* A two-way choice (Model server: This Mac / Another machine). */
+/* A segmented choice (Form help: when it suggests). */
 .set-seg {
   display: inline-flex;
   gap: 2px;

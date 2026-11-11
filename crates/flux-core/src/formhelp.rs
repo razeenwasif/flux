@@ -14,8 +14,8 @@
 //! - Password, card, one-time-code and (by default) personal-detail fields are
 //!   refused here too ([`flux_agent::formhelp::refuses`]), whatever the page
 //!   script decided.
-//! - The model is the local one (this Mac's Ollama or the Model server),
-//!   never the cloud switch: a page's text goes nowhere else on its own.
+//! - The model is this Mac's Ollama: a page's text goes nowhere else on its
+//!   own.
 //! - Rust never touches the clipboard. The page script copies through
 //!   WebKit's clipboard API inside your click or keypress, so a page gets no
 //!   clipboard power it doesn't already have.
@@ -259,8 +259,8 @@ pub async fn formhelp_suggest(
     let n = state.begin(tab);
     let voice = state.prefs.read().voice.clone();
     let answer = tauri::async_runtime::spawn_blocking(move || {
-        let local = crate::agent_bridge::router().local();
-        flux_agent::formhelp::suggest(local.as_ref(), &field, avoid.as_deref(), &voice)
+        let model = crate::agent_bridge::planner().backend();
+        flux_agent::formhelp::suggest(model, &field, avoid.as_deref(), &voice)
     })
     .await
     .map_err(|e| e.to_string())?;

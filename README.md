@@ -358,11 +358,9 @@ ollama pull gemma4:12b-it-qat   # or e4b-it-qat (faster) / e2b-it-qat (fastest)
 ollama serve                    # http://localhost:11434
 ```
 
-Or use **Gemini through Antigravity**, signed in with your Google account and no
-API key: install the Antigravity CLI (`agy`), open it once to sign in, then pick
-**Settings → Model server → Gemini (Antigravity)** and a model (ADR 0020). The
-agent's prompts then go to Google, the panel shows it as cloud, and each step takes
-25–35 s. Flux refuses the CLI every tool but the one that returns an answer.
+With **Fairy**, your assistant app, on the Mac, her chip in the agent panel sends
+your question to her instead; she answers on her own model, so that question and
+the page leave the Mac. Ollama is the only model Flux runs itself.
 
 The sidebar is **chat-first**: talk to Gemma about anything, with no page
 required (if a page is open, its text is added as context so you can ask about

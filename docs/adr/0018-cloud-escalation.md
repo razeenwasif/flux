@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted — shipped. Amended by [ADR 0020](0020-gemini-through-antigravity.md): Gemini through Antigravity, chosen in Settings, stays on across launches |
+| **Status** | Superseded (2026-11-11): Fairy, the user's assistant app, is now Flux's agent and answers on her own model, so cloud escalation and its Gemini key were removed; Ollama stays for on-device features. Was: accepted and shipped, amended by [ADR 0020](0020-gemini-through-antigravity.md) |
 | **Date** | 2026-08-07 |
 | **Deciders** | Flux Core Team |
 | **Relates to** | [0005](0005-agent-backend-ollama.md) (the local agent backend, which this amends), [0013](0013-ai-security-sentinel.md) (the local agent as a *privacy* primitive), BACKLOG #175 |

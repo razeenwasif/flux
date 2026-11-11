@@ -4635,7 +4635,18 @@ body.resizing .panel-edge-resize::after {
   color: var(--flux-text-dim);
 }
 
-/* Agent model picker (#81). */
+/* Who answers, in the agent panel's header: Fairy, or the model on this Mac. A
+   label rather than a control, so it reads as plain text. */
+.agent-who {
+  font-size: 11px;
+  color: var(--flux-text-dim);
+  padding: 2px 7px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* The past-chats dropdown in the agent panel's header. */
 .agent-model {
   position: relative;
   z-index: 2;
@@ -4651,39 +4662,6 @@ body.resizing .panel-edge-resize::after {
 .agent-model-btn:hover {
   color: var(--flux-text);
   border-color: var(--flux-border);
-}
-/* Cloud escalation (#175). Deliberately the loudest thing in the header while
-   it's on: this is the state where what you type leaves the machine, and it
-   should be impossible to have forgotten. Colour alone doesn't carry it — the
-   label itself changes to "cloud", so it reads correctly without colour vision
-   and in a screenshot. */
-.agent-model-btn.cloud {
-  color: var(--flux-text);
-  background: rgba(var(--accent-hot-rgb), 0.16);
-  border-color: rgba(var(--accent-hot-rgb), 0.55);
-}
-.agent-model-btn.cloud:hover {
-  background: rgba(var(--accent-hot-rgb), 0.24);
-  border-color: rgba(var(--accent-hot-rgb), 0.75);
-}
-.agent-model-cloud {
-  width: 100%;
-  border: 0;
-  background: none;
-  color: var(--flux-text-dim);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-}
-.agent-model-cloud:hover {
-  color: var(--flux-text);
-}
-.agent-model-cloud.on {
-  color: #ffffff;
-}
-.agent-model-cloud:disabled {
-  opacity: 0.6;
-  cursor: default;
 }
 .agent-model-menu {
   position: absolute;
@@ -4726,25 +4704,6 @@ body.resizing .panel-edge-resize::after {
 }
 .agent-model-item.on {
   color: var(--flux-teal);
-}
-/* Separates the list of models from the action below it — without a rule, the
-   unload button reads as one more model you could switch to. */
-.agent-model-sep {
-  height: 1px;
-  margin: 5px 4px;
-  background: var(--glass-rim-soft);
-}
-.agent-model-unload {
-  width: 100%;
-  border: 0;
-  background: none;
-  color: var(--flux-text-dim);
-  font: inherit;
-  font-size: 12px;
-}
-.agent-model-unload:disabled {
-  opacity: 0.6;
-  cursor: default;
 }
 .agent-chat-del {
   opacity: 0.5;

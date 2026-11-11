@@ -3,7 +3,6 @@
  * ipc.ts so they load with the panel rather than on every start.
  */
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { asRoute } from "./cloudroute";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AgentAction,
@@ -19,7 +18,6 @@ import type {
   PacStatus,
   Place,
   ReminderRow,
-  RouteStatus,
   SystemStats,
   TabThread,
 } from "./ipc";
@@ -53,19 +51,6 @@ export const pacStatus = () => invoke<PacStatus>("pac_status");
 
 export const agentNextStep = (goal: string, history: string[]) =>
   invoke<NextStep>("agent_next_step", { goal, history });
-
-/** Models the stored key can reach (asked, not hardcoded). */
-export const geminiModels = () => invoke<string[]>("gemini_models");
-
-export const geminiDefaultModel = () => invoke<string>("gemini_default_model");
-
-/** Escalate to (or back from) the cloud for THIS session. Returns what will
- *  actually happen, which is not always what was asked — escalating without a
- *  stored key fails, and the agent stays local. */
-export const agentCloudSet = (on: boolean, model: string) =>
-  invoke<RouteStatus>("agent_cloud_set", { on, model }).then(asRoute);
-
-export const agentCloudStatus = () => invoke<RouteStatus>("agent_cloud_status").then(asRoute);
 
 export const agentReadTextFile = (path: string) => invoke<string>("agent_read_text_file", { path });
 
@@ -130,9 +115,6 @@ export const agentChatTabsStream = (
   ch.onmessage = onToken;
   return invoke<void>("agent_chat_tabs_stream", { prompt, tabIds, onToken: ch });
 };
-
-// ─── Agent model picker (BACKLOG #81) ────────────────────────────────────────
-export const agentModels = () => invoke<string[]>("agent_models");
 
 // ─── Events (Rust → UI) ──────────────────────────────────────────────────
 

@@ -237,39 +237,24 @@ pub async fn agent_translate(
     .map_err(|e| e.to_string())
 }
 
-/// List the models the agent can use (#81): the local Ollama server's, or the
-/// model server's when one is set (Settings → Model server).
+/// List the models the agent can use (#81): the local Ollama server's.
 #[tauri::command]
 pub async fn agent_models() -> Vec<String> {
-    tauri::async_runtime::spawn_blocking(|| match crate::modelserver::remote() {
-        Some(cfg) => crate::modelserver::remote_models(&cfg),
-        None => flux_agent::ollama::list_models(),
-    })
-    .await
-    .unwrap_or_default()
+    tauri::async_runtime::spawn_blocking(flux_agent::ollama::list_models)
+        .await
+        .unwrap_or_default()
 }
 
 /// The model the agent is currently using (#81).
 #[tauri::command]
 pub fn agent_model() -> String {
-    match crate::modelserver::remote() {
-        Some(cfg) => cfg.model,
-        None => flux_agent::ollama::active_model(),
-    }
+    flux_agent::ollama::active_model()
 }
 
 /// Switch the agent's model (#81); empty reverts to the env/default.
 #[tauri::command]
-pub async fn agent_set_model(name: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || match crate::modelserver::remote() {
-        Some(_) => crate::modelserver::set_remote_model(&name),
-        None => {
-            flux_agent::ollama::set_model(&name);
-            Ok(())
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?
+pub fn agent_set_model(name: String) {
+    flux_agent::ollama::set_model(&name);
 }
 
 /// Drop the agent's model from VRAM now (#169), rather than waiting out the
@@ -790,6 +775,54 @@ async fn page_tree(app: &AppHandle, tab: TabId) -> Option<flux_agent::axtree::Ax
     .await?;
     let tree: flux_agent::axtree::AxTree = serde_json::from_str(&seen).ok()?;
     (!tree.nodes.is_empty()).then_some(tree)
+}
+
+/// A tab's page as an agent outside Flux reads it (Fairy, fairy.rs): its
+/// address and either its accessibility tree, whose refs `agent_step_guard` and
+/// `agent_run_action` take, or its captured text where there's no tree.
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct PageViewOut {
+    pub url: String,
+    /// "tree" or "text".
+    pub kind: &'static str,
+    pub view: String,
+}
+
+/// Read `tab` (default: the active tab) for an outside agent. Refused for a
+/// private or Tor tab, and for a site Flux's agent never acts on.
+#[tauri::command]
+pub async fn agent_page_view(
+    app: AppHandle,
+    state: State<'_, FluxState>,
+    tab: Option<TabId>,
+) -> Result<PageViewOut, String> {
+    let tab = tab.or_else(|| state.active_tab()).ok_or("no tab is open")?;
+    let (private, tor, url) = state
+        .tabs
+        .get(&tab)
+        .map(|t| (t.private, t.tor, t.url.clone()))
+        .ok_or("no such tab")?;
+    if private || tor {
+        return Err("that's a private or Tor tab, which Fairy never sees".into());
+    }
+    if let Some(kind) = flux_agent::steps::sensitive_site(&url) {
+        return Err(format!("Flux's agent doesn't read {kind} sites"));
+    }
+    if let Some(tree) = page_tree(&app, tab).await {
+        if let Some(kind) = flux_agent::steps::sensitive_site(&tree.url) {
+            return Err(format!("Flux's agent doesn't read {kind} sites"));
+        }
+        let view = flux_agent::axtree::render(&tree, flux_agent::axtree::TREE_BUDGET);
+        return Ok(PageViewOut { url: tree.url, kind: "tree", view });
+    }
+    let snap = state
+        .dom_cache
+        .get(&tab)
+        .map(|s| s.clone())
+        .filter(|s| s.url == url)
+        .ok_or("Flux hasn't read that page yet; try again once it has loaded")?;
+    let text: String = snap.text.chars().take(32 * 1024).collect();
+    Ok(PageViewOut { url: snap.url.clone(), kind: "text", view: text })
 }
 
 /// What the model is given of the active page.

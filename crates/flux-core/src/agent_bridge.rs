@@ -1,23 +1,22 @@
 //! Process-wide Flux Agent planner.
 //!
-//! The *local* backend is chosen at first use and reused for every request:
-//!   * default      → Settings → Model server: the local Ollama (the user's
-//!     Gemma models), or an OpenAI-compatible server elsewhere
-//!     (`crate::modelserver`), swapped in place when it changes
+//! The backend is chosen at first use and reused for every request:
+//!   * default      → this Mac's Ollama (the user's Gemma models; FLUX_MODEL /
+//!     FLUX_OLLAMA_URL)
 //!   * FLUX_AGENT_BACKEND=mock → deterministic heuristic (dev/CI, no model)
 //!   * feature `llama` + FLUX_AGENT_BACKEND=llama → in-process llama.cpp
 //!
-//! That backend is then wrapped in a [`RoutingBackend`] (#175), which keeps a
-//! second, optional *cloud* backend beside it. The router is local-first and
-//! stays local unless the user explicitly escalates for the session — see
-//! `flux_agent::route` for the rules, and `crate::gemini` for the commands that
-//! install a key.
+//! It is the only model Flux runs itself. Fairy (`crate::fairy`) is the agent
+//! you talk to; this one powers what Flux does on device: Sentinel's checks,
+//! form help, cited page answers, notes answers, Boost drafts, note writing,
+//! Trail summaries and the agent panel's local chips. Nothing here sends a
+//! prompt off this machine.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
-use flux_agent::{AgentPlanner, Inference, MockBackend, RoutingBackend};
+use flux_agent::{AgentPlanner, Inference, MockBackend};
 
-fn make_local() -> Box<dyn Inference> {
+fn make_backend() -> Box<dyn Inference> {
     match std::env::var("FLUX_AGENT_BACKEND").as_deref() {
         Ok("mock") => Box::new(MockBackend),
         #[cfg(feature = "llama")]
@@ -34,50 +33,11 @@ fn make_local() -> Box<dyn Inference> {
                 }
             }
         }
-        // Default: what Settings → Model server says — the local Ollama server
-        // (FLUX_MODEL / FLUX_OLLAMA_URL), or a model server on another machine.
-        _ => crate::modelserver::backend(),
+        _ => Box::new(flux_agent::OllamaBackend::new()),
     }
-}
-
-/// The router, reachable after the planner is built so a key entered later can
-/// install the cloud backend without rebuilding anything.
-pub fn router() -> &'static Arc<RoutingBackend> {
-    static ROUTER: OnceLock<Arc<RoutingBackend>> = OnceLock::new();
-    static APPLIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    let router = ROUTER.get_or_init(|| Arc::new(RoutingBackend::new(make_local())));
-    // Gemini through Antigravity, when Settings chose it (modelserver.rs): once,
-    // and only after the settings are there to say so.
-    if crate::modelserver::ready() && !APPLIED.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        crate::modelserver::apply_cloud(router);
-    }
-    router
-}
-
-/// The default model alone, never the cloud route: for what Flux does on its own
-/// with what's on screen (Sentinel's checks), which ADR 0013 keeps on device.
-struct LocalOnly;
-
-impl Inference for LocalOnly {
-    fn complete(
-        &self,
-        prompt: &str,
-        schema: Option<&serde_json::Value>,
-    ) -> Result<String, flux_agent::AgentError> {
-        router().local().complete(prompt, schema)
-    }
-
-    fn chat(&self, prompt: &str) -> Result<String, flux_agent::AgentError> {
-        router().local().chat(prompt)
-    }
-}
-
-pub fn local_planner() -> &'static AgentPlanner {
-    static PLANNER: OnceLock<AgentPlanner> = OnceLock::new();
-    PLANNER.get_or_init(|| AgentPlanner::new(Box::new(LocalOnly)))
 }
 
 pub fn planner() -> &'static AgentPlanner {
     static PLANNER: OnceLock<AgentPlanner> = OnceLock::new();
-    PLANNER.get_or_init(|| AgentPlanner::new(Box::new(Arc::clone(router()))))
+    PLANNER.get_or_init(|| AgentPlanner::new(make_backend()))
 }

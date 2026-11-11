@@ -5,10 +5,11 @@
 //! default while every byte the agent saw stayed on the machine — the model *is*
 //! the user's, running on their GPU.
 //!
-//! Cloud escalation (ADR 0018) changed the stakes. A file the agent reads while
-//! escalated is a file Google receives, and "the agent can read anything on this
-//! machine" is a much larger sentence when the machine is a laptop with a
-//! Windows partition full of everything else you own.
+//! Cloud escalation (ADR 0018, since removed) changed the stakes: a file the
+//! agent read while escalated was a file Google received. It also showed that
+//! "the agent can read anything on this machine" is a much larger sentence when
+//! the machine is a laptop with a Windows partition full of everything else you
+//! own, which is why the allowance stayed when escalation went.
 //!
 //! So: an **opt-in** allowance. Off by default, because turning it on by fiat
 //! would silently break reads people already rely on, and a security control

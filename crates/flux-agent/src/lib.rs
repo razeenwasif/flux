@@ -9,25 +9,18 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub mod antigravity;
 pub mod axtree;
 pub mod cited;
 pub mod compile;
 pub mod formhelp;
-pub mod gemini;
 #[cfg(feature = "llama")]
 pub mod llama;
 pub mod ollama;
-pub mod openai;
 pub mod pac;
 pub mod playbooks;
-pub mod route;
 pub mod steps;
 
-pub use gemini::GeminiBackend;
 pub use ollama::OllamaBackend;
-pub use openai::OpenAiBackend;
-pub use route::{RouteStatus, RoutingBackend};
 
 #[derive(Debug, Error)]
 pub enum AgentError {
@@ -910,6 +903,11 @@ pub struct AgentPlanner {
 impl AgentPlanner {
     pub fn new(backend: Box<dyn Inference>) -> Self {
         Self { backend }
+    }
+
+    /// The model itself, for callers that build their own prompt (form help).
+    pub fn backend(&self) -> &dyn Inference {
+        self.backend.as_ref()
     }
 
     pub fn plan<'a>(

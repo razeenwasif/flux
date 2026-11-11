@@ -4,7 +4,6 @@
  * specta is issue #12).
  */
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { asRoute } from "./cloudroute";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export { Channel };
@@ -56,7 +55,6 @@ export const isStartUrl = (url: string) => url === START_URL || url.startsWith("
 // `FLUX_WRITE_BINDINGS=1 cargo test -p flux-core bindings`.
 import type {
   AgentStatus as GenAgentStatus,
-  RouteStatus as GenRouteStatus,
   NvimState as GenNvimState,
   NvimSelection as GenNvimSelection,
   FramePolicy as GenFramePolicy,
@@ -214,8 +212,6 @@ export type TabKind = GenTabKind;
 export type Workspace = GenWorkspace;
 export type Container = GenContainer;
 export type AgentStatus = GenAgentStatus;
-/** Where the agent's next request goes: local, or the opt-in cloud (#175). */
-export type RouteStatus = GenRouteStatus;
 export type ShellSnapshot = GenShellSnapshot;
 export type TabMeta = GenTabMeta;
 export type TabGroup = GenTabGroup;
@@ -496,43 +492,6 @@ export const fishaudioResolveVoice = (voice: string) =>
 /** Cloud TTS via Fish Audio: returns a base64 MP3 (sends the text to Fish Audio). */
 export const fishaudioSpeak = (text: string, voiceId: string, modelId: string) =>
   invoke<string>("fishaudio_speak", { text, voiceId, modelId });
-
-// ─── Gemini cloud escalation (#175) ─────────────────────────────────────────
-// The agent is local by default. These are the only calls that can change that,
-// and the switch resets to local on every launch — see crates/flux-core/gemini.rs.
-// Replies go through `asRoute`, which fails toward local; see cloudroute.ts.
-
-/** Where the agent's model runs (Settings → Model server): this machine's
- *  Ollama ("local"), or an OpenAI-compatible server on another machine
- *  ("openai", e.g. Nexus serving from a desktop GPU). The key stays in the OS
- *  keyring; only whether one is stored comes back. */
-export type ModelServerView = {
-  kind: "local" | "openai" | "antigravity";
-  url: string;
-  model: string;
-  has_key: boolean;
-};
-export const modelServerGet = () => invoke<ModelServerView>("model_server_get");
-/** Save and switch now. `key`: undefined keeps the stored one, "" removes it. */
-export const modelServerSet = (
-  kind: "local" | "openai" | "antigravity",
-  url: string,
-  model: string,
-  key?: string,
-) => invoke<void>("model_server_set", { kind, url, model, key: key ?? null });
-/** Test an address: the models it offers (with this key, or the stored one). */
-export const modelServerModels = (url: string, key?: string) =>
-  invoke<string[]>("model_server_models", { url, key: key || null });
-
-/** The models the Antigravity CLI offers your account (ADR 0020); fails when it
- *  isn't installed or signed in. */
-export const modelServerAgyModels = () => invoke<string[]>("model_server_agy_models");
-
-/** Store (or clear, with "") the Gemini API key in the OS keyring. */
-export const geminiSetKey = (key: string) => invoke<void>("gemini_set_key", { key });
-/** Whether a key is stored. The key itself never reaches the renderer. */
-export const geminiHasKey = () => invoke<boolean>("gemini_has_key");
-export const geminiVerifyKey = () => invoke<string>("gemini_verify_key");
 
 // ─── Agent file access (#176) ───────────────────────────────────────────────
 // The agent reads through its own commands so the allowance can't be bypassed

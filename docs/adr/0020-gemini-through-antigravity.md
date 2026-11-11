@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted |
+| **Status** | Superseded (2026-11-11): Fairy is now Flux's agent, so Antigravity as a model server was removed along with cloud escalation ([ADR 0018](0018-cloud-escalation.md)) |
 | **Date** | 2026-11-07 |
 | **Deciders** | Maintainer |
 | **Relates to** | [0018](0018-cloud-escalation.md) (cloud escalation, which this amends), [0013](0013-ai-security-sentinel.md) (what stays on device) |

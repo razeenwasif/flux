@@ -50,17 +50,10 @@ import {
   elevenlabsHasKey,
   elevenlabsImportVoice,
   elevenlabsSetKey,
-  geminiSetKey,
   agentRootsGet,
   agentRootsSet,
   agentRootsSuggested,
   type AgentRoots,
-  geminiHasKey,
-  modelServerGet,
-  modelServerAgyModels,
-  modelServerModels,
-  modelServerSet,
-  geminiVerifyKey,
   elevenlabsVerifyKey,
   elevenlabsVerifyKeyValue,
   elevenlabsVoices,
@@ -466,96 +459,6 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   };
   const removeRoot = (p: string) => saveRoots({ ...roots(), roots: roots().roots.filter((x) => x !== p) });
 
-  // Where the agent's model runs: this Mac's Ollama, or a server on another
-  // machine that speaks the OpenAI API (Nexus serving from a desktop's GPU).
-  const [msKind, setMsKind] = createSignal<"local" | "openai" | "antigravity">("local");
-  const [msUrl, setMsUrl] = createSignal("");
-  const [msModel, setMsModel] = createSignal("");
-  const [msModels, setMsModels] = createSignal<string[]>([]);
-  const [msKey, setMsKey] = createSignal("");
-  const [msKeySet, setMsKeySet] = createSignal(false);
-  const [msFlash, setMsFlash] = createSignal("");
-  const [msBusy, setMsBusy] = createSignal(false);
-  const refreshModelServer = () =>
-    void modelServerGet()
-      .then((v) => {
-        setMsKind(v.kind);
-        setMsUrl(v.url);
-        setMsModel(v.model);
-        setMsKeySet(v.has_key);
-      })
-      .catch(() => {});
-  const testModelServer = async () => {
-    setMsBusy(true);
-    setMsFlash("Connecting…");
-    try {
-      const models =
-        msKind() === "antigravity"
-          ? await modelServerAgyModels()
-          : await modelServerModels(msUrl().trim(), msKey().trim() || undefined);
-      setMsModels(models);
-      if (models.length && !models.includes(msModel())) setMsModel(models[0]!);
-      setMsFlash(models.length ? `Connected · ${models.join(", ")}` : "Connected, but it lists no models");
-    } catch (e) {
-      setMsFlash(String(e).replace(/^Error:\s*/, ""));
-    } finally {
-      setMsBusy(false);
-    }
-  };
-  const saveModelServer = async (kind = msKind()) => {
-    setMsBusy(true);
-    try {
-      const key = msKey().trim();
-      await modelServerSet(kind, msUrl().trim(), msModel().trim(), key ? key : undefined);
-      setMsKey("");
-      refreshModelServer();
-      setMsFlash(
-        kind === "local"
-          ? "The agent runs on this Mac (Ollama)"
-          : kind === "antigravity"
-            ? `The agent uses ${msModel() || "Gemini"} through Antigravity; its prompts leave this Mac`
-            : `The agent runs on ${msUrl().trim()}; this Mac's Ollama when it's out of reach`,
-      );
-    } catch (e) {
-      setMsFlash(String(e).replace(/^Error:\s*/, ""));
-    } finally {
-      setMsBusy(false);
-    }
-  };
-
-  // Gemini cloud escalation for the agent (#175). Storing a key does NOT route
-  // anything: it only makes the per-session switch in the agent panel available.
-  const [gemKeyInput, setGemKeyInput] = createSignal("");
-  const [gemKeySet, setGemKeySet] = createSignal(false);
-  const [gemFlash, setGemFlash] = createSignal("");
-  const refreshGemKey = () =>
-    void geminiHasKey()
-      .then(setGemKeySet)
-      .catch(() => {});
-  const saveGemKey = async () => {
-    try {
-      const raw = gemKeyInput().trim();
-      if (!raw) {
-        await geminiSetKey("");
-        setGemKeyInput("");
-        setGemKeySet(false);
-        setGemFlash("Key removed — the agent is local only");
-        return;
-      }
-      await geminiSetKey(raw);
-      // Verify *after* storing so the message reflects what was actually saved,
-      // and a bad key is reported rather than sitting there until first use.
-      const msg = await geminiVerifyKey();
-      setGemKeyInput("");
-      setGemKeySet(true);
-      setGemFlash(msg);
-    } catch (e) {
-      setGemFlash(String(e));
-      refreshGemKey();
-      refreshRoots();
-    }
-  };
-
   // ElevenLabs (cloud) voice.
   const [elKeyInput, setElKeyInput] = createSignal("");
   const [elKeySet, setElKeySet] = createSignal(false);
@@ -818,8 +721,6 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     if (ttsEngine() === "elevenlabs") loadElVoices();
     refreshFishKey();
     if (ttsEngine() === "fishaudio") loadFishVoices();
-    refreshGemKey();
-    refreshModelServer();
     refreshPcKey();
     refreshMem();
     refreshMics();
@@ -1596,7 +1497,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Row>
           <Row
             label="Agent file access"
-            hint="Off (default): Gemma's list/read/edit tools can open anything this app can — your whole disk, including mounted Windows drives. On: they're confined to the folders below, and everything else is refused with a message saying so. Your own Files tab and PDF viewer are unaffected; this is about what the agent may reach on its own. Worth turning on if you use cloud escalation, since a file the agent reads while escalated is a file Google receives."
+            hint="Off (default): Gemma's list/read/edit tools can open anything this app can — your whole disk, including mounted Windows drives. On: they're confined to the folders below, and everything else is refused with a message saying so. Your own Files tab and PDF viewer are unaffected; this is about what the agent may reach on its own."
           >
             <Toggle on={roots().enabled} onClick={() => void toggleRoots()} />
           </Row>
@@ -1643,149 +1544,6 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               </div>
             </Row>
           </Show>
-          <Row
-            label="Model server"
-            hint="Where the agent's model runs. This Mac uses its Ollama. Gemini (Antigravity) sends the agent's prompts to Google through the Antigravity CLI. Another machine: a server that speaks the OpenAI API, like the one Nexus's Inference tab starts on your desktop's GPU (http://<node>:8080/v1, with the key from its Serving panel; Nexus issues a new key each time it serves). When that machine can't be reached, the agent uses this Mac's Ollama. The Indexer's embeddings always stay on this Mac."
-          >
-            <div class="set-stack-control">
-              <div class="set-seg" role="radiogroup" aria-label="Model server">
-                <button
-                  role="radio"
-                  aria-checked={msKind() === "local"}
-                  classList={{ on: msKind() === "local" }}
-                  onClick={() => {
-                    setMsKind("local");
-                    void saveModelServer("local");
-                  }}
-                >
-                  This Mac
-                </button>
-                <button
-                  role="radio"
-                  aria-checked={msKind() === "openai"}
-                  classList={{ on: msKind() === "openai" }}
-                  onClick={() => setMsKind("openai")}
-                >
-                  Another machine
-                </button>
-                <button
-                  role="radio"
-                  aria-checked={msKind() === "antigravity"}
-                  classList={{ on: msKind() === "antigravity" }}
-                  onClick={() => {
-                    setMsKind("antigravity");
-                    void testModelServer();
-                  }}
-                >
-                  Gemini (Antigravity)
-                </button>
-              </div>
-              <Show when={msKind() === "antigravity"}>
-                <div class="set-row-hint">
-                  Uses the Antigravity CLI (<code>agy</code>) signed in with your Google account, so no API
-                  key. The agent's prompts (page text, notes, terminal output) go to Google until you choose
-                  another server, and the agent panel shows it as cloud. Flux gives the model no tools, but
-                  the CLI adds its own instructions and your global Antigravity rules to every prompt, and
-                  each step takes several seconds. Form help and Sentinel's checks stay on this Mac.
-                </div>
-                <Show when={msModels().length > 0}>
-                  <select
-                    class="set-select"
-                    aria-label="Gemini model"
-                    value={msModel()}
-                    onChange={(e) => setMsModel(e.currentTarget.value)}
-                  >
-                    <For each={msModels()}>{(m) => <option value={m}>{m}</option>}</For>
-                  </select>
-                </Show>
-                <div style={{ display: "flex", gap: "8px", "flex-wrap": "wrap" }}>
-                  <button class="set-link-btn" disabled={msBusy()} onClick={() => void testModelServer()}>
-                    Check
-                  </button>
-                  <button
-                    class="set-link-btn"
-                    disabled={msBusy() || msModels().length === 0}
-                    onClick={() => void saveModelServer()}
-                  >
-                    Use it
-                  </button>
-                </div>
-              </Show>
-              <Show when={msKind() === "openai"}>
-                <input
-                  class="map-search-input"
-                  aria-label="Model server address"
-                  placeholder="http://192.168.68.200:8080/v1"
-                  value={msUrl()}
-                  onInput={(e) => setMsUrl(e.currentTarget.value)}
-                />
-                <input
-                  class="map-search-input"
-                  type="password"
-                  aria-label="Model server API key"
-                  placeholder={msKeySet() ? "•••••••• (key set)" : "API key (Bearer)"}
-                  value={msKey()}
-                  onInput={(e) => setMsKey(e.currentTarget.value)}
-                />
-                <Show when={msModels().length > 1}>
-                  <select
-                    class="set-select"
-                    aria-label="Model"
-                    value={msModel()}
-                    onChange={(e) => setMsModel(e.currentTarget.value)}
-                  >
-                    <For each={msModels()}>{(m) => <option value={m}>{m}</option>}</For>
-                  </select>
-                </Show>
-                <div style={{ display: "flex", gap: "8px", "flex-wrap": "wrap" }}>
-                  <button
-                    class="set-link-btn"
-                    disabled={msBusy() || !msUrl().trim()}
-                    onClick={() => void testModelServer()}
-                  >
-                    Test
-                  </button>
-                  <button
-                    class="set-link-btn"
-                    disabled={msBusy() || !msUrl().trim()}
-                    onClick={() => void saveModelServer()}
-                  >
-                    Use it
-                  </button>
-                </div>
-              </Show>
-              <Show when={msFlash()}>
-                <div class="set-status-line" title={msFlash()}>
-                  {msFlash()}
-                </div>
-              </Show>
-            </div>
-          </Row>
-          <Row
-            label="Gemini API key (cloud escalation)"
-            hint="Optional. Lets you escalate a single session to Gemini from the agent panel's model menu, for jobs a local model can't do — a folder of lecture PDFs, prompts past the local context window. Storing a key routes nothing on its own, and escalation resets to local every time Flux restarts. While it's on, the agent's prompts — page text, PDFs, vault notes, terminal output — are sent to Google. Note a Gemini app subscription is NOT an API key: get one from Google AI Studio (aistudio.google.com), and check whether your tier is excluded from training. Stored in your OS keyring. Leave blank and save to remove."
-          >
-            <div class="set-stack-control">
-              <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
-                <input
-                  class="map-search-input"
-                  type="password"
-                  style={{ "max-width": "260px" }}
-                  placeholder={gemKeySet() ? "•••••••• (key set)" : "AIza…"}
-                  value={gemKeyInput()}
-                  onInput={(e) => setGemKeyInput(e.currentTarget.value)}
-                />
-                <button class="set-link-btn" onClick={() => void saveGemKey()}>
-                  Save
-                </button>
-              </div>
-              <Show when={gemFlash()}>
-                <div class="set-status-line" title={gemFlash()}>
-                  {gemFlash()}
-                </div>
-              </Show>
-            </div>
-          </Row>
           <Row
             label="Hey Gemma (always-on voice)"
             hint="Listen for “hey Gemma”, then converse by voice. Everything is local — speech-to-text (Vosk), the reply (Ollama), and the spoken voice never leave your device; audio before the wake word is discarded, never stored. Toggle it from the mic button in the agent panel. Default off."
@@ -2204,7 +1962,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
         <Section title="Form help">
           <Row
             label="Suggest what goes in a form field"
-            hint="Off by default. Click or Tab into an empty field and your model (this Mac's, or the Model server under Integrations, never the cloud) suggests its text. A short field shows it greyed out, and Tab puts it in. A long one has it copied for you to paste. Esc or typing dismisses it; ⌃Space asks for a different one. Never on password, card or code fields, sign-in forms, or banking, password-manager, health and tax sites. Applies to pages you open or reload."
+            hint="Off by default. Click or Tab into an empty field and the model on this Mac (Ollama) suggests its text. A short field shows it greyed out, and Tab puts it in. A long one has it copied for you to paste. Esc or typing dismisses it; ⌃Space asks for a different one. Never on password, card or code fields, sign-in forms, or banking, password-manager, health and tax sites. Applies to pages you open or reload."
           >
             <Toggle
               on={formHelp()?.enabled === true}

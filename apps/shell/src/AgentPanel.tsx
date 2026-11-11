@@ -29,22 +29,16 @@ import {
   runShell,
   shellGuard,
   agentPlaces,
-  agentUnload,
   agentEditPlan,
   memoryAppend,
   onReminderDue,
   systemStats,
-  agentModels,
   agentReadTextFile,
   agentPdfFetch,
   agentWriteTextFile,
   nvimState,
   nvimBuffer,
   nvimSelection,
-  agentCloudSet,
-  agentCloudStatus,
-  geminiModels,
-  geminiDefaultModel,
   spotifyNext,
   spotifyNowPlaying,
   spotifyPause,
@@ -88,8 +82,6 @@ import {
   // The ungated ones are deliberately NOT imported here: the agent must not be
   // able to reach around its own allowance.
   agentFsList,
-  geminiHasKey,
-  type RouteStatus,
   agentRunAction,
   attachmentRead,
   voiceTranscribe,
@@ -105,7 +97,6 @@ import {
   calEventUpdate,
   calEventDelete,
   agentStepGuard,
-  modelServerGet,
   type AgentAction,
   type NextStep,
   type AgentStatus,
@@ -132,7 +123,6 @@ import {
   activeId,
   activeWorkspace,
   activeWorkspaceName,
-  agentModelName,
   filesPanelOpen,
   fluxStateSnapshot,
   focusedAppId,
@@ -140,7 +130,6 @@ import {
   pendingAsk,
   pendingLens,
   setAgentMenuOpen,
-  setAgentModel,
   setPendingAsk,
   setPendingLens,
   tabs,
@@ -165,7 +154,6 @@ import {
   activeTerminalLinesFrom,
   runInActiveTerminal,
 } from "./terminals";
-import { LOCAL, routeLabel } from "./cloudroute";
 import { editorSession } from "./editorboot";
 import { inspectElement, themeVarsDump } from "./debug";
 import { speak, speaking, stopSpeaking } from "./speak";
@@ -313,7 +301,9 @@ const AgentPanel: Component = () => {
   let replyGen = 0;
   const cancelReply = () => {
     replyGen++;
-    if (fairyAsking) void import("./fairy").then((m) => m.fairyStop()).catch(() => {});
+    // Fairy: stops her writing or acting, and quiets her if she's saying it.
+    if (fairyAsking || fairySpeaking()) void import("./fairy").then((m) => m.fairyStop()).catch(() => {});
+    setFairySpeaking(false);
     stopSpeaking();
     setBusy(false);
   };
@@ -334,13 +324,18 @@ const AgentPanel: Component = () => {
   // in every open browser tab in the active workspace; "thread" is the page's
   // PERSISTENT conversation (ADR 0011) — the same thread the Trail shows,
   // re-attached here whenever you're on the page.
-  const [scope, setScope] = createSignal<"page" | "tabs" | "notes" | "thread" | "fairy">("page");
-  // Fairy, your assistant app: offered when she's on this Mac (fairy.rs).
+  // Fairy, your assistant app, is the panel's agent (fairy.rs): the default
+  // whenever she's on this Mac. The other chips answer on this Mac (Ollama).
+  const [scope, setScope] = createSignal<"page" | "tabs" | "notes" | "thread" | "fairy">("fairy");
   const [fairy, setFairy] = createSignal<FairyStatus | null>(null);
   const fairyName = () => fairy()?.name || "Fairy";
+  const fairyHere = () => !!fairy()?.installed;
   const refreshFairy = () =>
     void fairyStatus()
-      .then(setFairy)
+      .then((s) => {
+        setFairy(s);
+        if (!s.installed && scope() === "fairy") setScope("page");
+      })
       .catch(() => {});
   onMount(refreshFairy);
   let fairyAsking = false;
@@ -397,6 +392,18 @@ const AgentPanel: Component = () => {
   let stepResolver: ((d: "approve" | "skip" | "stop") => void) | null = null;
   const [handoff, setHandoff] = createSignal<{ what: Blocker; waiting: boolean } | null>(null);
   const [taskStopped, setTaskStopped] = createSignal(false);
+  // Fairy is acting in the browser (fairyTools.ts): the task bar shows for her too.
+  const [fairyWorking, setFairyWorking] = createSignal(false);
+  // Fairy is saying her answer in her own voice (fairy.rs): Stop stays up until she's done.
+  const [fairySpeaking, setFairySpeaking] = createSignal(false);
+  onMount(() => {
+    const offs = [
+      listen("flux://fairy-speaking", () => setFairySpeaking(true)),
+      listen("flux://fairy-spoken", () => setFairySpeaking(false)),
+    ];
+    onCleanup(() => offs.forEach((o) => void o.then((u) => u())));
+  });
+  let fairyTools: Promise<unknown> | undefined;
   let handoffResolver: ((c: HandoffChoice) => void) | null = null;
   const handoffChoose = (c: HandoffChoice) => {
     const r = handoffResolver;
@@ -418,15 +425,11 @@ const AgentPanel: Component = () => {
     chainGateIdx = -1;
     g?.({ ok, result });
   };
-  // Model picker (#81): the dropdown of locally-pulled Ollama models.
-  const [models, setModels] = createSignal<string[]>([]);
-  const [modelMenu, setModelMenu] = createSignal(false);
   // Tell App to hide the active page webview while a dropdown is open (it's an OS
   // layer above the chrome, otherwise the menu is behind it — unclickable).
-  createEffect(() => setAgentMenuOpen(modelMenu() || chatsMenu()));
+  createEffect(() => setAgentMenuOpen(chatsMenu()));
   // Dropdowns render via a <Portal> to <body> with fixed position, so no agent-panel
   // stacking context (z-index, transform, backdrop-filter) can trap them behind.
-  let modelBtn: HTMLButtonElement | undefined;
   let chatsBtn: HTMLButtonElement | undefined;
   const menuPos = (btn?: HTMLElement): JSX.CSSProperties => {
     const r = btn?.getBoundingClientRect();
@@ -437,108 +440,6 @@ const AgentPanel: Component = () => {
       right: `${Math.round(Math.max(8, window.innerWidth - r.right))}px`,
       "z-index": "9999",
     };
-  };
-  const toggleModelMenu = () => {
-    const open = !modelMenu();
-    setModelMenu(open);
-    if (open) {
-      void agentModels()
-        .then(setModels)
-        .catch(() => setModels([]));
-      // Re-read the route every time the menu opens. Reading it once at mount
-      // meant a key added in Settings *afterwards* stayed invisible, so the menu
-      // kept saying escalation needed a key that was already there.
-      void agentCloudStatus()
-        .then(setRoute)
-        .catch(() => {});
-    }
-  };
-  const shortModel = () => {
-    const m = agentModelName();
-    return m ? m.split(":")[0]! : "gemma";
-  };
-
-  // ── Cloud escalation (#175) ────────────────────────────────────────────────
-  // Off every launch by design: the Rust side keeps the flag in an atomic, never
-  // on disk, so a session where you escalated for one folder of PDFs can't
-  // silently still be routing next week. `route` is what's *actually* happening,
-  // read back from Rust rather than assumed from the click.
-  const [route, setRoute] = createSignal<RouteStatus>(LOCAL);
-  const [cloudModels, setCloudModels] = createSignal<string[]>([]);
-  const [cloudBusy, setCloudBusy] = createSignal(false);
-  // Which cloud model to use. Persisted — it's a preference, not a permission,
-  // and remembering it doesn't route anything anywhere on its own.
-  const CLOUD_MODEL_KEY = "flux.agent.cloudModel";
-  const [cloudModel, setCloudModelRaw] = createSignal(localStorage.getItem(CLOUD_MODEL_KEY) ?? "");
-  const setCloudModel = (m: string) => {
-    setCloudModelRaw(m);
-    try {
-      localStorage.setItem(CLOUD_MODEL_KEY, m);
-    } catch {
-      /* quota: the choice still holds for this session */
-    }
-  };
-
-  // Gemini through Antigravity, chosen in Settings → Model server (ADR 0020): the
-  // cloud route then stays on across launches, with the model picked there.
-  const [viaAgy, setViaAgy] = createSignal<string | null>(null);
-  const cloudName = () => viaAgy() ?? cloudModel();
-  const resets = () =>
-    viaAgy()
-      ? "Until you choose another model server in Settings."
-      : "Resets to local when you restart Flux.";
-
-  onMount(() => {
-    void agentCloudStatus()
-      .then(setRoute)
-      .catch(() => {});
-    void modelServerGet()
-      .then((v) => setViaAgy(v.kind === "antigravity" ? v.model || "gemini" : null))
-      .catch(() => {});
-    void geminiHasKey()
-      .then((has) => has && geminiDefaultModel().then((d) => !cloudModel() && setCloudModel(d)))
-      .catch(() => {});
-  });
-
-  /** Flip escalation. Rust refuses without a stored key, so the returned status
-   *  is the source of truth — never the optimistic local guess. */
-  const toggleCloud = async () => {
-    if (cloudBusy()) return;
-    setCloudBusy(true);
-    const want = !route().active;
-    try {
-      const st = await agentCloudSet(want, cloudModel());
-      setRoute(st);
-      setModelMenu(false);
-      setFeed((f) => [
-        ...f,
-        {
-          role: "action",
-          text: st.active
-            ? `☁ Cloud escalation ON — ${cloudName() || "Gemini"} will answer, and prompts (page text, notes, terminal output) now leave this machine. ${viaAgy() ? "On until you choose another model server in Settings." : "Off again when you restart Flux."}`
-            : `🔒 Back to local — nothing leaves this machine.`,
-        },
-      ]);
-      if (st.active && !viaAgy() && cloudModels().length === 0) {
-        void geminiModels()
-          .then(setCloudModels)
-          .catch(() => {});
-      }
-    } catch (e) {
-      setFeed((f) => [
-        ...f,
-        {
-          role: "error",
-          text: `Couldn't switch to the cloud: ${String(e)}`,
-        },
-      ]);
-      // Re-read rather than assume the failure left it local.
-      void agentCloudStatus()
-        .then(setRoute)
-        .catch(() => {});
-    } finally {
-      setCloudBusy(false);
-    }
   };
   let feedEl: HTMLDivElement | undefined;
 
@@ -1197,28 +1098,6 @@ const AgentPanel: Component = () => {
       "expand to the path when a tool needs one:\n" +
       `${lines.join("\n")}\n\n`
     );
-  };
-
-  /** Drop the model from VRAM now rather than waiting out the keep-alive (#169).
-   *  A 12B sits on several GB, and keeping it warm buys latency between *your*
-   *  turns — worth nothing while you're doing something else that wants the GPU.
-   *  Not destructive: the next message loads it again. */
-  const [unloading, setUnloading] = createSignal(false);
-  const unloadModel = async () => {
-    if (unloading()) return;
-    setUnloading(true);
-    try {
-      const name = await agentUnload();
-      setModelMenu(false);
-      setFeed((f) => [
-        ...f,
-        { role: "action", text: `⏏ Unloaded ${name} from VRAM — it'll reload on your next message.` },
-      ]);
-    } catch (e) {
-      setFeed((f) => [...f, { role: "error", text: `Couldn't unload: ${String(e)}` }]);
-    } finally {
-      setUnloading(false);
-    }
   };
 
   const convoPrompt = async (current: string): Promise<string> => {
@@ -2299,13 +2178,36 @@ const AgentPanel: Component = () => {
   const askFairy = async (q: string) => {
     const gen = ++replyGen;
     setBusy(true);
+    setTaskStopped(false);
     fairyAsking = true;
     try {
+      // Her browser tools (fairyTools.ts), through the same checks and cards as /task.
+      fairyTools ??= import("./fairyTools").then((m) =>
+        m.serveFairyTools({
+          say: (role, text) => setFeed((f) => [...f, { role, text }]),
+          tabs: () => tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace()),
+          activeTab: () => activeId() ?? undefined,
+          open: async (url) => (await openTab("browser", url)).id,
+          expectReport,
+          failure: (tab) => {
+            const o = tab != null ? agentOutcome.get(tab) : undefined;
+            return o && FAIL_OUTCOMES.has(o) ? o : undefined;
+          },
+          decide: awaitDecision,
+          wait: (ms) => new Promise((r) => setTimeout(r, ms)),
+          stopped: taskStopped,
+          working: () => setFairyWorking(true),
+        }),
+      );
+      await fairyTools;
       await (
         await import("./fairy")
       ).askInFeed(q, fairyName(), activeId() ?? null, setFeed, () => gen === replyGen);
     } finally {
       fairyAsking = false;
+      stepResolver = null;
+      setTaskStep(null);
+      setFairyWorking(false);
       setBusy(false);
       refreshFairy();
     }
@@ -2324,7 +2226,9 @@ const AgentPanel: Component = () => {
       const task = p.match(/^\/task\s+([\s\S]+)/i);
       if (task?.[1]) {
         setPrompt("");
-        void runTask(task[1].trim());
+        // Fairy works on the page herself, through Flux's tools and checks.
+        if (fairyHere()) void askFairy(task[1].trim());
+        else void runTask(task[1].trim());
         return;
       }
       // "/restyle <how>" drafts CSS for this site: checked against the page and
@@ -2354,10 +2258,12 @@ const AgentPanel: Component = () => {
         void planNote(note[1].trim(), true);
         return;
       }
-      // With Fairy chosen, everything but a slash command is a question for her.
-      if (scope() === "fairy" && !p.startsWith("/")) {
+      // With Fairy chosen, everything but a slash command is a question for
+      // her, and so is /act: she acts through Flux's tools and checks.
+      const actFairy = p.match(/^\/(?:act|do)\s+([\s\S]+)/i);
+      if (scope() === "fairy" && (!p.startsWith("/") || actFairy?.[1])) {
         setPrompt("");
-        void askFairy(p);
+        void askFairy(actFairy?.[1]?.trim() || p);
         return;
       }
       // Plain language that asks for *work* goes to the same loop (#158). Ordinary
@@ -3209,7 +3115,7 @@ const AgentPanel: Component = () => {
       <div class="agent-inner">
         {/* Ambient effects layer: circular aurora background + orbital edge glow. Its
             own absolutely-positioned + clipped layer so it never affects layout
-            or clips the model dropdown. */}
+            or clips the chats dropdown. */}
         <div class="agent-fx" classList={{ busy: working() }} aria-hidden="true">
           {/* Still at rest, alive while the agent works: a 30 fps shader across the
               column all session was the price of an idle panel looking busy. */}
@@ -3226,113 +3132,8 @@ const AgentPanel: Component = () => {
             }}
           />
           <strong>Flux Agent</strong>
-          <div class="agent-model">
-            {/* The one place that says where your words are going. It reads
-                "local" or "cloud" from the route Rust reports, never from what
-                was clicked — an escalation that silently failed must not look
-                like it worked, and vice versa. */}
-            <button
-              ref={modelBtn}
-              class="agent-model-btn"
-              classList={{ cloud: route().active }}
-              title={
-                route().active
-                  ? `Sending to ${cloudName() || "Gemini"} — page text, notes and terminal output leave this machine. ${resets()}`
-                  : "Pick the local model (Ollama). Nothing leaves this machine."
-              }
-              onClick={toggleModelMenu}
-            >
-              {routeLabel(route(), shortModel(), cloudName())} ▾
-            </button>
-            <Show when={modelMenu()}>
-              <Portal>
-                <div class="agent-menu-backdrop" onClick={() => setModelMenu(false)} />
-                <div class="agent-model-menu" style={menuPos(modelBtn)}>
-                  <Show
-                    when={models().length > 0}
-                    fallback={<div class="agent-model-empty">No Ollama models found (is it running?)</div>}
-                  >
-                    <For each={models()}>
-                      {(m) => (
-                        <button
-                          classList={{ "agent-model-item": true, on: agentModelName() === m }}
-                          onClick={() => {
-                            setAgentModel(m);
-                            setModelMenu(false);
-                          }}
-                        >
-                          {m}
-                        </button>
-                      )}
-                    </For>
-                  </Show>
-                  {/* Free the VRAM without waiting out the keep-alive. Lives in
-                      the model menu because it is a model action, and the header
-                      is already carrying four controls. */}
-                  <div class="agent-model-sep" />
-                  <button
-                    class="agent-model-item agent-model-unload"
-                    disabled={unloading()}
-                    title={`Tell Ollama to drop ${agentModelName() || "the model"} from VRAM now. It reloads automatically next time you ask her something.`}
-                    onClick={() => void unloadModel()}
-                  >
-                    {unloading() ? "Unloading…" : `⏏ Unload from VRAM`}
-                  </button>
-                  {/* Cloud escalation (#175). Last in the menu, behind a
-                      separator, worded as a disclosure rather than a speed
-                      setting — because that is what it is. */}
-                  <div class="agent-model-sep" />
-                  <Show
-                    when={route().available}
-                    fallback={
-                      <div class="agent-model-empty">
-                        Cloud escalation needs a Gemini API key — Settings → Integrations. (A Gemini app
-                        subscription isn't an API key; get one from Google AI Studio.)
-                      </div>
-                    }
-                  >
-                    <button
-                      classList={{ "agent-model-item": true, "agent-model-cloud": true, on: route().active }}
-                      disabled={cloudBusy()}
-                      title={
-                        route().active
-                          ? "Go back to the local model."
-                          : `Send prompts to ${cloudName() || "Gemini"} instead — page text, notes and terminal output will leave this machine. ${resets()}`
-                      }
-                      onClick={() => void toggleCloud()}
-                    >
-                      {cloudBusy()
-                        ? "Switching…"
-                        : route().active
-                          ? "🔒 Back to local"
-                          : viaAgy()
-                            ? "☁ Gemini (Antigravity)"
-                            : "☁ Escalate to Gemini…"}
-                    </button>
-                    <Show when={route().active && !viaAgy() && cloudModels().length > 0}>
-                      <For each={cloudModels()}>
-                        {(m) => (
-                          <button
-                            classList={{ "agent-model-item": true, on: cloudModel() === m }}
-                            onClick={() => {
-                              setCloudModel(m);
-                              // Rebuild the backend so the change takes now.
-                              void agentCloudSet(true, m)
-                                .then(setRoute)
-                                .catch(() => {});
-                              setModelMenu(false);
-                            }}
-                          >
-                            ☁ {m}
-                          </button>
-                        )}
-                      </For>
-                    </Show>
-                  </Show>
-                </div>
-              </Portal>
-            </Show>
-          </div>
+          {/* Who answers: Fairy when she's chosen, otherwise the model on this Mac. */}
+          <span class="agent-who">{scope() === "fairy" ? fairyName() : "On this Mac"}</span>
           <button
             class="agent-voice-toggle"
             classList={{ on: micLive(), live: listening() }}
@@ -3597,13 +3398,16 @@ const AgentPanel: Component = () => {
         </div>
 
         {/* Multi-step task controls (#A; TaskBar.tsx, loaded with the first /task). */}
-        <Show when={taskRunning()}>
+        <Show when={taskRunning() || fairyWorking()}>
           <TaskBar
             working={working()}
             stopped={taskStopped()}
             step={taskStep()}
             handoff={handoff()}
-            onStop={() => setTaskStopped(true)}
+            onStop={() => {
+              setTaskStopped(true);
+              if (fairyAsking) cancelReply();
+            }}
             onDecide={decideStep}
             onHandoff={handoffChoose}
           />
@@ -3612,6 +3416,18 @@ const AgentPanel: Component = () => {
         {/* Chat-with-page/tabs (#34): scope toggle + one-tap prompts grounded in
             the captured DOM (the agent already receives the page/tab text). */}
         <div class="agent-context">
+          <Show when={fairyHere()}>
+            <button
+              classList={{ "agent-scope": true, on: scope() === "fairy" }}
+              title="Your assistant app, on her own cloud model: the question and page leave this Mac (never from a private or Tor tab)"
+              onClick={() => {
+                setScope("fairy");
+                refreshFairy();
+              }}
+            >
+              <FairyEye /> {fairyName()}
+            </button>
+          </Show>
           <button
             classList={{ "agent-scope": true, on: scope() === "page" }}
             title="Answer using the current page"
@@ -3636,18 +3452,6 @@ const AgentPanel: Component = () => {
           >
             ✦ My notes
           </button>
-          <Show when={fairy()?.installed}>
-            <button
-              classList={{ "agent-scope": true, on: scope() === "fairy" }}
-              title="Your assistant app, on her own cloud model: the question and page leave this Mac (never from a private or Tor tab)"
-              onClick={() => {
-                setScope("fairy");
-                refreshFairy();
-              }}
-            >
-              <FairyEye /> {fairyName()}
-            </button>
-          </Show>
           {/* The page's persistent Trail conversation, re-attached (ADR 0011).
               Only offered when the page has a Visit to hang the thread on. */}
           <Show when={pageThread()}>
@@ -3793,11 +3597,11 @@ const AgentPanel: Component = () => {
                 border: working() ? "none" : undefined,
               }}
             />
-            <Show when={working() || speaking()}>
+            <Show when={working() || speaking() || fairySpeaking()}>
               <button
                 type="button"
                 class="agent-attach-btn agent-stop-btn"
-                title="Stop Gemma"
+                title={scope() === "fairy" || fairySpeaking() ? `Stop ${fairyName()}` : "Stop Gemma"}
                 aria-label="Stop"
                 onClick={cancelReply}
               >

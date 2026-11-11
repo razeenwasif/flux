@@ -67,10 +67,6 @@ export type NvimState = { connected: boolean; file: string; line: number; col: n
  */
 export type NvimSelection = { has: boolean; mode: string; file: string; start_line: number; end_line: number; text: string }
 /**
- * What the router will actually do with the next request.
- */
-export type RouteStatus = { requested: boolean; available: boolean; active: boolean }
-/**
  * How sure we are it's an impersonation.
  */
 export type Confidence = "Low" | "High"

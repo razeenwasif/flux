@@ -572,9 +572,8 @@ const Welcome: Component<{ start: number; onClose: () => void }> = (props) => {
                         <div class="wl-model ready">
                           <strong>Ready: {m()[0]}</strong>
                           <p>
-                            {m().length > 1 ? `and ${plural(m().length - 1, "other model")}. ` : ""}It runs
-                            where your model server is, so pages and notes don't leave it. Settings →
-                            Integrations changes it.
+                            {m().length > 1 ? `and ${plural(m().length - 1, "other model")}. ` : ""}It runs on
+                            this Mac, so pages and notes don't leave it.
                           </p>
                         </div>
                       </Show>
