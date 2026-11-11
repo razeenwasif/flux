@@ -21,7 +21,9 @@ export function fairyAsk(
 export const fairyStop = () => invoke<void>("fairy_stop");
 export const fairyNew = () => invoke<void>("fairy_new");
 
-type Item = { role: string; text: string; from?: string };
+/** `asking` marks the bubble Fairy is answering in, until she's done: the
+ *  steps she takes meanwhile go above it, in the order they happened. */
+type Item = { role: string; text: string; from?: string; asking?: boolean };
 
 /** Ask `name` and stream her reply into one new bubble at the end of the
  *  feed, labelled with her name (and that she read the page, when she did).
@@ -33,13 +35,18 @@ export async function askInFeed<T extends Item>(
   setFeed: Setter<T[]>,
   live: () => boolean,
 ): Promise<void> {
-  let idx = -1;
-  setFeed((f) => {
-    idx = f.length + 1;
-    return [...f, { role: "user", text: q } as T, { role: "assistant", text: "", from: name } as T];
-  });
+  // Found by identity, not position: step lines are inserted above it.
+  const bubble = { role: "assistant", text: "", from: name, asking: true } as T;
+  let mine: T = bubble;
+  setFeed((f) => [...f, { role: "user", text: q } as T, bubble]);
   const put = (patch: Partial<Item>) =>
-    setFeed((f) => f.map((it, i) => (i === idx ? ({ ...it, ...patch } as T) : it)));
+    setFeed((f) =>
+      f.map((it) => {
+        if (it !== mine) return it;
+        mine = { ...it, ...patch } as T;
+        return mine;
+      }),
+    );
   try {
     const r = await fairyAsk(q, tab, (soFar) => {
       if (live()) put({ text: soFar });
@@ -48,5 +55,7 @@ export async function askInFeed<T extends Item>(
       put({ text: r.text.trim() || "(no response)", from: r.with_page ? `${name} · read this page` : name });
   } catch (err) {
     if (live()) put({ role: "error", text: `${name}: ${String(err)}`, from: undefined });
+  } finally {
+    put({ asking: false });
   }
 }

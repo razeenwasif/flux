@@ -1562,7 +1562,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         previewed: true,
       } as T);
     case "fairy_status":
-      return Promise.resolve({ installed: false, running: false, name: null } as T);
+      return Promise.resolve({ installed: true, running: true, name: "Fairy" } as T);
     case "agent_chat_stream":
     case "agent_chat_tabs_stream": {
       const ch = args?.onToken as Channel<string> | undefined;

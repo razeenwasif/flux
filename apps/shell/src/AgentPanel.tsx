@@ -138,6 +138,8 @@ import { FLUX_APPS } from "./apps";
 import { APP_GUIDES } from "./appGuides";
 import AgentAurora from "./AgentAurora";
 import FairyEye from "./FairyEye";
+import { AgentIcon } from "./agentIcons";
+import "./AgentPanel.css";
 import {
   heyGemmaEnabled,
   listening,
@@ -184,6 +186,8 @@ type FeedItem = {
   voice?: string;
   /** Who answered, when it wasn't Flux's own agent (Fairy). */
   from?: string;
+  /** Fairy is still answering in this bubble (fairy.ts): her steps go above it. */
+  asking?: boolean;
   tabId?: number;
   expectedUrl?: string;
 };
@@ -223,6 +227,7 @@ const AgentPanel: Component = () => {
   const slim = (it: FeedItem): FeedItem => ({
     ...it,
     pending: false,
+    asking: false,
     image: undefined,
     editNew: undefined,
     editBase: undefined,
@@ -2184,7 +2189,17 @@ const AgentPanel: Component = () => {
       // Her browser tools (fairyTools.ts), through the same checks and cards as /task.
       fairyTools ??= import("./fairyTools").then((m) =>
         m.serveFairyTools({
-          say: (role, text) => setFeed((f) => [...f, { role, text }]),
+          // Above the answer she's still writing, so the feed reads in order.
+          say: (role, text) =>
+            setFeed((f) => {
+              let at = f.length;
+              for (let i = f.length - 1; i >= 0; i--)
+                if (f[i]!.asking) {
+                  at = i;
+                  break;
+                }
+              return [...f.slice(0, at), { role, text }, ...f.slice(at)];
+            }),
           tabs: () => tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace()),
           activeTab: () => activeId() ?? undefined,
           open: async (url) => (await openTab("browser", url)).id,
@@ -3120,25 +3135,22 @@ const AgentPanel: Component = () => {
           {/* Still at rest, alive while the agent works: a 30 fps shader across the
               column all session was the price of an idle panel looking busy. */}
           <AgentAurora active={() => working()} busy={() => working()} />
+          {/* A soft glow rising and falling behind the composer while the agent
+              works or Fairy speaks: calm, slow, transform and opacity only. */}
+          <div class="agent-tide" classList={{ on: working() || fairySpeaking() }} />
         </div>
         <header style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-          <span
-            classList={{ "ai-thinking": working() }}
-            style={{
-              width: "10px",
-              height: "10px",
-              "border-radius": "50%",
-              background: working() ? undefined : "var(--flux-violet)",
-            }}
-          />
+          {/* Breathes slowly while the agent works (AgentPanel.css). */}
+          <span class="agent-orb" classList={{ working: working() || fairySpeaking() }} aria-hidden="true" />
           <strong>Flux Agent</strong>
           {/* Who answers: Fairy when she's chosen, otherwise the model on this Mac. */}
           <span class="agent-who">{scope() === "fairy" ? fairyName() : "On this Mac"}</span>
           <button
-            class="agent-voice-toggle"
+            class="agent-tool agent-head-tool"
             classList={{ on: micLive(), live: listening() }}
-            title={micLive() ? `Hey Gemma is on — ${voiceStatus()}` : "Turn on “Hey Gemma” always-on voice"}
-            aria-label="Toggle Hey Gemma voice"
+            data-tip={micLive() ? `Listening for “Hey Gemma”` : "Always-on voice"}
+            data-tip-at="below"
+            aria-label={micLive() ? `Hey Gemma is on: ${voiceStatus()}` : "Turn on always-on voice"}
             style={{ "margin-left": "auto" }}
             onClick={async () => {
               const turningOn = !heyGemmaEnabled();
@@ -3153,27 +3165,31 @@ const AgentPanel: Component = () => {
                 ]);
             }}
           >
-            <Show when={micLive()} fallback="🎙">
-              <span class="agent-voice-dot" /> {listening() ? "●" : "🎙"}
+            <AgentIcon name="voice" />
+            <Show when={micLive()}>
+              <span class="agent-tool-dot" />
             </Show>
           </button>
           <button
-            class="agent-voice-toggle"
-            title="New chat — saves the current one and starts fresh"
-            aria-label="New chat"
+            class="agent-tool agent-head-tool"
+            data-tip="New chat"
+            data-tip-at="below"
+            aria-label="New chat: saves this one and starts fresh"
             onClick={newChat}
           >
-            ＋
+            <AgentIcon name="newchat" />
           </button>
           <div class="agent-model">
             <button
               ref={chatsBtn}
-              class="agent-model-btn"
-              title="Past chats"
+              class="agent-tool agent-head-tool"
+              data-tip="Past chats"
+              data-tip-at="below"
+              data-tip-align="end"
               aria-label="Past chats"
               onClick={() => setChatsMenu(!chatsMenu())}
             >
-              ☰
+              <AgentIcon name="history" />
             </button>
             <Show when={chatsMenu()}>
               <Portal>
@@ -3216,17 +3232,31 @@ const AgentPanel: Component = () => {
           <Show
             when={feed().length > 0}
             fallback={
-              <div class="agent-empty">
-                Chat with your local Gemma — ask anything. Use <kbd>/act</kbd> for a single page action, or{" "}
-                <kbd>/task</kbd> for a multi-step goal (e.g.{" "}
-                <em>/task find the cheapest listing and open it</em>); it asks before anything that sends,
-                buys, posts or deletes.
-                <div class="agent-empty-tips">
-                  Try: <em>“what can you do”</em> · <em>“remember that …”</em> ·
-                  <em>“remind me to … at 3pm”</em> · <em>“system status”</em> ·<em>“search …”</em> ·{" "}
-                  <em>“run …”</em> · <em>“play …”</em>
+              <Show
+                when={scope() === "fairy"}
+                fallback={
+                  <div class="agent-empty">
+                    Chat with your local Gemma — ask anything. Use <kbd>/act</kbd> for a single page action,
+                    or <kbd>/task</kbd> for a multi-step goal (e.g.{" "}
+                    <em>/task find the cheapest listing and open it</em>); it asks before anything that sends,
+                    buys, posts or deletes.
+                    <div class="agent-empty-tips">
+                      Try: <em>“what can you do”</em> · <em>“remember that …”</em> ·
+                      <em>“remind me to … at 3pm”</em> · <em>“system status”</em> ·<em>“search …”</em> ·{" "}
+                      <em>“run …”</em> · <em>“play …”</em>
+                    </div>
+                  </div>
+                }
+              >
+                <div class="agent-empty">
+                  Ask {fairyName()} about this page, or ask her to do something on it. She reads, clicks and
+                  types through Flux, which asks you before anything that sends, buys, posts or deletes.
+                  <div class="agent-empty-tips">
+                    The buttons beside her answer on this Mac instead: this page, all your tabs, or your
+                    notes.
+                  </div>
                 </div>
-              </div>
+              </Show>
             }
           >
             {/* Rows are keyed by position: a streamed token updates its message in place
@@ -3413,92 +3443,112 @@ const AgentPanel: Component = () => {
           />
         </Show>
 
-        {/* Chat-with-page/tabs (#34): scope toggle + one-tap prompts grounded in
-            the captured DOM (the agent already receives the page/tab text). */}
-        <div class="agent-context">
-          <Show when={fairyHere()}>
-            <button
-              classList={{ "agent-scope": true, on: scope() === "fairy" }}
-              title="Your assistant app, on her own cloud model: the question and page leave this Mac (never from a private or Tor tab)"
-              onClick={() => {
-                setScope("fairy");
-                refreshFairy();
-              }}
-            >
-              <FairyEye /> {fairyName()}
-            </button>
-          </Show>
-          <button
-            classList={{ "agent-scope": true, on: scope() === "page" }}
-            title="Answer using the current page"
-            onClick={() => setScope("page")}
-          >
-            📄 This page
-          </button>
-          <button
-            classList={{ "agent-scope": true, on: scope() === "tabs" }}
-            title="Answer across all open tabs in this space"
-            onClick={() => setScope("tabs")}
-          >
-            🗂 All tabs{" "}
-            <Show when={scope() === "tabs"}>
-              <span class="agent-scope-n">{browserTabIds().length}</span>
+        {/* Who answers, and one-tap prompts, as icons named on hover. Fairy is
+            the agent; the others answer on this Mac. Page thread is the page's
+            persistent Trail conversation (ADR 0011), offered when it has one. */}
+        <div class="agent-tools">
+          <div class="agent-seg" role="group" aria-label="Who answers">
+            <Show when={fairyHere()}>
+              <button
+                class="agent-tool"
+                classList={{ on: scope() === "fairy" }}
+                data-tip={fairyName()}
+                data-tip-align="start"
+                aria-label={`${fairyName()}: your assistant app, on her own cloud model`}
+                aria-pressed={scope() === "fairy"}
+                onClick={() => {
+                  setScope("fairy");
+                  refreshFairy();
+                }}
+              >
+                <FairyEye size={17} />
+              </button>
             </Show>
-          </button>
-          <button
-            classList={{ "agent-scope": true, on: scope() === "notes" }}
-            title="Answer from your knowledge base, with citations — Onyx notes, Scroll papers, Council debates, PDFs, and snapshots of pages you've visited"
-            onClick={() => setScope("notes")}
-          >
-            ✦ My notes
-          </button>
-          {/* The page's persistent Trail conversation, re-attached (ADR 0011).
-              Only offered when the page has a Visit to hang the thread on. */}
-          <Show when={pageThread()}>
             <button
-              classList={{ "agent-scope": true, on: scope() === "thread" }}
-              title="This page's saved conversation — persists with the page, same thread as in the Trail"
-              onClick={attachThread}
+              class="agent-tool"
+              classList={{ on: scope() === "page" }}
+              data-tip="This page"
+              aria-label="Answer from this page, on this Mac"
+              aria-pressed={scope() === "page"}
+              onClick={() => setScope("page")}
             >
-              💬 Page thread{" "}
-              <Show when={(pageThread()?.msgs.length ?? 0) > 0}>
-                <span class="agent-scope-n">{pageThread()!.msgs.length}</span>
-              </Show>
+              <AgentIcon name="page" />
             </button>
-          </Show>
-        </div>
-        <div class="agent-chips">
-          <button
-            class="agent-chip"
-            disabled={working()}
-            onClick={() => void send("Summarize this in a few clear bullet points.")}
-          >
-            Summarize
-          </button>
-          <button
-            class="agent-chip"
-            disabled={working()}
-            onClick={() => void send("What are the key points and any action items?")}
-          >
-            Key points
-          </button>
-          <button
-            class="agent-chip"
-            disabled={working()}
-            onClick={() => void send("Explain this like I'm new to the topic.")}
-          >
-            Explain
-          </button>
-          <Show when={activePageUrl()}>
             <button
-              class="agent-chip"
+              class="agent-tool"
+              classList={{ on: scope() === "tabs" }}
+              data-tip={`All tabs · ${browserTabIds().length}`}
+              aria-label="Answer across all open tabs in this space, on this Mac"
+              aria-pressed={scope() === "tabs"}
+              onClick={() => setScope("tabs")}
+            >
+              <AgentIcon name="tabs" />
+            </button>
+            <button
+              class="agent-tool"
+              classList={{ on: scope() === "notes" }}
+              data-tip="My notes"
+              aria-label="Answer from your notes, papers and saved pages, with citations, on this Mac"
+              aria-pressed={scope() === "notes"}
+              onClick={() => setScope("notes")}
+            >
+              <AgentIcon name="notes" />
+            </button>
+            <Show when={pageThread()}>
+              <button
+                class="agent-tool"
+                classList={{ on: scope() === "thread" }}
+                data-tip={`Page thread${(pageThread()?.msgs.length ?? 0) > 0 ? ` · ${pageThread()!.msgs.length}` : ""}`}
+                aria-label="This page's saved conversation, the same thread as in the Trail"
+                aria-pressed={scope() === "thread"}
+                onClick={attachThread}
+              >
+                <AgentIcon name="thread" />
+              </button>
+            </Show>
+          </div>
+          <div class="agent-quick" role="group" aria-label="Quick prompts">
+            <button
+              class="agent-tool"
+              data-tip="Summarize"
+              aria-label="Summarize"
               disabled={working()}
-              title="Save this page to your Scroll library"
-              onClick={() => void send("clip this page to scroll")}
+              onClick={() => void send("Summarize this in a few clear bullet points.")}
             >
-              📎 Clip to Scroll
+              <AgentIcon name="summarize" />
             </button>
-          </Show>
+            <button
+              class="agent-tool"
+              data-tip="Key points"
+              aria-label="Key points and action items"
+              disabled={working()}
+              onClick={() => void send("What are the key points and any action items?")}
+            >
+              <AgentIcon name="keypoints" />
+            </button>
+            <button
+              class="agent-tool"
+              data-tip="Explain"
+              data-tip-align={activePageUrl() ? undefined : "end"}
+              aria-label="Explain it simply"
+              disabled={working()}
+              onClick={() => void send("Explain this like I'm new to the topic.")}
+            >
+              <AgentIcon name="explain" />
+            </button>
+            <Show when={activePageUrl()}>
+              <button
+                class="agent-tool"
+                data-tip="Clip to Scroll"
+                data-tip-align="end"
+                aria-label="Save this page to your Scroll library"
+                disabled={working()}
+                onClick={() => void send("clip this page to scroll")}
+              >
+                <AgentIcon name="clip" />
+              </button>
+            </Show>
+          </div>
         </div>
         <Show when={attachment()}>
           {(a) => (
@@ -3550,17 +3600,21 @@ const AgentPanel: Component = () => {
           <div class="agent-input-row" classList={{ "ai-thinking-border": working() }}>
             <button
               type="button"
-              class="agent-attach-btn"
-              title="Attach an image or text file"
+              class="agent-tool agent-compose-tool"
+              data-tip="Attach a file"
+              data-tip-align="start"
+              aria-label="Attach an image or text file"
               disabled={working() || taskRunning()}
               onClick={() => fileInput?.click()}
             >
-              📎
+              <AgentIcon name="attach" />
             </button>
             <button
               type="button"
-              classList={{ "agent-attach-btn": true, "agent-mic-on": recording() }}
-              title="Hold to talk (push-to-talk)"
+              class="agent-tool agent-compose-tool"
+              classList={{ "agent-mic-on": recording() }}
+              data-tip="Hold to talk"
+              aria-label="Hold to talk"
               disabled={working() || taskRunning()}
               onPointerDown={(e) => {
                 e.preventDefault();
@@ -3569,7 +3623,7 @@ const AgentPanel: Component = () => {
               onPointerUp={() => void stopRec()}
               onPointerLeave={() => void stopRec()}
             >
-              🎤
+              <AgentIcon name="mic" />
             </button>
             <input
               value={prompt()}
@@ -3587,7 +3641,7 @@ const AgentPanel: Component = () => {
                           ? "Ask your notes & papers…"
                           : scope() === "tabs"
                             ? "Ask across tabs · /act · /task"
-                            : "Ask · attach 📎 · /act · /task"
+                            : "Ask · /act · /task"
               }
               disabled={working() || taskRunning()}
               style={{
@@ -3597,15 +3651,30 @@ const AgentPanel: Component = () => {
                 border: working() ? "none" : undefined,
               }}
             />
-            <Show when={working() || speaking() || fairySpeaking()}>
+            <Show
+              when={working() || speaking() || fairySpeaking()}
+              fallback={
+                <button
+                  type="submit"
+                  class="agent-tool agent-send"
+                  data-tip="Send"
+                  data-tip-align="end"
+                  aria-label="Send"
+                  disabled={!prompt().trim() && !attachment()}
+                >
+                  <AgentIcon name="send" />
+                </button>
+              }
+            >
               <button
                 type="button"
-                class="agent-attach-btn agent-stop-btn"
-                title={scope() === "fairy" || fairySpeaking() ? `Stop ${fairyName()}` : "Stop Gemma"}
+                class="agent-tool agent-send agent-stop"
+                data-tip={scope() === "fairy" || fairySpeaking() ? `Stop ${fairyName()}` : "Stop"}
+                data-tip-align="end"
                 aria-label="Stop"
                 onClick={cancelReply}
               >
-                ■
+                <AgentIcon name="stop" />
               </button>
             </Show>
           </div>

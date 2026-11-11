@@ -4714,13 +4714,6 @@ body.resizing .panel-edge-resize::after {
   opacity: 1;
   color: #ffffff;
 }
-.agent-stop-btn {
-  color: #fff !important;
-  background: #e5484d !important;
-}
-.agent-stop-btn:hover {
-  background: #d23b40 !important;
-}
 /* Files-in-context chips above the input. */
 .agent-ctxfiles {
   display: flex;
@@ -4803,37 +4796,6 @@ body.resizing .panel-edge-resize::after {
   margin-top: 4px;
 }
 
-/* Chat-with-page/tabs (#34): scope toggle + quick-prompt chips above the input. */
-.agent-context {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.agent-scope {
-  flex: 1;
-  font-size: 11.5px;
-  padding: 5px 8px;
-  border-radius: 8px;
-  border: 1px solid var(--flux-border);
-  background: var(--flux-surface);
-  color: var(--flux-text-dim);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-}
-.agent-scope.on {
-  border-color: var(--flux-violet);
-  color: var(--flux-text);
-  background: linear-gradient(160deg, rgba(var(--accent-ai-rgb), 0.18), var(--flux-surface));
-}
-.agent-scope-n {
-  font-size: 10px;
-  background: var(--flux-violet);
-  color: #fff;
-  border-radius: 999px;
-  padding: 0 6px;
-}
 /* KB citations under a grounded answer (#116) */
 .agent-cites {
   display: flex;
@@ -4876,28 +4838,6 @@ body.resizing .panel-edge-resize::after {
   white-space: nowrap;
   max-width: 180px;
 }
-.agent-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-.agent-chip {
-  font-size: 11.5px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--flux-border);
-  background: var(--flux-surface);
-  color: var(--flux-text-dim);
-}
-.agent-chip:hover:not(:disabled) {
-  border-color: var(--flux-violet);
-  color: var(--flux-text);
-}
-.agent-chip:disabled {
-  opacity: 0.5;
-}
-
 /* Agent action preview (#8): a planned action awaiting approve/skip. `ask`
    is a step the model chose that asks before it runs (audit S11). */
 .agent-plan,
@@ -5083,25 +5023,6 @@ body.resizing .panel-edge-resize::after {
   align-items: center;
   gap: 4px;
 }
-.agent-attach-btn {
-  flex: none;
-  width: 34px;
-  height: 38px;
-  border: none;
-  background: none;
-  color: var(--flux-text-mute);
-  cursor: pointer;
-  border-radius: 9px;
-  font-size: 15px;
-}
-.agent-attach-btn:hover:not(:disabled) {
-  color: var(--flux-text);
-  background: var(--flux-surface-2);
-}
-.agent-attach-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
 .agent-mic-on {
   color: #fff !important;
   background: #e5484d !important;
@@ -5115,39 +5036,6 @@ body.resizing .panel-edge-resize::after {
   50% {
     box-shadow: 0 0 0 6px rgba(229, 72, 77, 0);
   }
-}
-/* "Hey Gemma" always-on voice toggle + live indicator. */
-.agent-voice-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  font-size: 12px;
-  line-height: 1.4;
-  border-radius: 999px;
-  cursor: pointer;
-  color: var(--flux-text-dim);
-  background: transparent;
-  border: 1px solid var(--flux-border);
-}
-.agent-voice-toggle:hover {
-  color: var(--flux-text);
-  border-color: var(--flux-violet);
-}
-.agent-voice-toggle.on {
-  color: #fff;
-  border-color: rgba(229, 72, 77, 0.55);
-  background: rgba(229, 72, 77, 0.14);
-}
-.agent-voice-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #e5484d;
-  animation: agent-mic-pulse 1.4s ease-in-out infinite;
-}
-.agent-voice-toggle.live .agent-voice-dot {
-  animation-duration: 0.7s;
 }
 .agent-user {
   align-self: flex-end;
@@ -9473,7 +9361,6 @@ body.busy .start-card {
   .panel-row {
     min-height: 40px;
   }
-  .agent-scope,
   .shields-toggle {
     padding-top: 7px;
     padding-bottom: 7px;
