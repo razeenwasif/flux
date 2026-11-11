@@ -1676,7 +1676,6 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         },
       ] as T);
     }
-    case "agent_execute":
     case "agent_plan":
       return Promise.resolve({
         action: "click",

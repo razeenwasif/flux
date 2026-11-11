@@ -36,6 +36,9 @@ class OpenArgs {
     var y: Double = 0.0
     var width: Double = 0.0
     var height: Double = 0.0
+    // Sent for iOS; Rust refuses private and container tabs on Android.
+    var ephemeral: Boolean = false
+    var container: Int = 0
 }
 
 @InvokeArg

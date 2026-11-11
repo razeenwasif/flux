@@ -50,6 +50,27 @@ pub(crate) fn write_atomic_with(
     bytes: &[u8],
     durability: Durability,
 ) -> std::io::Result<()> {
+    write_atomic_mode(path, bytes, durability, false)
+}
+
+/// [`write_atomic_with`] for a key or other secret: the staging file is
+/// created readable by you alone (0600 on Unix), so the secret is never on
+/// disk at the umask's wider mode, even for the moment before a chmod (audit
+/// S45). The rename keeps that mode.
+pub(crate) fn write_secret_atomic(
+    path: &Path,
+    bytes: &[u8],
+    durability: Durability,
+) -> std::io::Result<()> {
+    write_atomic_mode(path, bytes, durability, true)
+}
+
+fn write_atomic_mode(
+    path: &Path,
+    bytes: &[u8],
+    durability: Durability,
+    owner_only: bool,
+) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -60,7 +81,16 @@ pub(crate) fn write_atomic_with(
         .unwrap_or_default();
     name.push(format!(".{}.{}.tmp", std::process::id(), seq));
     let tmp = path.with_file_name(name);
-    let written = std::fs::File::create(&tmp).and_then(|mut file| {
+    let mut open = std::fs::OpenOptions::new();
+    open.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    if owner_only {
+        use std::os::unix::fs::OpenOptionsExt;
+        open.mode(0o600);
+    }
+    #[cfg(not(unix))]
+    let _ = owner_only;
+    let written = open.open(&tmp).and_then(|mut file| {
         file.write_all(bytes)?;
         match durability {
             Durability::Full => file.sync_all(),
@@ -369,6 +399,19 @@ pub(crate) fn quarantine(path: &Path, why: &str) {
 
 #[cfg(test)]
 mod tests {
+
+    #[cfg(unix)]
+    #[test]
+    fn secrets_are_owner_only_from_the_start() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("flux-secret-{}", std::process::id()));
+        let p = dir.join("key.bin");
+        write_secret_atomic(&p, b"k", Durability::Full).unwrap();
+        let mode = std::fs::metadata(&p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
 
     fn scratch(name: &str) -> std::path::PathBuf {

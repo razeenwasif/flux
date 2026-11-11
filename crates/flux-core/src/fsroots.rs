@@ -111,6 +111,23 @@ impl RootsStore {
 
     /// Gate one path. `Ok(())` when the agent may read it.
     pub fn check(&self, path: &str) -> Result<(), String> {
+        // Keys, tokens and Flux's own data are never the agent's, with the
+        // allowance on or off: an injected page can ask for ~/.ssh as easily
+        // as for a note (audit S11). Judged on the resolved path, so a link or
+        // `..` can't route round it.
+        #[cfg(not(windows))]
+        let judged = Some(resolve(path));
+        #[cfg(windows)]
+        let judged = (!crate::files::is_wsl_path(path)).then(|| resolve(path));
+        if let Some(why) = judged.as_deref().and_then(credential_place).or_else(|| {
+            // Also the path as written: covers a WSL path and a file that a link
+            // resolves away from its telling name.
+            credential_place(&lexical(Path::new(&expand_home(path))))
+        }) {
+            return Err(format!(
+                "{path} is {why}, which the agent never reads or writes. Open it yourself if you need to."
+            ));
+        }
         let cfg = self.get();
         if !cfg.enabled {
             return Ok(());
@@ -153,6 +170,56 @@ impl RootsStore {
             cfg.roots.join(", ")
         ))
     }
+}
+
+/// Whether a path is somewhere the agent is never let in, and what it is.
+/// Matched per component, case-insensitively, anywhere in the path: a home
+/// directory's `.ssh` and a WSL or backup copy of one are the same secret.
+fn credential_place(p: &Path) -> Option<&'static str> {
+    const DIRS: &[(&str, &str)] = &[
+        (".ssh", "an SSH key folder"),
+        (".gnupg", "a GPG key folder"),
+        (".aws", "AWS credentials"),
+        (".azure", "Azure credentials"),
+        (".kube", "Kubernetes credentials"),
+        (".docker", "Docker credentials"),
+        (".password-store", "a password store"),
+        (".tauri", "app signing keys"),
+        ("keychains", "a keychain"),
+        ("dev.flux.browser", "Flux's own data"),
+        ("dev.flux.smoke", "Flux's own data"),
+    ];
+    const FILES: &[(&str, &str)] = &[
+        (".netrc", "a credentials file"),
+        (".git-credentials", "a credentials file"),
+        (".pgpass", "a credentials file"),
+        (".npmrc", "a credentials file"),
+        (".pypirc", "a credentials file"),
+    ];
+    let parts: Vec<String> = p
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(s) => Some(s.to_string_lossy().to_lowercase()),
+            _ => None,
+        })
+        .collect();
+    for (i, part) in parts.iter().enumerate() {
+        if let Some((_, why)) = DIRS.iter().find(|(d, _)| part == d) {
+            return Some(why);
+        }
+        if let Some((_, why)) = FILES.iter().find(|(f, _)| part == f) {
+            return Some(why);
+        }
+        // ~/.config/gcloud, ~/.config/gh: CLI login tokens.
+        if part == ".config" {
+            if let Some(next) = parts.get(i + 1) {
+                if next == "gcloud" || next == "gh" {
+                    return Some("a CLI login token");
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Resolve a path the way the OS will when it's opened, then normalise what's left.
@@ -458,6 +525,28 @@ mod tests {
         });
         let err = s.check("/anywhere").unwrap_err();
         assert!(err.contains("Settings"), "{err}");
+    }
+
+    #[test]
+    fn credential_places_are_refused_even_with_the_gate_off() {
+        let s = RootsStore::default();
+        for p in [
+            "~/.ssh/id_ed25519",
+            "~/.SSH/config",
+            "/home/me/notes/../.aws/credentials",
+            "~/Library/Keychains/login.keychain-db",
+            "~/Library/Application Support/dev.flux.browser/vault.json",
+            "~/.config/gcloud/credentials.db",
+            "~/.netrc",
+            "~/.tauri/flux-updater.key",
+        ] {
+            let err = s.check(p).unwrap_err();
+            assert!(err.contains("never reads"), "{p}: {err}");
+        }
+        // Names that only resemble one are fine.
+        for p in ["~/notes/ssh-howto.md", "~/.config/nvim/init.lua", "~/projects/aws-notes/x.md"] {
+            assert!(s.check(p).is_ok(), "{p}");
+        }
     }
 
     #[test]

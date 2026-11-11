@@ -112,13 +112,13 @@ fn fetch_text(url: &str) -> Result<String, String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("feed url must be http(s)".into());
     }
-    let agent = ureq::AgentBuilder::new()
+    let builder = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(30))
         // Each read is bounded, but not the response: a server dribbling bytes
         // held this, and every feed fetched after it, indefinitely.
-        .timeout(Duration::from_secs(60))
-        .build();
+        .timeout(Duration::from_secs(60));
+    let agent = crate::favicon::redirect_guarded(builder, url);
     let resp = agent
         .get(url)
         .set("User-Agent", "Mozilla/5.0")

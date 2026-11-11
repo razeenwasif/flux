@@ -14,7 +14,11 @@ const ipc = vi.hoisted(() => ({
   agentRunAction: vi.fn(),
   agentVerifyStep: vi.fn(),
 }));
-vi.mock("./ipc", () => ipc);
+vi.mock("./ipc", async (importOriginal) => ({
+  ...ipc,
+  // The real formatter: the step lines tested here show its output.
+  typedText: (await importOriginal<typeof import("./ipc")>()).typedText,
+}));
 
 import { runTaskLoop, type HandoffChoice, type TaskDeps } from "./taskLoop";
 
@@ -154,8 +158,10 @@ describe("no false successes", () => {
     guards = { "#qty": check("draft", "qty"), "#place": check("commit", "place") };
     verdicts = { "#qty": { verified: false, how: "the field doesn't hold the text" } };
     await runTaskLoop("buy it", deps);
-    expect(lines).toContain("Draft · type into #qty — applied, unverified: the field doesn't hold the text");
-    expect(seen[2]?.[0]).toBe("UNVERIFIED [draft] type into #qty (the field doesn't hold the text)");
+    expect(lines).toContain(
+      "Draft · type “hi” into #qty — applied, unverified: the field doesn't hold the text",
+    );
+    expect(seen[2]?.[0]).toBe("UNVERIFIED [draft] type “hi” into #qty (the field doesn't hold the text)");
     expect(last()).toBe(
       "Finished, but not confirmed: Order placed (1 step applied without the page showing it)",
     );
@@ -166,7 +172,7 @@ describe("no false successes", () => {
     failures = { "#card": "blocked_sensitive" };
     await runTaskLoop("pay", deps);
     expect(ipc.agentVerifyStep).not.toHaveBeenCalled();
-    expect(seen[1]).toEqual(["✕ NOT DONE (blocked sensitive): type into #card"]);
+    expect(seen[1]).toEqual(["✕ NOT DONE (blocked sensitive): type “hi” into #card"]);
     expect(last()).toBe("Finished, but not confirmed: Order placed (the last step didn't work)");
   });
 
@@ -179,7 +185,7 @@ describe("no false successes", () => {
     await runTaskLoop("sign in", deps);
     expect(ran).toEqual([]);
     expect(seen[1]).toEqual([
-      "✕ NOT ALLOWED (Flux's agent never types into password fields): type into #password",
+      "✕ NOT ALLOWED (Flux's agent never types into password fields): type “hi” into #password",
     ]);
     expect(last()).toBe("Task stopped: the next steps aren't ones Flux will take.");
   });
@@ -276,7 +282,7 @@ describe("a batch: several steps from one look at the page", () => {
     failures = { "#b": "page_changed" };
     await runTaskLoop("fill it in", deps);
     expect(ran).toEqual(["#a", "#b"]);
-    expect(seen[1]?.[1]).toBe("✕ NOT DONE (page changed): type into #b");
+    expect(seen[1]?.[1]).toBe("✕ NOT DONE (page changed): type “hi” into #b");
   });
 
   it("stops at a step the page doesn't show", async () => {
@@ -324,5 +330,14 @@ describe("a batch: several steps from one look at the page", () => {
     const said = lines.join("\n") + seen.flat().join("\n");
     expect(said).toContain("click “More details” (next)");
     expect(said).not.toContain("7:e3");
+  });
+});
+
+describe("what a type step shows before it runs (audit S9)", () => {
+  it("quotes the text and makes hidden characters visible", async () => {
+    const { typedText } = await import("./ipc");
+    expect(typedText("hi")).toBe("“hi”");
+    expect(typedText("a\nb‮c")).toBe("“a⏎b\\u202ec”");
+    expect(typedText("x".repeat(250))).toBe(`“${"x".repeat(200)}…”`);
   });
 });

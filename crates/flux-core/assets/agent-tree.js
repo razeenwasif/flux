@@ -1,5 +1,5 @@
 // The agent's view of a page (axtree.rs): the body of an async function run in
-// Flux's own JavaScript world (pagejs.rs). `__VER__` is replaced by Rust with
+// Flux's own JavaScript world (pagejs.rs). VER below is filled in by Rust with
 // this look's version, unique across the app, so a ref from an earlier page can
 // never name something on this one.
 //

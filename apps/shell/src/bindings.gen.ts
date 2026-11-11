@@ -240,7 +240,7 @@ export type SleepCheck = { tab_id: number; memory_mb: number | null; keep_awake:
 /**
  * What Flux read about a step's target, from its own script in the page.
  */
-export type TargetFacts = { found: boolean; tag: string; role: string; input_type: string; autocomplete: string; name: string; label: string; href: string; submits: boolean; value: string; disabled: boolean; state: string }
+export type TargetFacts = { found: boolean; tag: string; role: string; input_type: string; autocomplete: string; name: string; label: string; href: string; submits: boolean; value: string; disabled: boolean; state: string; form_action: string; form_fields: string }
 /**
  * The page as Flux's script saw it.
  */

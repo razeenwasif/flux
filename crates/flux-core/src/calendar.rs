@@ -25,6 +25,8 @@ use tauri::State;
 const MAX_ICS_BYTES: u64 = 4 * 1024 * 1024;
 /// Cap events returned to the widget (a busy calendar can have thousands).
 const MAX_EVENTS: usize = 1500;
+/// Occurrences one feed may expand to before the rest of it is dropped.
+const MAX_EVENTS_PER_FEED: usize = 4 * MAX_EVENTS;
 
 /// A subscribed calendar (its ICS URL). Only this is persisted.
 #[derive(Serialize, Deserialize, Clone, specta::Type)]
@@ -445,13 +447,13 @@ fn fetch_ics(url: &str) -> Result<String, String> {
     }
     // webcal:// is just http(s) with a different scheme hint.
     let fetch = url.replacen("webcal://", "https://", 1);
-    let agent = ureq::AgentBuilder::new()
+    let builder = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(30))
         // Each read is bounded, but not the response: a server dribbling bytes
         // held this indefinitely.
-        .timeout(Duration::from_secs(60))
-        .build();
+        .timeout(Duration::from_secs(60));
+    let agent = crate::favicon::redirect_guarded(builder, &fetch);
     let resp = agent
         .get(&fetch)
         .set("User-Agent", "Mozilla/5.0")
@@ -509,6 +511,8 @@ const WINDOW_BACK_DAYS: i64 = 14;
 const WINDOW_FWD_DAYS: i64 = 180;
 /// Hard cap on occurrences per recurring series (defensive against runaway rules).
 const MAX_OCCURRENCES: usize = 400;
+/// Loop turns one rule may take, occurrences or not.
+const MAX_SPINS: u32 = 20_000;
 
 /// Parse all VEVENTs into the widget's events, expanding RRULE recurrences within
 /// the window. Handles FREQ=DAILY/WEEKLY/MONTHLY with INTERVAL/COUNT/UNTIL,
@@ -539,6 +543,12 @@ fn parse_events_at_tz(ics: &str, cal_name: &str, today: i64, utc_offset_min: i64
     }
     let mut out = Vec::new();
     for v in vevents {
+        // One feed's events are capped where they're made, not after (audit
+        // S29): a 4 MB file of recurring events otherwise expands into millions
+        // before cal_events trims them to MAX_EVENTS.
+        if out.len() >= MAX_EVENTS_PER_FEED {
+            break;
+        }
         let mut exdates = v.exdates;
         if v.recurrence_id.is_none() && !v.rrule.is_empty() {
             if let Some(days) = overridden.get(&v.uid) {
@@ -985,7 +995,9 @@ fn emit_occurrences(
                     _ => "",
                 }
             }
-            "INTERVAL" => interval = v.parse().unwrap_or(1).max(1),
+            // Bounded (audit S29): a huge INTERVAL overflowed the day
+            // arithmetic below and a loop that skips days never ended.
+            "INTERVAL" => interval = v.parse::<i64>().unwrap_or(1).clamp(1, 1000),
             "COUNT" => count = v.parse().ok(),
             "UNTIL" => until = parse_dt(v).map(|p| p.days),
             "BYDAY" => {
@@ -1042,7 +1054,9 @@ fn emit_occurrences(
             if ff && week_start < lo - 7 {
                 week_start += ((lo - 7 - week_start) / (7 * interval)) * 7 * interval;
             }
-            'weeks: while week_start <= until && cap > 0 {
+            let mut spins = 0u32;
+            'weeks: while week_start <= until && cap > 0 && spins < MAX_SPINS {
+                spins += 1;
                 for &wd in &week_days {
                     let day = week_start + wd;
                     if day < s.days {
@@ -1073,7 +1087,14 @@ fn emit_occurrences(
                     i = (lo_month - start_month) / interval;
                 }
             }
+            let mut spins = 0u32;
             'months: loop {
+                // A hard stop whatever the rule says: months that yield no day
+                // (BYSETPOS past the candidates) never touch `cap`.
+                spins += 1;
+                if spins > MAX_SPINS {
+                    break;
+                }
                 let total = (y * 12 + (m as i64 - 1)) + i * interval;
                 let (yy, mm) = (total.div_euclid(12), (total.rem_euclid(12) + 1) as u32);
                 if days_from_civil(yy, mm, 1) > until || cap == 0 {
@@ -1732,6 +1753,17 @@ END:VCALENDAR";
         expand_local(&e, lo, hi, &mut out);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].date, "2027-09-01");
+    }
+
+    #[test]
+    fn huge_intervals_and_empty_months_end() {
+        let ics = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:a\nDTSTART;VALUE=DATE:20240105\nSUMMARY:x\n\
+RRULE:FREQ=WEEKLY;INTERVAL=9223372036854775807\nEND:VEVENT\nBEGIN:VEVENT\nUID:b\n\
+DTSTART;VALUE=DATE:20240105\nSUMMARY:y\nRRULE:FREQ=MONTHLY;BYDAY=MO;BYSETPOS=9\nEND:VEVENT\n\
+END:VCALENDAR\n";
+        // Returns at all (no overflow panic, no endless loop), and with little.
+        let ev = parse_events_at(ics, "c", days_from_civil(2026, 11, 11));
+        assert!(ev.len() <= 2, "{}", ev.len());
     }
 
     #[test]

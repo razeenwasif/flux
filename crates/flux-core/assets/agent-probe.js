@@ -1,6 +1,6 @@
 // The agent's look at a page (agent.rs → steps.rs): the body of an async
 // function run in Flux's own JavaScript world (pagejs.rs), so the page can't
-// answer for it. `__ARGS__` is replaced with {"selector": "…"} or {} by Rust.
+// answer for it. ARGS below is filled in by Rust with {"selector": "…"} or {}.
 // Returns PageFacts as JSON: whether a sign-in or CAPTCHA is in the way, a hash
 // of the visible text to tell whether the page changed, and facts about the
 // step's target, from which Rust decides what kind of step it is.
@@ -40,16 +40,12 @@ if (ARGS.selector) {
         "button, a[href], input, select, textarea, summary, [role=button], [role=link], [role=menuitem], [role=tab], [role=checkbox], [role=switch], [role=option]",
       ) || el;
     const attr = (n, a) => (n.getAttribute(a) || "").trim();
-    const label = (
-      attr(ctl, "aria-label") ||
-      (ctl.innerText || "").trim() ||
-      (ctl.value != null && ctl.type !== "password" ? String(ctl.value) : "") ||
-      attr(ctl, "title") ||
-      attr(ctl, "alt") ||
-      attr(ctl, "placeholder")
-    )
+    // Every name it goes by, from the function the click guard uses
+    // (__fluxNames, prepended by agent.rs): an icon button named only by its
+    // image's alt is "Delete" here too, not unnamed (audit S10).
+    const label = (__fluxNames(ctl) || (ctl !== el ? __fluxNames(el) : "") || attr(ctl, "placeholder"))
       .replace(/\s+/g, " ")
-      .slice(0, 200);
+      .slice(0, 300);
     const type = attr(ctl, "type").toLowerCase();
     const form = ctl.form || ctl.closest("form");
     const submits =
@@ -72,8 +68,36 @@ if (ARGS.selector) {
       ["aria-expanded", "aria-checked", "aria-selected", "aria-pressed"].map((a) => attr(ctl, a)).join("|") +
       "|" +
       (ctl.checked ? "on" : "");
+    // What a submit sends, and where (audit S9): the form's action and its
+    // visible fields' values, shown on the commit card and part of the
+    // fingerprint re-checked after you approve. Never a password's value.
+    let form_action = "";
+    let form_fields = "";
+    if (submits && form) {
+      form_action = (ctl.formAction || form.action || "").slice(0, 500);
+      form_fields = [...form.elements]
+        .filter((f) => f.name && f.type !== "hidden" && f.type !== "submit" && f.type !== "button" && shown(f))
+        .slice(0, 12)
+        .map((f) => {
+          const v =
+            f.type === "password"
+              ? "••••"
+              : f.type === "checkbox" || f.type === "radio"
+                ? f.checked
+                  ? "✓"
+                  : "✗"
+                : f.tagName === "SELECT"
+                  ? String(f.selectedOptions[0]?.text ?? "")
+                  : String(f.value ?? "");
+          return `${f.name}=${v.replace(/\s+/g, " ").slice(0, 60)}`;
+        })
+        .join(", ")
+        .slice(0, 600);
+    }
     target = {
       found: true,
+      form_action,
+      form_fields,
       tag: el.tagName.toLowerCase(),
       role: attr(ctl, "role"),
       input_type: attr(el, "type").toLowerCase(),

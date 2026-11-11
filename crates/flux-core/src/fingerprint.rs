@@ -54,7 +54,7 @@ impl FingerprintState {
 /// the hosts where Shields is off.
 fn script_with(secret: &str, on: bool, off: &[String]) -> String {
     let config = serde_json::json!({ "secret": secret, "on": on, "off": off });
-    SCRIPT.replace("__FP_CONFIG__", &config.to_string())
+    crate::pagejs::fill(SCRIPT, "__FP_CONFIG__", &config.to_string())
 }
 
 /// What goes into a page now.

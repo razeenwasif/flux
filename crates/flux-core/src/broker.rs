@@ -213,11 +213,11 @@ impl BrokerState {
         let not_here =
             |tab: TabId| format!("permission denied: extension {ext_id} doesn't run on tab {tab}");
         let in_scope = |tab: TabId| -> Result<(), String> {
-            let url = app
+            let wv = app
                 .get_webview(&format!("tab-{tab}"))
-                .ok_or("no such tab webview")?
-                .url()
-                .map_err(|e| e.to_string())?;
+                .ok_or("no such tab webview")?;
+            // Its committed document, not a pending navigation (audit S8).
+            let url = crate::committed::url_of(&wv)?;
             if registry.matches_url(&ext_id, url.as_str()) {
                 Ok(())
             } else {

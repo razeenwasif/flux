@@ -71,6 +71,11 @@ const hostOf = (url: string): string => {
   }
 };
 
+/** The pill's host, cut from the LEFT when long (audit S17): the end of a
+ *  hostname is the site you're on, so `bank.com.evil.example` must not show
+ *  as `bank.com.ev…`. */
+const pillHost = (host: string, max = 28): string => (host.length > max ? `…${host.slice(1 - max)}` : host);
+
 type Nav = { id: number; progress?: number; loading?: boolean };
 
 const hex = (r: number, g: number, b: number) =>
@@ -383,11 +388,16 @@ const MobileChrome: Component<{
     if (props.sheet() === "tabs") setGridMounted(true);
   });
 
-  const Favicon: Component<{ host: string; size: number }> = (p) => {
-    createEffect(() => ensureFavicon(p.host));
+  /** `off` for a private or Tor tab: the favicon fetcher asks for the icon
+   *  outside that session and caches it on disk (audit S23), so those show the
+   *  letter. */
+  const Favicon: Component<{ host: string; size: number; off?: boolean }> = (p) => {
+    createEffect(() => {
+      if (!p.off) ensureFavicon(p.host);
+    });
     return (
       <Show
-        when={faviconFor(p.host)}
+        when={!p.off && faviconFor(p.host)}
         fallback={
           <span class="mc-glyph" style={{ width: `${p.size}px`, height: `${p.size}px` }}>
             {(p.host[0] || "•").toUpperCase()}
@@ -445,7 +455,7 @@ const MobileChrome: Component<{
               />
             </span>
             <span class="mc-pill-text" classList={{ hint: !curUrl() && !fluxPage() }}>
-              {curUrl() ? hostOf(curUrl()) || curUrl() : fluxPage() || "Search or enter website"}
+              {curUrl() ? pillHost(hostOf(curUrl())) || curUrl() : fluxPage() || "Search or enter website"}
             </span>
             <Show when={curUrl()}>
               <button
@@ -493,7 +503,7 @@ const MobileChrome: Component<{
                   }}
                 >
                   <span class="mc-row-ico">
-                    <Favicon host={hostOf(t.url)} size={20} />
+                    <Favicon host={hostOf(t.url)} size={20} off={t.private || t.tor} />
                   </span>
                   <span class="mc-row-main">
                     <span class="mc-row-title">{t.title || hostOf(t.url)}</span>
@@ -599,7 +609,7 @@ const MobileChrome: Component<{
                     >
                       <Show when={!tabThumb(t.id)}>
                         <div class="mc-cover-empty">
-                          <Favicon host={host()} size={36} />
+                          <Favicon host={host()} size={36} off={t.private || t.tor} />
                         </div>
                       </Show>
                       <button
@@ -614,7 +624,7 @@ const MobileChrome: Component<{
                       </button>
                     </div>
                     <div class="mc-card-foot">
-                      <Favicon host={host()} size={14} />
+                      <Favicon host={host()} size={14} off={t.private || t.tor} />
                       <span>{t.custom_title || t.title || host() || "New tab"}</span>
                     </div>
                   </div>

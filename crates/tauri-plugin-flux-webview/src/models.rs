@@ -15,6 +15,10 @@ pub struct OpenArgs {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    /// A private tab: an in-memory data store, gone when the tab closes (iOS).
+    pub ephemeral: bool,
+    /// The tab's container (0 = none): its own cookie and storage jar (iOS).
+    pub container: u32,
 }
 
 #[derive(Serialize)]

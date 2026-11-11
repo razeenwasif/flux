@@ -93,7 +93,7 @@ fn file_key(dir: &Path) -> Option<[u8; 32]> {
     let k = flux_vault::new_key();
     // Atomic: a torn key file would be re-minted next launch. Fully flushed:
     // it may be the only copy of the key that opens every Trail store.
-    crate::persist::write_atomic_with(&p, &k, crate::persist::Durability::Full).ok()?;
+    crate::persist::write_secret_atomic(&p, &k, crate::persist::Durability::Full).ok()?;
     KEY_IS_NEW.store(true, Ordering::Relaxed);
     #[cfg(unix)]
     {

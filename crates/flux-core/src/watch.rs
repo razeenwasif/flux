@@ -296,8 +296,8 @@ fn fetch_text(url: &str) -> Result<String, String> {
         // `timeout_read` bounds each read, not the response: a server dribbling
         // a byte every 20 s held this (and, since checks run one after another,
         // every other watch) indefinitely. Bound the whole request.
-        .timeout(Duration::from_secs(60))
-        .build();
+        .timeout(Duration::from_secs(60));
+    let agent = crate::favicon::redirect_guarded(agent, url);
     let resp = agent
         .get(url)
         .set("User-Agent", "Mozilla/5.0 (Flux page-watch)")

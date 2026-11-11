@@ -106,7 +106,7 @@ pub async fn agent_cite_show(
         return Ok("moved".into());
     }
     let args = serde_json::json!({ "text": text, "n": n }).to_string();
-    let body = CITE_JS.replace("__ARGS__", &args);
+    let body = crate::pagejs::fill(CITE_JS, "__ARGS__", &args);
     Ok(
         crate::pagejs::run_isolated(&app, tab, "flux-cite", body, Duration::from_secs(3))
             .await
@@ -117,7 +117,7 @@ pub async fn agent_cite_show(
 /// Take a shown citation's highlight off `tab`.
 #[tauri::command]
 pub async fn agent_cite_clear(app: AppHandle, tab: TabId) {
-    let body = CITE_JS.replace("__ARGS__", r#"{"clear":true}"#);
+    let body = crate::pagejs::fill(CITE_JS, "__ARGS__", r#"{"clear":true}"#);
     let _ = crate::pagejs::run_isolated(&app, tab, "flux-cite", body, Duration::from_secs(2)).await;
 }
 
@@ -148,7 +148,7 @@ mod tests {
         assert_eq!(CITE_JS.matches("__ARGS__").count(), 1);
         assert!(CITE_JS.contains("const ARGS = __ARGS__;"));
         let args = serde_json::json!({ "text": "a \"quoted\" passage", "n": 2 }).to_string();
-        let body = CITE_JS.replace("__ARGS__", &args);
+        let body = crate::pagejs::fill(CITE_JS, "__ARGS__", &args);
         assert!(
             body.contains(r#""text":"a \"quoted\" passage""#),
             "{}",

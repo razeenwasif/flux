@@ -328,7 +328,7 @@ fn store_key(dir: &Path, dk: &[u8; 32]) -> &'static str {
 fn store_key_file(dir: &Path, dk: &[u8; 32]) -> &'static str {
     let p = dir.join("key.bin");
     // fsync + rename: this may be about to become the key's only copy.
-    if crate::persist::write_atomic_with(&p, dk, crate::persist::Durability::Full).is_ok() {
+    if crate::persist::write_secret_atomic(&p, dk, crate::persist::Durability::Full).is_ok() {
         set_owner_only(&p);
         return "file";
     }
@@ -540,7 +540,7 @@ fn set_master_password(state: &VaultState, password: String) -> Result<(), Strin
     // replace it atomically so a crash leaves the old wrap or the new one, never
     // a torn file, and record password mode before removing the other copies.
     let wrap_path = state.dir.join("keywrap.json");
-    crate::persist::write_atomic_with(
+    crate::persist::write_secret_atomic(
         &wrap_path,
         json.as_bytes(),
         crate::persist::Durability::Full,
@@ -886,7 +886,9 @@ pub fn vault_fill(
     let webview = app
         .get_webview(&format!("tab-{tab_id}"))
         .ok_or("no such tab webview")?;
-    let current_url = webview.url().map_err(|e| e.to_string())?;
+    // The document actually running, not where a pending navigation is
+    // headed (audit S8).
+    let current_url = crate::committed::url_of(&webview)?;
     require_secure_credential_origin(&current_url)?;
     let host = current_url
         .host_str()
@@ -915,14 +917,19 @@ pub fn vault_fill(
     let (user, pass) = found.ok_or_else(|| format!("no credential matches {host}"))?;
 
     // Recheck URL right before injection:
-    let rechecked = webview.url().map_err(|e| e.to_string())?;
+    let rechecked = crate::committed::url_of(&webview)?;
     if rechecked != current_url {
         return Err("document navigated during autofill authorization".into());
     }
 
     let u = serde_json::to_string(&user).unwrap_or_else(|_| "\"\"".into());
     let p = serde_json::to_string(&pass).unwrap_or_else(|_| "\"\"".into());
-    let js = format!("{AUTOFILL_JS}\n;__fluxFill({u},{p});");
+    // And the script itself fills only on that origin: if the document changed
+    // between the check and the eval, it does nothing.
+    let origin = serde_json::to_string(&current_url.origin().ascii_serialization())
+        .unwrap_or_else(|_| "\"\"".into());
+    let js =
+        format!("if (location.origin === {origin}) {{\n{AUTOFILL_JS}\n;__fluxFill({u},{p});\n}}");
     webview.eval(&js).map_err(|e| e.to_string())
 }
 
@@ -1137,7 +1144,7 @@ fn require_secure_credential_origin(url: &tauri::Url) -> Result<(), String> {
 }
 
 fn webview_secure_host(webview: &tauri::Webview) -> Result<String, String> {
-    let url = webview.url().map_err(|e| e.to_string())?;
+    let url = crate::committed::url_of(webview)?;
     require_secure_credential_origin(&url)?;
     url.host_str()
         .map(|h| h.to_ascii_lowercase())

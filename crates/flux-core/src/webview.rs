@@ -570,6 +570,8 @@ mod real {
             // Bind hibernation captures (#45) to the committed document:
             // `Started` is the commit event on every backend.
             if matches!(payload.event(), PageLoadEvent::Started) {
+                // The document every caller-origin check judges by (audit S8).
+                crate::committed::note(webview.label(), payload.url());
                 if let Some(s) = app_for_load.try_state::<crate::hibernate::HibernateStore>() {
                     s.note_commit(tab_id, payload.url());
                 }
@@ -733,6 +735,14 @@ mod real {
             // drawn; the shell's webview_show reveals it.
             let _ = child.hide();
         }
+        // A Tor tab's WebRTC is off in the engine too (audit S6): ICE's UDP
+        // doesn't go through the SOCKS proxy, and a frame the init script never
+        // reached would still have it. Set on the main thread right after the
+        // view is made, ahead of the first committed page.
+        #[cfg(target_os = "macos")]
+        if tor {
+            let _ = child.with_webview(|p| crate::tor::disable_webrtc(p.inner() as _));
+        }
         // Drawn while the window is covered, so it shows in Mission Control.
         #[cfg(target_os = "macos")]
         let _ = child.with_webview(stay_awake_when_covered);
@@ -751,7 +761,17 @@ mod real {
         crate::downloads::install(app, &child);
         install_tab_accelerators(app, &child); // Ctrl+Tab cycling (#18)
         install_fullscreen_relayout(app, &child); // re-tile after video fullscreen exit
-        tracing::info!(target: "flux::webview", tab_id, %url, x, y, width, height, scale, visible, early, "opened tab webview");
+                                                  // The host only, and nothing for a private or Tor tab: the log is a
+                                                  // plain file that outlives the session (audit S22).
+        let site = if private || tor {
+            "(private)".to_string()
+        } else {
+            url.parse::<tauri::Url>()
+                .ok()
+                .and_then(|u| u.host_str().map(str::to_string))
+                .unwrap_or_default()
+        };
+        tracing::info!(target: "flux::webview", tab_id, %site, x, y, width, height, scale, visible, early, "opened tab webview");
         Ok(true)
     }
 
@@ -1272,6 +1292,7 @@ mod real {
             state.dom_cache.remove(&tab_id);
         }
         crate::cookies::forget_jar(&app, &label(tab_id));
+        crate::committed::forget(&label(tab_id));
         if let Some(wv) = app.get_webview(&label(tab_id)) {
             tracing::info!(target: "flux::tab", tab_id, "unloading the tab's page");
             // Its record and snapshot are saved above; without the teardown, a
@@ -1365,6 +1386,9 @@ mod real {
     /// Inject the reader-mode extractor (#41); it posts blocks back via `reader_publish`.
     #[tauri::command]
     pub async fn webview_extract_reader(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+        // The answer comes back through reader_publish, which takes it only
+        // because it was asked for here.
+        crate::dom::note_reader_request(tab_id);
         eval(&app, tab_id, READER_JS)
     }
 
@@ -1454,6 +1478,7 @@ mod real {
             None => Ok(()),
         };
         crate::cookies::forget_jar(&app, &label);
+        crate::committed::forget(&label);
         if let Some((host, jar)) = clear {
             crate::cookies::clear_for_host(&app, &host, jar);
         }
@@ -2356,7 +2381,7 @@ pub use real::*;
 #[cfg(mobile)]
 mod stub {
     use crate::state::TabId;
-    use tauri::AppHandle;
+    use tauri::{AppHandle, Manager};
     use tauri_plugin_flux_webview::{BoundsArgs, FluxWebviewExt, OpenArgs};
 
     const NB: &str = "web panels aren't available on mobile";
@@ -2397,6 +2422,22 @@ mod stub {
         width: f64,
         height: f64,
     ) -> Result<(), String> {
+        // The tab's private, container and Tor flags go to the native view, which
+        // gives it its own data store (audit S34). Tor can't be honoured on a
+        // phone (no per-view proxy), so such a tab is refused rather than opened
+        // direct; Android has one WebView profile, so private and container tabs
+        // are refused there too.
+        let (private, container, tor) = app
+            .try_state::<crate::state::FluxState>()
+            .and_then(|s| s.tabs.get(&tab_id).map(|t| (t.private, t.container, t.tor)))
+            .unwrap_or((false, 0, false));
+        if tor {
+            return Err("Tor tabs aren't available on phones".into());
+        }
+        #[cfg(target_os = "android")]
+        if private || container != 0 {
+            return Err("private and container tabs aren't available on Android yet".into());
+        }
         app.flux_webview()
             .open(OpenArgs {
                 id: tab_id as i32,
@@ -2405,6 +2446,8 @@ mod stub {
                 y,
                 width,
                 height,
+                ephemeral: private,
+                container,
             })
             .map_err(|e| e.to_string())
     }

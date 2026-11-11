@@ -387,7 +387,7 @@ pub async fn boost_draft(app: AppHandle, instruction: String) -> Result<BoostDra
         &app,
         snap.tab,
         "flux-restyle",
-        RESTYLE_JS.replace("__ARGS__", &args),
+        crate::pagejs::fill(RESTYLE_JS, "__ARGS__", &args),
         std::time::Duration::from_secs(3),
     )
     .await
@@ -424,7 +424,7 @@ pub async fn boost_preview_clear(app: AppHandle, tab: crate::state::TabId) {
         &app,
         tab,
         "flux-restyle",
-        RESTYLE_JS.replace("__ARGS__", r#"{"clear":true}"#),
+        crate::pagejs::fill(RESTYLE_JS, "__ARGS__", r#"{"clear":true}"#),
         std::time::Duration::from_secs(2),
     )
     .await;

@@ -7,7 +7,7 @@
 // screen; only what's read back.
 //
 // Runs in every frame before the page's own scripts, and leaves no trace a page
-// could look for. __FP_CONFIG__ is replaced by Rust: this session's secret,
+// could look for. CONFIG below is filled in by Rust: this session's secret,
 // whether it's on, and the hosts where Shields is off (no noise there). The site
 // is the top page's, from ancestorOrigins in a frame.
 (function () {

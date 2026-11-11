@@ -75,7 +75,7 @@ pub fn looks_like_consent(text: &str) -> bool {
 /// The injectable reject script, with the Rust-owned vocabulary baked in.
 pub fn reject_js() -> String {
     let terms = serde_json::to_string(REJECT_TERMS).unwrap_or_else(|_| "[]".into());
-    include_str!("../../assets/consent.js").replace("__FLUX_REJECT_TERMS__", &terms)
+    crate::pagejs::fill(include_str!("../../assets/consent.js"), "__FLUX_REJECT_TERMS__", &terms)
 }
 
 /// Deterministic aggregation of a tracker graph — the facts a narrative may use.

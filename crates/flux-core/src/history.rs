@@ -52,6 +52,26 @@ impl HistoryEntry {
     }
 }
 
+/// The `limit` entries with the highest `key`, highest first, cloned. Ranked
+/// by reference, so only the ones returned are copied (audit P8): every
+/// launcher keystroke cloned each match, thousands of them, to keep 200.
+fn top_n<'a>(
+    it: impl Iterator<Item = &'a HistoryEntry>,
+    limit: usize,
+    key: impl Fn(&HistoryEntry) -> u64,
+) -> Vec<HistoryEntry> {
+    let mut v: Vec<&HistoryEntry> = it.collect();
+    if limit == 0 {
+        return Vec::new();
+    }
+    if v.len() > limit {
+        v.select_nth_unstable_by_key(limit - 1, |e| std::cmp::Reverse(key(e)));
+        v.truncate(limit);
+    }
+    v.sort_unstable_by_key(|e| std::cmp::Reverse(key(e)));
+    v.into_iter().cloned().collect()
+}
+
 #[derive(Default)]
 pub struct HistoryStore {
     entries: RwLock<HashMap<String, HistoryEntry>>,
@@ -170,10 +190,8 @@ impl HistoryStore {
 
     /// Most-recently-visited entries (the history page's default view).
     pub fn recent(&self, limit: usize) -> Vec<HistoryEntry> {
-        let mut v: Vec<HistoryEntry> = self.entries.read().values().cloned().collect();
-        v.sort_unstable_by_key(|e| std::cmp::Reverse(e.last_visit_ms));
-        v.truncate(limit);
-        v
+        let entries = self.entries.read();
+        top_n(entries.values(), limit, |e| e.last_visit_ms)
     }
 
     /// Substring match on URL + title, ranked by frecency.
@@ -183,16 +201,12 @@ impl HistoryStore {
             return self.recent(limit);
         }
         // Match against the precomputed lowercased key — no per-entry allocation.
-        let mut v: Vec<HistoryEntry> = self
-            .entries
-            .read()
-            .values()
-            .filter(|e| e.key.contains(&q))
-            .cloned()
-            .collect();
-        v.sort_unstable_by_key(|e| std::cmp::Reverse(e.score()));
-        v.truncate(limit);
-        v
+        let entries = self.entries.read();
+        top_n(
+            entries.values().filter(|e| e.key.contains(&q)),
+            limit,
+            HistoryEntry::score,
+        )
     }
 
     pub fn delete(&self, url: &str) {
@@ -357,18 +371,23 @@ impl HistoryStore {
 
 use tauri::State;
 
+// Async, so they run off the main thread (audit P8): a sync command runs on
+// it, and the launcher calls history_search on every keystroke.
 #[tauri::command]
-pub fn history_recent(store: State<'_, HistoryStore>, limit: Option<usize>) -> Vec<HistoryEntry> {
-    store.recent(limit.unwrap_or(200))
+pub async fn history_recent(
+    store: State<'_, HistoryStore>,
+    limit: Option<usize>,
+) -> Result<Vec<HistoryEntry>, String> {
+    Ok(store.recent(limit.unwrap_or(200)))
 }
 
 #[tauri::command]
-pub fn history_search(
+pub async fn history_search(
     store: State<'_, HistoryStore>,
     query: String,
     limit: Option<usize>,
-) -> Vec<HistoryEntry> {
-    store.search(&query, limit.unwrap_or(200))
+) -> Result<Vec<HistoryEntry>, String> {
+    Ok(store.search(&query, limit.unwrap_or(200)))
 }
 
 #[tauri::command]

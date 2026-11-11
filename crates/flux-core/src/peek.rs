@@ -48,7 +48,14 @@ fn claim_page_peek(last: &AtomicU64, now: u64) -> bool {
 struct Session {
     private: bool,
     container: u32,
+    tor: bool,
+    /// The tab it came from: a peek promoted to a tab opens as that tab does.
+    tab: Option<crate::state::TabId>,
 }
+
+/// Which tab each open peek came from, by label.
+static PEEK_OPENER: std::sync::LazyLock<dashmap::DashMap<String, crate::state::TabId>> =
+    std::sync::LazyLock::new(dashmap::DashMap::new);
 
 fn session_of(app: &AppHandle, tab: Option<crate::state::TabId>) -> Session {
     tab.and_then(|id| {
@@ -57,6 +64,8 @@ fn session_of(app: &AppHandle, tab: Option<crate::state::TabId>) -> Session {
         Some(Session {
             private: t.private,
             container: t.container,
+            tor: t.tor,
+            tab: Some(id),
         })
     })
     .unwrap_or_default()
@@ -78,8 +87,17 @@ fn open_peek(app: &AppHandle, url: &str, session: Session) -> Result<(), String>
     if crate::webview::is_app_origin(&parsed) {
         return Err("can only peek web pages".into()); // e.g. http://tauri.localhost
     }
+    // A peek is its own window, with none of a Tor tab's proxy, WebRTC block or
+    // fingerprint script: from a Tor tab it would load from the real address
+    // (audit S2). Open the link in the Tor tab instead.
+    if session.tor {
+        return Err("peek isn't available in a Tor tab".into());
+    }
     let n = PEEK_SEQ.fetch_add(1, Ordering::Relaxed);
     let label = format!("peek-{n}");
+    if let Some(tab) = session.tab {
+        PEEK_OPENER.insert(label.clone(), tab);
+    }
     // Cosmetic element-hiding (#57): inject the per-page shields CSS so a blocked
     // ad slot doesn't leave a gap — the network-level block is the interceptor
     // installed below. Mirrors the tab webview path.
@@ -95,6 +113,9 @@ fn open_peek(app: &AppHandle, url: &str, session: Session) -> Result<(), String>
         .incognito(session.private)
         .on_navigation(|u| !crate::webview::is_app_origin(u))
         .on_page_load(move |webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                crate::committed::note(webview.label(), payload.url());
+            }
             let css = app_for_load
                 .try_state::<crate::shields::ShieldsState>()
                 .map(|s| s.cosmetic_css(payload.url().as_ref()))
@@ -199,9 +220,11 @@ pub fn peek_promote(app: AppHandle, window: Window, url: String) -> Result<(), S
     if !is_peek(&window) {
         return Err("not a peek window".into());
     }
-    // `url` comes from the page and becomes a new tab via flux://open-url.
+    // `url` comes from the page and becomes a new tab via flux://open-url,
+    // opened as the peek's own tab was (private, container).
     let url = crate::dom::page_openable_url(&url)?;
-    app.emit("flux://open-url", (url, false))
+    let opener = PEEK_OPENER.remove(window.label()).map(|(_, t)| t);
+    app.emit("flux://open-url", (url, false, opener))
         .map_err(|e| e.to_string())?;
     // Surface the main window so the freshly-promoted tab is actually seen — the
     // peek was always-on-top, so without this the new tab lands behind it.
@@ -225,6 +248,7 @@ pub fn peek_pin(window: Window) {
 #[tauri::command]
 pub fn peek_close(window: Window) {
     if is_peek(&window) {
+        PEEK_OPENER.remove(window.label());
         let _ = window.close();
     }
 }

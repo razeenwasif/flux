@@ -45,6 +45,10 @@ pub struct TargetFacts {
     pub disabled: bool,
     /// ARIA expanded/checked/selected/pressed and `checked`, to see a toggle move.
     pub state: String,
+    /// Where a submitting click sends its form (absolute), else empty.
+    pub form_action: String,
+    /// That form's visible fields as `name=value, …` (passwords masked).
+    pub form_fields: String,
 }
 
 /// The page as Flux's script saw it.
@@ -284,6 +288,84 @@ fn word_in(label: &str, phrase: &str) -> bool {
     false
 }
 
+/// Words on a control that only shows, hides, moves through or sorts what's
+/// already on the page. Matched as whole words.
+const BENIGN_WORDS: &[&str] = &[
+    "filter",
+    "filters",
+    "sort",
+    "sort by",
+    "more",
+    "show",
+    "show more",
+    "hide",
+    "expand",
+    "collapse",
+    "next",
+    "previous",
+    "prev",
+    "back",
+    "close",
+    "dismiss",
+    "open",
+    "menu",
+    "details",
+    "see all",
+    "view",
+    "view all",
+    "read more",
+    "load more",
+    "search",
+    "tab",
+    "zoom",
+    "play",
+    "pause",
+    "mute",
+    "unmute",
+    "copy",
+    "toggle",
+    "options",
+    "settings",
+];
+
+/// A click on this only changes what the page shows: a tab, option, toggle or
+/// disclosure by its role or state, or a label made of a benign word. Anything
+/// else is treated as able to act (audit S10).
+fn benign_control(t: &TargetFacts) -> bool {
+    if t.label.trim().is_empty() {
+        return false;
+    }
+    let role = t.role.to_lowercase();
+    if matches!(
+        role.as_str(),
+        "tab"
+            | "option"
+            | "menuitemradio"
+            | "menuitemcheckbox"
+            | "treeitem"
+            | "combobox"
+            | "listbox"
+    ) {
+        return true;
+    }
+    if matches!(t.tag.as_str(), "summary" | "select" | "option" | "label")
+        || matches!(t.input_type.as_str(), "checkbox" | "radio")
+    {
+        return true;
+    }
+    // A disclosure or toggle says so in its ARIA state.
+    if t.state.contains("expanded=") || t.state.contains("selected=") {
+        return true;
+    }
+    if t.label
+        .chars()
+        .all(|c| c.is_ascii_digit() || c.is_whitespace())
+    {
+        return true; // a page number
+    }
+    BENIGN_WORDS.iter().any(|w| word_in(&t.label, w))
+}
+
 /// The commit word a label carries, if any.
 pub fn commit_word(label: &str) -> Option<&'static str> {
     COMMIT_WORDS
@@ -317,14 +399,19 @@ fn place(url: &str) -> String {
 
 fn fingerprint(t: Option<&TargetFacts>) -> String {
     match t {
+        // The form's destination and contents too (audit S9): a page that
+        // swaps the action or rewrites a field after you approve no longer
+        // matches what you approved.
         Some(t) => format!(
-            "{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{}",
             t.tag,
             t.input_type,
             t.role,
             short(&t.label, 80),
             t.href,
-            t.submits
+            t.submits,
+            t.form_action,
+            t.form_fields
         ),
         None => String::new(),
     }
@@ -411,15 +498,41 @@ pub fn classify(action: &AgentAction, page_url: &str, facts: Option<&TargetFacts
                 g.effect = "the page changes".into();
                 g.preview = format!(
                     "Click “{named}” on {host}{}",
-                    if t.submits { " (sends the form)" } else { "" }
+                    if !t.submits {
+                        String::new()
+                    } else if t.form_action.is_empty() {
+                        " (sends the form)".into()
+                    } else {
+                        format!(
+                            " (sends the form to {}{})",
+                            place(&t.form_action),
+                            if t.form_fields.is_empty() {
+                                String::new()
+                            } else {
+                                format!(": {}", short(&t.form_fields, 240))
+                            }
+                        )
+                    }
                 );
             } else if !t.href.is_empty() {
                 g.why = "follows a link".into();
                 g.effect = format!("the page moves to {}", place(&t.href));
-            } else {
+            } else if benign_control(t) {
                 g.kind = StepKind::Draft;
                 g.why = "a control that sends nothing".into();
                 g.effect = "the page changes".into();
+            } else {
+                // A button Flux can't vouch for asks (audit S10): a deny-list
+                // of commit words can't know every way to say "revoke", and an
+                // icon button may have no words at all.
+                g.kind = StepKind::Commit;
+                g.why = if t.label.is_empty() {
+                    "a button with no name Flux can read".into()
+                } else {
+                    "a button Flux can't tell is harmless".into()
+                };
+                g.effect = "the page changes".into();
+                g.preview = format!("Click “{named}” on {host}");
             }
         }
         AgentAction::Finish { .. } | AgentAction::Refuse { .. } => {}
@@ -694,6 +807,22 @@ mod tests {
         form.label = "Continue".into();
         form.submits = true;
         assert_eq!(classify(&a, page, Some(&form)).kind, StepKind::Commit);
+        // The card says where it goes and what it sends, and a change to
+        // either is a different step (audit S9).
+        form.form_action = "https://pay.example/charge?x=1".into();
+        form.form_fields = "amount=500, to=alice".into();
+        let g = classify(&a, page, Some(&form));
+        assert!(
+            g.preview.contains("pay.example/charge") && g.preview.contains("amount=500"),
+            "{}",
+            g.preview
+        );
+        let mut swapped = form.clone();
+        swapped.form_fields = "amount=5000, to=mallory".into();
+        assert_ne!(
+            classify(&a, page, Some(&swapped)).fingerprint,
+            g.fingerprint
+        );
 
         let mut link = t.clone();
         link.tag = "a".into();
@@ -708,9 +837,29 @@ mod tests {
         assert_eq!(classify(&a, page, Some(&tab)).kind, StepKind::Draft);
 
         // A word inside another isn't one: "Bookmarks" isn't "book".
-        let mut marks = t;
+        let mut marks = t.clone();
         marks.label = "Bookmarks".into();
+        marks.role = "tab".into();
         assert_eq!(classify(&a, page, Some(&marks)).kind, StepKind::Draft);
+        marks.role = String::new();
+        let g = classify(&a, page, Some(&marks));
+        assert!(!g.why.contains("book"), "{}", g.why);
+
+        // A button that isn't plainly harmless asks (audit S10): no name at
+        // all, or a word the commit list doesn't know.
+        for label in ["", "Revoke", "Empty trash", "Authorize"] {
+            let mut b = t.clone();
+            b.label = label.into();
+            assert_eq!(
+                classify(&a, page, Some(&b)).kind,
+                StepKind::Commit,
+                "{label:?}"
+            );
+        }
+        let mut disclosure = t;
+        disclosure.label = "Shipping options".into();
+        disclosure.state = "expanded=false".into();
+        assert_eq!(classify(&a, page, Some(&disclosure)).kind, StepKind::Draft);
     }
 
     #[test]

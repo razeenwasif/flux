@@ -156,9 +156,10 @@ fn validate_reported_url(actual: &tauri::Url, reported: &str) -> Result<(), Stri
         || actual.host_str() != rep.host_str()
         || actual.port() != rep.port()
     {
-        return Err(format!(
-            "reported URL does not match webview origin (actual: {actual}, reported: {reported})"
-        ));
+        // Not the actual URL: a frame calling as its tab would learn the
+        // top page's address from the error (audit S24).
+        tracing::debug!(target: "flux::dom", %actual, reported, "reported URL doesn't match the page");
+        return Err("reported URL does not match the page's origin".into());
     }
     Ok(())
 }
@@ -176,12 +177,14 @@ pub fn dom_publish(
 ) -> Result<(), String> {
     let caller = caller_tab(&webview)?;
     if caller != tab_id {
-        return Err(format!("tab_id mismatch: caller is {caller}, reported {tab_id}"));
+        return Err("that isn't this tab".to_string());
     }
     if url.len() > MAX_SNAPSHOT_URL {
         return Err("reported URL too long".into());
     }
-    let actual_url = webview.url().map_err(|e| e.to_string())?;
+    // The committed document, not a pending navigation's target (audit S8):
+    // a page must not publish a snapshot under the next site's URL.
+    let actual_url = crate::committed::url_of(&webview)?;
     validate_reported_url(&actual_url, &url)?;
     let (tab_title, private, ws_id) = {
         let tab = state.tabs.get(&tab_id).ok_or("unknown tab")?;
@@ -305,6 +308,24 @@ pub fn dom_publish_internal(
     Ok(())
 }
 
+/// Whether a page may forward this command (audit S35). Not the microphone:
+/// "Ask out loud" is a system-wide hotkey (hud.rs), so the key never needs a
+/// page to pass it on, and a page calling this with no keypress would start
+/// listening. On macOS the menu bar takes ⌘ chords before the page sees them,
+/// so these never need forwarding there either, and a page could otherwise
+/// bookmark itself, add itself to Omni (and every later answer) or open the
+/// inspector without a key being pressed.
+fn page_forwardable(action: &str) -> bool {
+    if action == crate::hud::COMMAND {
+        return false;
+    }
+    #[cfg(target_os = "macos")]
+    if matches!(action, "bookmark-page" | "save-to-omni" | "devtools") {
+        return false;
+    }
+    true
+}
+
 /// App keyboard shortcuts forwarded from a focused tab webview (#18). A native
 /// child webview eats key events when focused, so the injected `shortcuts.js`
 /// detects Flux's chord set and calls this; we re-emit it to the chrome, which
@@ -318,6 +339,9 @@ pub fn dom_publish_internal(
 /// could otherwise close tab after tab).
 #[tauri::command]
 pub fn chrome_key(app: AppHandle, webview: tauri::Webview, action: String) -> Result<(), String> {
+    if !page_forwardable(&action) {
+        return Err("not a shortcut a page forwards".into());
+    }
     let bound = app
         .try_state::<crate::keys::KeyStore>()
         .is_some_and(|k| k.is_bound(&action));
@@ -336,12 +360,56 @@ pub fn chrome_key(app: AppHandle, webview: tauri::Webview, action: String) -> Re
 /// the page asks the chrome to open a real Flux tab. `background` keeps focus on
 /// the current tab (middle-click / Ctrl-click). Like `chrome_key`, this is a
 /// `fluxtab` plugin command so remote pages may call it.
+///
+/// A page can call it directly, with no click, so (audit S1):
+/// - only a tab or a web panel may ask;
+/// - the opener's tab id travels with the event, so the chrome opens the child
+///   as private, Tor or in a container when the opener is (a Tor page could
+///   otherwise open a clearnet tab from the real address);
+/// - each caller gets at most `OPEN_BURST` new tabs per `OPEN_WINDOW_MS` (a real
+///   user never opens tabs that fast; a page looping on this used to).
 #[tauri::command]
-pub fn chrome_open_url(app: AppHandle, url: String, background: bool) -> Result<(), String> {
+pub fn chrome_open_url(
+    app: AppHandle,
+    webview: tauri::Webview,
+    url: String,
+    background: bool,
+) -> Result<(), String> {
+    let label = webview.label();
+    let opener = label
+        .strip_prefix("tab-")
+        .and_then(|s| s.parse::<crate::state::TabId>().ok());
+    if opener.is_none() && !label.starts_with("panel-") {
+        return Err("only a page can open a tab".into());
+    }
     // `newtab.js` only forwards web URLs, but a page can call this directly.
     let url = page_openable_url(&url)?;
-    app.emit("flux://open-url", (url, background))
+    if !claim_open(&OPEN_CLAIMS, label, now_ms()) {
+        return Err("too many new tabs at once".into());
+    }
+    app.emit("flux://open-url", (url, background, opener))
         .map_err(|e| e.to_string())
+}
+
+const OPEN_BURST: u32 = 6;
+const OPEN_WINDOW_MS: u64 = 10_000;
+/// Per caller label: when its current window started and how many tabs it has
+/// opened in it.
+static OPEN_CLAIMS: std::sync::LazyLock<dashmap::DashMap<String, (u64, u32)>> =
+    std::sync::LazyLock::new(dashmap::DashMap::new);
+
+/// One more new tab for `label` at `now` (ms), unless it has had its burst in
+/// the current window.
+fn claim_open(claims: &dashmap::DashMap<String, (u64, u32)>, label: &str, now: u64) -> bool {
+    let mut e = claims.entry(label.to_string()).or_insert((now, 0));
+    if now.saturating_sub(e.0) >= OPEN_WINDOW_MS {
+        *e = (now, 0);
+    }
+    if e.1 >= OPEN_BURST {
+        return false;
+    }
+    e.1 += 1;
+    true
 }
 
 /// A URL a page may have the chrome open as a tab: http(s) only (never `file:`,
@@ -383,9 +451,7 @@ pub fn find_result(
     // Like `dom_publish`, a page reports for its own tab only.
     let caller = caller_tab(&webview)?;
     if caller != tab_id {
-        return Err(format!(
-            "tab_id mismatch: caller is {caller}, reported {tab_id}"
-        ));
+        return Err("that isn't this tab".to_string());
     }
     app.emit("flux://find-result", (tab_id, count, found))
         .map_err(|e| e.to_string())
@@ -463,12 +529,63 @@ pub fn reader_publish(
     // or peek can call this, and the chrome opens its overlay on the result.
     let caller = caller_tab(&webview)?;
     if caller != tab_id {
-        return Err(format!(
-            "tab_id mismatch: caller is {caller}, reported {tab_id}"
-        ));
+        return Err("that isn't this tab".to_string());
     }
+    // Only an answer Flux asked for (audit S4): a page could otherwise post a
+    // "reader result" unasked, and the chrome would open its overlay on it.
+    if !take_reader_request(&READER_ASKED, tab_id, now_ms()) {
+        return Err("no reader view was asked for".into());
+    }
+    let (private, tor) = app
+        .try_state::<FluxState>()
+        .and_then(|s| s.tabs.get(&tab_id).map(|t| (t.private, t.tor)))
+        .unwrap_or((false, false));
+    let blocks = clean_reader_blocks(blocks, private || tor);
+    let title: String = title.chars().take(300).collect();
     app.emit("flux://reader", (tab_id, title, blocks))
         .map_err(|e| e.to_string())
+}
+
+/// Tabs a reader view was asked of, and when (ms). One answer per ask.
+pub(crate) static READER_ASKED: std::sync::LazyLock<dashmap::DashMap<TabId, u64>> =
+    std::sync::LazyLock::new(dashmap::DashMap::new);
+const READER_ASK_TTL_MS: u64 = 30_000;
+
+/// Note that Flux asked `tab` for its reader view (webview_extract_reader).
+pub(crate) fn note_reader_request(tab: TabId) {
+    READER_ASKED.insert(tab, now_ms());
+}
+
+fn take_reader_request(asked: &dashmap::DashMap<TabId, u64>, tab: TabId, now: u64) -> bool {
+    asked
+        .remove(&tab)
+        .is_some_and(|(_, at)| now.saturating_sub(at) <= READER_ASK_TTL_MS)
+}
+
+const READER_MAX_BLOCKS: usize = 2_000;
+const READER_MAX_TEXT: usize = 20_000;
+
+/// Bound what a page hands the chrome, and keep remote images out of a private
+/// or Tor tab's reader: the chrome window would load them itself, from the real
+/// address and outside the tab's proxy (audit S4). Elsewhere only http(s)
+/// images, which the page had already loaded.
+fn clean_reader_blocks(blocks: Vec<ReaderBlock>, no_images: bool) -> Vec<ReaderBlock> {
+    blocks
+        .into_iter()
+        .filter(|b| {
+            b.kind != "img"
+                || (!no_images && (b.src.starts_with("https://") || b.src.starts_with("http://")))
+        })
+        .take(READER_MAX_BLOCKS)
+        .map(|mut b| {
+            if b.text.len() > READER_MAX_TEXT {
+                b.text = b.text.chars().take(READER_MAX_TEXT).collect();
+            }
+            b.src.truncate(2_048);
+            b.level = b.level.min(6);
+            b
+        })
+        .collect()
 }
 
 /// Per-tab captured-DOM payload size in bytes (BACKLOG #70) — html + text of the
@@ -531,6 +648,48 @@ pub(crate) fn dirs_download() -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn pages_cannot_forward_the_microphone() {
+        assert!(!page_forwardable("indexer-listen"));
+        assert!(page_forwardable("close-tab"));
+        #[cfg(target_os = "macos")]
+        assert!(!page_forwardable("save-to-omni"));
+    }
+
+
+    #[test]
+    fn reader_results_need_an_ask_and_lose_images_in_tor() {
+        let asked = dashmap::DashMap::new();
+        assert!(!super::take_reader_request(&asked, 7, 1_000), "unasked is refused");
+        asked.insert(7, 1_000);
+        assert!(super::take_reader_request(&asked, 7, 2_000));
+        assert!(!super::take_reader_request(&asked, 7, 2_100), "one answer per ask");
+        asked.insert(7, 1_000);
+        assert!(!super::take_reader_request(&asked, 7, 1_000 + super::READER_ASK_TTL_MS + 1), "stale");
+
+        let img = |src: &str| super::ReaderBlock { kind: "img".into(), text: String::new(), level: 0, src: src.into() };
+        let p = super::ReaderBlock { kind: "p".into(), text: "x".repeat(50_000), level: 9, src: String::new() };
+        let out = super::clean_reader_blocks(vec![img("https://a/x.png"), img("data:x"), p.clone()], false);
+        assert_eq!(out.len(), 2, "only http(s) images");
+        assert_eq!(out[1].text.len(), super::READER_MAX_TEXT);
+        assert_eq!(out[1].level, 6);
+        let tor = super::clean_reader_blocks(vec![img("https://a/x.png"), p], true);
+        assert!(tor.iter().all(|b| b.kind != "img"), "no images for a Tor tab");
+    }
+
+
+    #[test]
+    fn page_opened_tabs_are_rate_limited_per_caller() {
+        let claims = dashmap::DashMap::new();
+        for _ in 0..super::OPEN_BURST {
+            assert!(super::claim_open(&claims, "tab-1", 1_000));
+        }
+        assert!(!super::claim_open(&claims, "tab-1", 1_500), "a seventh at once is refused");
+        assert!(super::claim_open(&claims, "tab-2", 1_500), "another tab has its own budget");
+        assert!(super::claim_open(&claims, "tab-1", 1_000 + super::OPEN_WINDOW_MS), "the window resets");
+    }
+
     use super::*;
     use crate::state::{FluxState, TabKind, TabMeta};
 

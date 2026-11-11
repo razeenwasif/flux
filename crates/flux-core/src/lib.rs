@@ -19,6 +19,7 @@ pub mod cache;
 pub mod calendar;
 pub mod cli;
 pub mod commands;
+pub mod committed;
 pub mod cookies;
 #[cfg(feature = "crsync")]
 pub mod crsync;
@@ -217,11 +218,16 @@ fn init_tracing() {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&p)
-            .ok()
+        let mut open = std::fs::OpenOptions::new();
+        open.create(true).append(true);
+        // Readable by you alone: it names the sites you open (audit S22).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            open.mode(0o600);
+            let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
+        }
+        open.open(&p).ok()
     });
     match file {
         Some(f) => {
@@ -1282,7 +1288,6 @@ pub fn run(intent: cli::LaunchIntent) {
             dom::tab_dom_sizes,
             dom::terminal_env,
             agent::agent_status,
-            agent::agent_execute,
             agent::agent_plan,
             agent::agent_task_step,
             agent::agent_run_action,

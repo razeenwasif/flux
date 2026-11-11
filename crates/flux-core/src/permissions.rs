@@ -243,9 +243,156 @@ fn block_path(decisions: &std::path::Path) -> PathBuf {
 pub fn install(app: &AppHandle, webview: &Webview) {
     #[cfg(windows)]
     win::install(app.clone(), webview);
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    mac::install(app, webview);
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (app, webview);
+    }
+}
+
+/// macOS camera and microphone (audit S12). Wry's UI delegate answers every
+/// `requestMediaCapturePermissionForOrigin` with Grant, so once macOS had let
+/// Flux use the camera, any page, frame or peek got it with no prompt and a
+/// remembered Block did nothing. This replaces that one method, once, on
+/// wry's delegate class: the global block and remembered decisions apply;
+/// otherwise WebKit's own prompt asks (the Windows path shows Flux's bar);
+/// a Tor tab is always refused.
+#[cfg(target_os = "macos")]
+mod mac {
+    use super::*;
+    use objc::runtime::{self, Class, Imp, Object, Sel, NO};
+    use objc::{msg_send, sel, sel_impl};
+    use std::ffi::CStr;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::OnceLock;
+    use tauri::Manager;
+
+    static APP: OnceLock<AppHandle> = OnceLock::new();
+    static HOOKED: AtomicBool = AtomicBool::new(false);
+
+    type MediaFn =
+        extern "C" fn(&Object, Sel, *mut Object, *mut Object, *mut Object, isize, *mut Object);
+
+    // WKPermissionDecision
+    const PROMPT: isize = 0;
+    const GRANT: isize = 1;
+    const DENY: isize = 2;
+
+    pub fn install(app: &AppHandle, webview: &Webview) {
+        let _ = APP.set(app.clone());
+        let _ = webview.with_webview(|p| unsafe { hook(p.inner() as *mut Object) });
+    }
+
+    unsafe fn hook(wk: *mut Object) {
+        if wk.is_null() {
+            return;
+        }
+        let delegate: *mut Object = msg_send![wk, UIDelegate];
+        if delegate.is_null() {
+            return;
+        }
+        if !HOOKED.load(Ordering::Relaxed) {
+            let cls = runtime::object_getClass(delegate) as *mut Class;
+            let name = CStr::from_ptr(runtime::class_getName(cls)).to_string_lossy();
+            if !name.contains("UIDelegate") {
+                tracing::warn!(target: "flux::permissions", %name, "camera/mic left to the engine: unexpected UI delegate");
+                return;
+            }
+            let sel = sel!(webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:);
+            let imp = std::mem::transmute::<MediaFn, Imp>(media);
+            let m = runtime::class_getInstanceMethod(cls, sel) as *mut runtime::Method;
+            if m.is_null() {
+                runtime::class_addMethod(cls, sel, imp, c"v@:@@@q@?".as_ptr());
+            } else {
+                runtime::method_setImplementation(m, imp);
+            }
+            HOOKED.store(true, Ordering::Relaxed);
+            tracing::info!(target: "flux::permissions", "camera and microphone follow Flux's site decisions");
+        }
+        // WebKit notes which optional methods a delegate has when it is set.
+        let _: () = msg_send![wk, setUIDelegate: delegate];
+    }
+
+    /// A Tor tab: its WebRTC is switched off in the engine (tor::disable_webrtc).
+    unsafe fn is_tor(wk: *mut Object) -> bool {
+        let config: *mut Object = msg_send![wk, configuration];
+        if config.is_null() {
+            return false;
+        }
+        let prefs: *mut Object = msg_send![config, preferences];
+        if prefs.is_null() {
+            return false;
+        }
+        let can: runtime::BOOL = msg_send![prefs, respondsToSelector: sel!(_peerConnectionEnabled)];
+        if can == NO {
+            return false;
+        }
+        let on: runtime::BOOL = msg_send![prefs, _peerConnectionEnabled];
+        on == NO
+    }
+
+    unsafe fn ns_string(s: *mut Object) -> String {
+        if s.is_null() {
+            return String::new();
+        }
+        let p: *const std::os::raw::c_char = msg_send![s, UTF8String];
+        if p.is_null() {
+            String::new()
+        } else {
+            CStr::from_ptr(p).to_string_lossy().into_owned()
+        }
+    }
+
+    extern "C" fn media(
+        _this: &Object,
+        _cmd: Sel,
+        webview: *mut Object,
+        origin: *mut Object,
+        _frame: *mut Object,
+        capture: isize,
+        handler: *mut Object,
+    ) {
+        unsafe {
+            if handler.is_null() {
+                return;
+            }
+            let decide = &*(handler as *const block::Block<(isize,), ()>);
+            if !webview.is_null() && is_tor(webview) {
+                decide.call((DENY,));
+                return;
+            }
+            let host = if origin.is_null() {
+                String::new()
+            } else {
+                ns_string(msg_send![origin, host]).to_ascii_lowercase()
+            };
+            let Some(state) = APP.get().and_then(|a| a.try_state::<PermState>()) else {
+                decide.call((PROMPT,));
+                return;
+            };
+            // WKMediaCaptureType: camera, microphone, both.
+            let kinds: &[PermKind] = match capture {
+                0 => &[PermKind::Camera],
+                1 => &[PermKind::Microphone],
+                _ => &[PermKind::Camera, PermKind::Microphone],
+            };
+            let decisions: Vec<Effective> =
+                kinds.iter().map(|k| state.effective(&host, *k)).collect();
+            let answer = decision(&decisions);
+            decide.call((answer,));
+        }
+    }
+
+    /// Any Deny refuses; all Allow grants; otherwise WebKit asks.
+    pub(super) fn decision(each: &[Effective]) -> isize {
+        if each.contains(&Effective::Deny) {
+            DENY
+        } else if !each.is_empty() && each.iter().all(|e| *e == Effective::Allow) {
+            GRANT
+        } else {
+            PROMPT
+        }
     }
 }
 
@@ -464,6 +611,20 @@ mod win {
 
 #[cfg(test)]
 mod tests {
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_media_answers_follow_the_decisions() {
+        use Effective::*;
+        assert_eq!(super::mac::decision(&[Allow]), 1);
+        assert_eq!(super::mac::decision(&[Prompt]), 0);
+        // Camera and microphone together: one refusal refuses both, and
+        // both must be allowed to skip the prompt.
+        assert_eq!(super::mac::decision(&[Allow, Deny]), 2);
+        assert_eq!(super::mac::decision(&[Allow, Prompt]), 0);
+        assert_eq!(super::mac::decision(&[]), 0);
+    }
+
     use super::*;
 
     #[test]

@@ -586,68 +586,6 @@ fn omni_search_blocking(
     hits
 }
 
-/// Natural language → planned DOM action → JS injected into the active tab's
-/// webview. Async so a 12B model's planning latency never blocks the IPC pool.
-#[tauri::command]
-pub async fn agent_execute(
-    app: AppHandle,
-    state: State<'_, FluxState>,
-    prompt: String,
-) -> Result<flux_agent::AgentAction, String> {
-    let snap = state
-        .active_snapshot()
-        .ok_or("no page context — open a tab first")?;
-    let tab = snap.tab;
-
-    // 1. Flip to Thinking — frontend swaps the sidebar to the kinetic gradient.
-    *state.agent.write() = AgentStatus::Thinking {
-        prompt: prompt.clone(),
-    };
-    let _ = app.emit("flux://agent-status", state.agent.read().clone());
-
-    // 2. Plan on a blocking thread: inference is CPU/GPU-bound and must not
-    //    starve the async runtime. `Arc<str>` clone = pointer copy, not text.
-    //    The page URL rides along so a domain playbook can guide the model.
-    // Banking, password-manager, health and tax sites: not even a plan.
-    if let Some(kind) = flux_agent::steps::sensitive_site(&snap.url) {
-        return Ok(flux_agent::AgentAction::Refuse {
-            reason: format!("Flux's agent doesn't act on {kind} sites."),
-        });
-    }
-    let page_text = Arc::clone(&snap.text);
-    let url = snap.url.clone();
-    let action = tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().plan(&prompt, &*page_text, &url)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| {
-        *state.agent.write() = AgentStatus::Error {
-            message: e.to_string(),
-        };
-        let _ = app.emit("flux://agent-status", state.agent.read().clone());
-        e.to_string()
-    })?;
-
-    // 3. Compile to JS and inject into the tab's webview. The compiled script
-    //    first paints the magenta highlight, then performs the action.
-    *state.agent.write() = AgentStatus::Acting {
-        description: action.describe(),
-        selector: action.selector().unwrap_or_default().to_owned(),
-    };
-    let _ = app.emit("flux://agent-status", state.agent.read().clone());
-
-    let js = action.to_js();
-    let webview = app
-        .get_webview(&format!("tab-{tab}"))
-        .ok_or_else(|| format!("webview tab-{tab} not found"))?;
-    webview.eval(&js).map_err(|e| e.to_string())?;
-
-    *state.agent.write() = AgentStatus::Idle;
-    let _ = app.emit("flux://agent-status", state.agent.read().clone());
-    Ok(action)
-}
-
 /// Plan a page action WITHOUT executing it (BACKLOG #8): the frontend previews
 /// the proposed action and asks the user to approve before anything touches the
 /// page. Returns the planned action; status returns to Idle (we're awaiting
@@ -730,6 +668,16 @@ pub async fn agent_task_step(
     Ok(steps)
 }
 
+/// The same page for an approved action: scheme, host, port, path (a trailing
+/// slash aside) and query. Only the fragment may differ.
+fn same_page(a: &tauri::Url, b: &tauri::Url) -> bool {
+    a.scheme() == b.scheme()
+        && a.host_str() == b.host_str()
+        && a.port_or_known_default() == b.port_or_known_default()
+        && a.path().trim_end_matches('/') == b.path().trim_end_matches('/')
+        && a.query().unwrap_or("") == b.query().unwrap_or("")
+}
+
 /// Execute a previously-planned action that the user approved (BACKLOG #8).
 /// Compiles it to JS (the script paints the magenta highlight, then acts) and
 /// injects it into the target tab's webview.
@@ -750,27 +698,21 @@ pub async fn agent_run_action(
         .get_webview(&format!("tab-{tab}"))
         .ok_or_else(|| format!("webview tab-{tab} not found"))?;
 
+    // The document actually running (audit S8), and an error rather than a
+    // pass when it can't be read.
+    let current_url = crate::committed::url_of(&webview)?;
     if let Some(expected) = expected_url.as_deref().filter(|s| !s.trim().is_empty()) {
-        let current_url = webview.url().map_err(|e| e.to_string())?;
-        if let Ok(expected_u) = tauri::Url::parse(expected) {
-            if current_url.scheme() != expected_u.scheme()
-                || current_url.host_str() != expected_u.host_str()
-                || current_url.port() != expected_u.port()
-                || current_url.path().trim_end_matches('/') != expected_u.path().trim_end_matches('/')
-            {
-                return Err(format!(
-                    "action rejected: target tab navigated from {expected} to {current_url}"
-                ));
-            }
+        // A URL that doesn't parse is a refusal, not a skipped check, and the
+        // query counts (audit S42): `?account=other` is another page.
+        let expected_u = tauri::Url::parse(expected)
+            .map_err(|_| "action rejected: the page it was planned on can't be checked".to_string())?;
+        if !same_page(&current_url, &expected_u) {
+            return Err("action rejected: the tab has moved on from the page it was planned on".into());
         }
     }
 
     // The same rule where it counts, whatever planned the action.
-    if let Some(kind) = webview
-        .url()
-        .ok()
-        .and_then(|u| flux_agent::steps::sensitive_site(u.as_str()))
-    {
+    if let Some(kind) = flux_agent::steps::sensitive_site(current_url.as_str()) {
         return Err(format!("Flux's agent doesn't act on {kind} sites"));
     }
 
@@ -837,7 +779,7 @@ static TREE_VERSION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64
 /// can't look (no isolated world off macOS), or there's nothing on the page.
 async fn page_tree(app: &AppHandle, tab: TabId) -> Option<flux_agent::axtree::AxTree> {
     let ver = TREE_VERSION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let body = TREE_JS.replace("__VER__", &ver.to_string());
+    let body = crate::pagejs::fill(TREE_JS, "__VER__", &ver.to_string());
     let seen = crate::pagejs::run_isolated(
         app,
         tab,
@@ -914,7 +856,12 @@ async fn page_facts(
     selector: Option<&str>,
 ) -> flux_agent::steps::PageFacts {
     let args = serde_json::json!({ "selector": selector }).to_string();
-    let body = PROBE_JS.replace("__ARGS__", &args);
+    // The same naming function as the click guard (audit S10).
+    let body = format!(
+        "{}\n{}",
+        flux_agent::compile::NAMES_JS,
+        crate::pagejs::fill(PROBE_JS, "__ARGS__", &args)
+    );
     let seen = crate::pagejs::run_isolated(
         app,
         tab,
@@ -994,7 +941,16 @@ pub async fn agent_verify_step(
 
 #[cfg(test)]
 mod tests {
-    use super::snippet;
+
+    #[test]
+    fn an_approved_action_needs_the_same_page_query_and_all() {
+        let u = |s: &str| s.parse::<tauri::Url>().unwrap();
+        assert!(same_page(&u("https://a.example/x/?q=1#top"), &u("https://a.example/x?q=1")));
+        assert!(!same_page(&u("https://a.example/x?account=me"), &u("https://a.example/x?account=other")));
+        assert!(!same_page(&u("https://a.example/x"), &u("https://a.example:8443/x")));
+    }
+
+    use super::{same_page, snippet};
     use crate::state::{DomSnapshot, FluxState, TabId, TabKind, TabMeta};
     use std::sync::Arc;
 

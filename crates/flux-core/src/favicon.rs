@@ -172,6 +172,23 @@ fn icon_agent(builder: ureq::AgentBuilder, proxied: bool, host: &str) -> ureq::A
         .build()
 }
 
+/// An agent for one fetch of `url` (a feed, calendar, watched page or PDF):
+/// it may reach `url`'s own host wherever that resolves, a feed on the LAN
+/// being the user's choice, but every other host, a redirect's included, only
+/// at a public address (audit S15/S30). The scheme was checked on the first
+/// URL alone, so a public feed could redirect the fetch to the router.
+pub(crate) fn redirect_guarded(builder: ureq::AgentBuilder, url: &str) -> ureq::Agent {
+    match url
+        .parse::<tauri::Url>()
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+    {
+        Some(host) => icon_agent(builder, false, &host),
+        // Unparsable: the request fails on its own; nothing to resolve.
+        None => builder.build(),
+    }
+}
+
 /// The browsed host's addresses, as resolved once. A genuine intranet host
 /// resolves only inward; one that mixes public and inward answers keeps only
 /// the public ones, or a crafted answer could put a loopback address beside
@@ -204,7 +221,7 @@ fn icon_addrs(netloc: &str, host: &str, pinned: &[IpAddr]) -> std::io::Result<Ve
     if addrs.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
-            "icon host has no public address",
+            "that host has no public address",
         ));
     }
     Ok(addrs)

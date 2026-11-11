@@ -109,6 +109,7 @@ import {
   type AgentStatus,
   type StepGuard,
   type BoostDraft,
+  typedText,
 } from "./ipc";
 import { agentPageAnswer, boostDraft } from "./citeIpc";
 import type { Cited } from "./CitedAnswer";
@@ -168,7 +169,7 @@ import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
 
 type FeedItem = {
-  role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell" | "edit" | "note";
+  role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell" | "edit" | "note" | "ask";
   text: string;
   action?: AgentAction;
   /** A proposed write into your notes, awaiting confirmation (#108). */
@@ -204,7 +205,9 @@ const AgentPanel: Component = () => {
   // Saved chat sessions (#sessions). Each conversation persists to localStorage so
   // you can start a New chat and reopen earlier ones. `currentId` is the session the
   // live feed belongs to (assigned on the first message).
-  type ChatSession = { id: string; title: string; ts: number; feed: FeedItem[] };
+  // `offRecord`: the chat ran while a private or Tor tab was active, so it is
+  // kept for this run only and never written to localStorage (audit S23).
+  type ChatSession = { id: string; title: string; ts: number; feed: FeedItem[]; offRecord?: boolean };
   const CHATS_KEY = "flux.chats";
   const loadChats = (): ChatSession[] => {
     try {
@@ -216,6 +219,7 @@ const AgentPanel: Component = () => {
   const [chats, setChats] = createSignal<ChatSession[]>(loadChats());
   const [chatsMenu, setChatsMenu] = createSignal(false);
   let currentId = "";
+  let currentOffRecord = false;
   let seq = 0;
   const titleOf = (f: FeedItem[]) =>
     (f.find((it) => it.role === "user")?.text || "New chat").trim().slice(0, 44);
@@ -235,7 +239,10 @@ const AgentPanel: Component = () => {
     setChats(next);
     // Every session, not just the current one: chats loaded from an earlier
     // oversized save still carry their payloads.
-    let keep = next.slice(0, 50).map((s) => ({ ...s, feed: s.feed.map(slim) }));
+    let keep = next
+      .slice(0, 50)
+      .filter((s) => !s.offRecord)
+      .map((s) => ({ ...s, feed: s.feed.map(slim) }));
     // On quota, shed the oldest chats instead of silently saving nothing.
     for (;;) {
       try {
@@ -258,12 +265,14 @@ const AgentPanel: Component = () => {
       title: titleOf(f),
       ts: Date.now(),
       feed: f.map(slim),
+      offRecord: currentOffRecord || undefined,
     };
     persistChats([session, ...chats().filter((s) => s.id !== currentId)].slice(0, 50));
   };
   const newChat = () => {
     if (working() || taskRunning()) return;
     currentId = ""; // the current conversation is already saved under its id
+    currentOffRecord = false;
     setFeed([]);
     setFeedEpoch((n) => n + 1);
     setChatsMenu(false);
@@ -275,6 +284,7 @@ const AgentPanel: Component = () => {
   const loadSession = (s: ChatSession) => {
     if (feedLocked()) return;
     currentId = s.id;
+    currentOffRecord = !!s.offRecord;
     setFeed(s.feed.map((it) => ({ ...it })));
     setFeedEpoch((n) => n + 1);
     setChatsMenu(false);
@@ -285,6 +295,7 @@ const AgentPanel: Component = () => {
     persistChats(chats().filter((s) => s.id !== id));
     if (currentId === id) {
       currentId = "";
+      currentOffRecord = false;
       setFeed([]);
       setFeedEpoch((n) => n + 1);
     }
@@ -303,6 +314,11 @@ const AgentPanel: Component = () => {
   let persistTimer: number | undefined;
   createEffect(() => {
     const f = feed();
+    // Flag the chat when it runs in a private or Tor tab; the flag sticks for
+    // the rest of the conversation. Read now, not in the timer: the active
+    // tab may have changed by then.
+    const t = f.length ? untrack(() => tabs().find((x) => x.id === activeId())) : undefined;
+    if (t?.private || t?.tor) currentOffRecord = true;
     clearTimeout(persistTimer);
     persistTimer = window.setTimeout(() => persistCurrent(f), 400);
   });
@@ -940,7 +956,8 @@ const AgentPanel: Component = () => {
   const runMusic = async (raw: string): Promise<boolean> => (await handleMusic(raw)) !== null;
 
   // "run <cmd>" / "execute <cmd>" / "/run <cmd>" → propose a shell command. Nothing
-  // runs until you tap Run (rm + destructive commands are also blocked backend-side).
+  // runs until you tap Run. (The backend's typo guard also refuses `rm` and a few
+  // others as typed; it is no sandbox, so the card is what protects you.)
   const SHELL_RE = /^\/?(?:run|exec|execute|terminal|shell)\s+([\s\S]+)/i;
   const runShellCmd = async (cmd: string): Promise<string> => {
     const c = cmd.trim();
@@ -1030,11 +1047,12 @@ const AgentPanel: Component = () => {
     try {
       // Same denylist as the headless run — we're typing straight into the PTY,
       // which bypasses run_shell's guard, so check it ourselves first.
+      // Fails closed: if the guard can't be asked, nothing is typed (audit S13).
       let block: string | null = null;
       try {
         block = await shellGuard(cmd);
-      } catch {
-        block = null;
+      } catch (e) {
+        block = `Couldn't check the command (${String(e)}), so it wasn't run.`;
       }
       if (block) {
         setFeed((f) => [...f, { role: "error", text: block! }]);
@@ -2733,7 +2751,10 @@ const AgentPanel: Component = () => {
   // and surface the result (e.g. terminal output) so the loop can react to it.
   const awaitChainApproval = async (): Promise<StepOutcome> => {
     const last = feed()[feed().length - 1];
-    if (last?.pending && (last.role === "edit" || last.role === "shell" || last.role === "note")) {
+    if (
+      last?.pending &&
+      (last.role === "edit" || last.role === "shell" || last.role === "note" || last.role === "ask")
+    ) {
       chainGateIdx = feed().length - 1;
       return await new Promise<StepOutcome>((res) => {
         chainGate = res;
@@ -2742,10 +2763,29 @@ const AgentPanel: Component = () => {
     return { ok: true, result: last?.text ?? "" }; // nothing to approve (e.g. edit couldn't be drafted)
   };
 
+  /** Ask before a step the model chose that searches, remembers or sets a
+   *  reminder (audit S11): a search opens a tab whose URL can carry what the
+   *  loop has read, and a memory rides along in every later prompt. Callers
+   *  show the exact text through typedText. True when allowed. */
+  const askFirst = async (what: string): Promise<boolean> => {
+    setFeed((f) => [...f, { role: "ask", text: what, pending: true }]);
+    const r = await awaitChainApproval();
+    return r.ok && r.result === "allow";
+  };
+  const answerAsk = (idx: number, allow: boolean) => {
+    setFeed((f) =>
+      f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${allow ? "✓" : "✕"} ${it.text}` } : it)),
+    );
+    resolveChainGate(idx, true, allow ? "allow" : "skip");
+  };
+  const SKIPPED_BY_USER = "The user skipped that step; it didn't run.";
+
   // Route one step to the matching tool and return its outcome — `ok:false` aborts a
   // chain (user cancelled); `result` (output / reply / status) feeds the adaptive
   // loop's re-planning. Mirrors send()'s tool order, minus page actions.
-  const routeChainStep = async (raw: string): Promise<StepOutcome> => {
+  // `fromModel`: the model picked this step (the /fix loop, a model-split chain),
+  // so steps that act without a card of their own ask first.
+  const routeChainStep = async (raw: string, fromModel = false): Promise<StepOutcome> => {
     const pc = raw
       .trim()
       .replace(/^\/?(?:hey\s+)?gemma[,:\s]+/i, "")
@@ -2760,7 +2800,11 @@ const AgentPanel: Component = () => {
     }
     if (await runMusic(raw)) return { ok: true, result: "music command done" };
     const search = pc.match(SEARCH_RE);
-    if (search?.[1]) return { ok: true, result: await runSearch(search[1]) };
+    if (search?.[1]) {
+      if (fromModel && !(await askFirst(`Search the web for ${typedText(search[1])}?`)))
+        return { ok: true, result: SKIPPED_BY_USER };
+      return { ok: true, result: await runSearch(search[1]) };
+    }
     {
       const me = pc.match(EDIT_RE);
       if (me?.[1] && me[2]) {
@@ -2816,9 +2860,17 @@ const AgentPanel: Component = () => {
       return await awaitChainApproval();
     }
     const rem = pc.match(REMEMBER_RE);
-    if (rem?.[1]) return { ok: true, result: await runRemember(rem[1]) };
+    if (rem?.[1]) {
+      if (fromModel && !(await askFirst(`Remember ${typedText(rem[1])} for later chats?`)))
+        return { ok: true, result: SKIPPED_BY_USER };
+      return { ok: true, result: await runRemember(rem[1]) };
+    }
     const rmd = pc.match(REMIND_RE);
-    if (rmd?.[1]) return { ok: true, result: await runRemind(rmd[1]) };
+    if (rmd?.[1]) {
+      if (fromModel && !(await askFirst(`Set a reminder: ${typedText(rmd[1])}?`)))
+        return { ok: true, result: SKIPPED_BY_USER };
+      return { ok: true, result: await runRemind(rmd[1]) };
+    }
     if (SYS_RE.test(pc)) return { ok: true, result: await runSysStats() };
     const sp = await maybeShellPlan(raw);
     if (sp !== null) return await awaitChainApproval();
@@ -2841,14 +2893,14 @@ const AgentPanel: Component = () => {
     return { ok: true, result: acc.trim() };
   };
 
-  const runChain = async (steps: string[], goal: string): Promise<void> => {
+  const runChain = async (steps: string[], goal: string, fromModel = false): Promise<void> => {
     if (taskRunning()) return;
     setTaskRunning(true);
     setFeed((f) => [...f, { role: "task", text: `▶ ${steps.length} steps: ${steps.join(" → ")}` }]);
     try {
       for (let i = 0; i < steps.length; i++) {
         setFeed((f) => [...f, { role: "plan", text: `→ step ${i + 1}/${steps.length}: ${steps[i]}` }]);
-        const { ok } = await routeChainStep(steps[i]!);
+        const { ok } = await routeChainStep(steps[i]!, fromModel);
         if (!ok) {
           setFeed((f) => [...f, { role: "task", text: "⏹ Chain stopped (step cancelled)." }]);
           return;
@@ -2978,7 +3030,7 @@ const AgentPanel: Component = () => {
             { role: "plan", text: `↻ step ${i + 1}: already ran “${command}” — skipping the repeat` },
           ]);
           history.push(
-            `STEP: ${command}\nRESULT: SKIPPED — you already ran this exact command earlier and its ` +
+            `STEP: ${command}\nFLUX: SKIPPED — you already ran this exact command earlier and its ` +
               `result is above. Do not issue it again. Move on to the next part of the goal, or set done=true.`,
           );
           // Twice is a hiccup; three times is a loop it isn't getting out of.
@@ -2996,7 +3048,7 @@ const AgentPanel: Component = () => {
         }
 
         setFeed((f) => [...f, { role: "plan", text: `→ step ${i + 1}: ${command}` }]);
-        const { ok, result } = await routeChainStep(command);
+        const { ok, result } = await routeChainStep(command, true);
         if (!ok) {
           setFeed((f) => [...f, { role: "task", text: "⏹ Stopped (step cancelled)." }]);
           return;
@@ -3030,7 +3082,9 @@ const AgentPanel: Component = () => {
     // swallowed whole by the search regex). Only ask the model when the literal
     // split doesn't yield a clean multi-step request.
     let steps = splitOnConnectors(text);
+    let planned = false;
     if (steps.length < 2 || !isActionStep(steps[0]!)) {
+      planned = true;
       const wasBusy = busy();
       setBusy(true);
       try {
@@ -3044,7 +3098,7 @@ const AgentPanel: Component = () => {
       }
     }
     if (steps.length < 2 || !isActionStep(steps[0]!)) return false;
-    await runChain(steps, text);
+    await runChain(steps, text, planned);
     return true;
   };
 
@@ -3386,6 +3440,16 @@ const AgentPanel: Component = () => {
                           </button>
                         </div>
                       </Show>
+                      <Show when={item().role === "ask" && item().pending}>
+                        <div class="agent-approve">
+                          <button class="agent-approve-yes" onClick={() => answerAsk(i, true)}>
+                            ✓ Allow
+                          </button>
+                          <button class="agent-approve-no" onClick={() => answerAsk(i, false)}>
+                            Skip
+                          </button>
+                        </div>
+                      </Show>
                       <Show when={item().role === "shell" && item().pending && item().shellCmd}>
                         <div class="agent-approve">
                           <button
@@ -3685,17 +3749,20 @@ const AgentPanel: Component = () => {
   );
 };
 
+/** The /act preview, before you approve it: what it will do, in the future
+ *  tense, with the exact text a type step will enter (audit S9). Approving
+ *  prefixes it with ✓. */
 function describeAction(a: AgentAction, label?: string): string {
   const target = (selector: string) => (label ? `“${label}”` : selector);
   switch (a.action) {
     case "click":
-      return `✓ clicked ${target(a.selector)} (${a.reason})`;
+      return `Click ${target(a.selector)} (${a.reason})`;
     case "extract_table":
-      return `✓ extracted ${target(a.selector)} → ${a.format}`;
+      return `Extract ${target(a.selector)} → ${a.format}`;
     case "type":
-      return `✓ typed into ${target(a.selector)}`;
+      return `Type ${typedText(a.text)} into ${target(a.selector)}`;
     case "reveal":
-      return `✓ revealed ${target(a.selector)}`;
+      return `Reveal ${target(a.selector)}`;
     case "refuse":
       return `— ${a.reason}`;
     case "finish":

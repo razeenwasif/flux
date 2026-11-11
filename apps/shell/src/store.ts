@@ -508,23 +508,43 @@ const loadZoom = (): Record<string, number> => {
   }
 };
 const [zoomMap, setZoomMap] = createSignal<Record<string, number>>(loadZoom());
-export const zoomFor = (host: string | null): number => (host ? (zoomMap()[host] ?? 1) : 1);
-function setZoomFor(host: string, factor: number): void {
-  setZoomMap((m) => {
+// Zoom set in a private or Tor tab: kept for this run only and read only by
+// those tabs, so the host never reaches localStorage (audit S23).
+const [offRecordZoom, setOffRecordZoom] = createSignal<Record<string, number>>({});
+export const zoomFor = (host: string | null, offRecord = false): number => {
+  if (!host) return 1;
+  if (offRecord) {
+    const z = offRecordZoom()[host];
+    if (z != null) return z;
+  }
+  return zoomMap()[host] ?? 1;
+};
+function setZoomFor(host: string, factor: number, persist: boolean): void {
+  const apply = (m: Record<string, number>) => {
     const next = { ...m };
-    if (Math.abs(factor - 1) < 0.001) delete next[host];
+    // Off the record, 1 is stored too: it overrides a saved zoom for this run.
+    if (persist && Math.abs(factor - 1) < 0.001) delete next[host];
     else next[host] = factor;
+    return next;
+  };
+  if (!persist) {
+    setOffRecordZoom(apply);
+    return;
+  }
+  setZoomMap((m) => {
+    const next = apply(m);
     localStorage.setItem("flux.zoom", JSON.stringify(next));
     return next;
   });
 }
-/** Step the zoom for `host` (in/out/reset), persist, and return the new factor. */
-export function nudgeZoom(host: string, dir: "in" | "out" | "reset"): number {
+/** Step the zoom for `host` (in/out/reset) and return the new factor. Saved
+ *  only when `persist` (false for private and Tor tabs). */
+export function nudgeZoom(host: string, dir: "in" | "out" | "reset", persist = true): number {
   if (dir === "reset") {
-    setZoomFor(host, 1);
+    setZoomFor(host, 1, persist);
     return 1;
   }
-  const cur = zoomFor(host);
+  const cur = zoomFor(host, !persist);
   let i = 0,
     best = Infinity;
   ZOOM_STEPS.forEach((s, idx) => {
@@ -536,7 +556,7 @@ export function nudgeZoom(host: string, dir: "in" | "out" | "reset"): number {
   });
   const ni = dir === "in" ? Math.min(ZOOM_STEPS.length - 1, i + 1) : Math.max(0, i - 1);
   const next = ZOOM_STEPS[ni]!;
-  setZoomFor(host, next);
+  setZoomFor(host, next, persist);
   return next;
 }
 
@@ -1396,6 +1416,16 @@ export async function openTab(
   return tab;
 }
 
+/** A tab a page or a peek opened: it takes its opener's private, Tor and
+ *  container mode, so a Tor or private page can't open a clearnet tab from the
+ *  real address (audit S1). */
+export async function openTabFrom(url: string, background: boolean, opener: number | null): Promise<void> {
+  const from = opener == null ? undefined : tabs().find((t) => t.id === opener);
+  const tab = await tabCreate("browser", url, from?.private, from?.container, background, from?.tor);
+  if (!background) setActiveId(tab.id);
+  await refreshTabs();
+}
+
 /** Open a Terminal tab that auto-runs `cmd` once its shell is up (TUI app launcher,
  *  #117). cwd seeds the terminal's working dir. The command is registered before
  *  the tab mounts, so TerminalView runs it right after the PTY spawns (no race). */
@@ -1489,7 +1519,10 @@ export async function closeTab(id: number): Promise<void> {
   const otherStart = all.some((t) => t.id !== id && t.url === START_URL);
   // Remember a closing browser tab so Ctrl+Shift+T can bring it back — covers both
   // a real close and the convert-last-tab-to-start branch below (the URL is lost then).
-  if (closing && closing.kind === "browser") pushClosedTab(closing.url, closing.title);
+  // Not a private or Tor tab: this stack is saved to disk and reopens tabs as
+  // ordinary ones, which would bring a Tor page back on the clearnet (audit S5).
+  if (closing && closing.kind === "browser" && !closing.private && !closing.tor)
+    pushClosedTab(closing.url, closing.title);
   if (closing && closing.kind === "browser" && closing.url !== START_URL && !otherStart) {
     untile(id); // drop this tab from the tiling if it's in it
     setTabLoading(id, false);
@@ -1738,6 +1771,10 @@ export function staleTabIds(now: number): number[] {
         // which is the opposite of stale.
         t.workspace === activeWorkspace() &&
         t.url !== START_URL &&
+        // Archiving writes the url to disk; private and Tor tabs stay off it
+        // (audit S23). They aren't in the access map either.
+        !t.private &&
+        !t.tor &&
         now - (accessMap[t.url] ?? now) > cutoff,
     )
     .map((t) => t.id);

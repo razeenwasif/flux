@@ -232,8 +232,17 @@ pub(crate) fn bookmarks_from_rows(rows: &[Row]) -> Vec<Bookmark> {
 pub(crate) fn moz_lz4(bytes: &[u8]) -> Option<Vec<u8>> {
     let body = bytes.strip_prefix(b"mozLz40\0")?;
     let size = u32::from_le_bytes(body.get(..4)?.try_into().ok()?) as usize;
+    // The header's size is the file's word, allocated up front (audit S46): a
+    // crafted 12-byte file asked for 4 GB. LZ4 expands at most ~255× and real
+    // session and bookmark backups stay well under the cap.
+    if size > MAX_LZ4_OUT || size > body.len().saturating_mul(255) {
+        return None;
+    }
     lz4_block(body.get(4..)?, size)
 }
+
+/// The largest backup Flux will decompress.
+const MAX_LZ4_OUT: usize = 256 * 1024 * 1024;
 
 /// Decode one raw LZ4 block of known output size.
 pub(crate) fn lz4_block(src: &[u8], out_len: usize) -> Option<Vec<u8>> {
@@ -371,6 +380,13 @@ pub fn read_bookmarks(profile_dir: &Path) -> Result<Vec<Bookmark>, ImportError> 
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_lying_size_header_allocates_nothing() {
+        // 12 bytes claiming 4 GB of output.
+        assert!(moz_lz4(b"mozLz40\0\xff\xff\xff\xff\x00\x00\x00\x00").is_none());
+    }
+
     use super::*;
 
     #[test]

@@ -397,7 +397,6 @@ export const chromeImportPreview = () => invoke<ChromeProfilePreview[]>("chrome_
 export const chromeImportBookmarks = (profileDir: string) =>
   invoke<ChromeBookmark[]>("chrome_import_bookmarks", { profileDir });
 export const terminalEnv = () => invoke<Record<string, string>>("terminal_env");
-export const agentExecute = (prompt: string) => invoke<AgentAction>("agent_execute", { prompt });
 /** Execute a user-approved planned action (#8, bound to originating tab and doc URL #2). */
 export const agentRunAction = (action: AgentAction, tab?: number, expectedUrl?: string) =>
   invoke<AgentAction>("agent_run_action", {
@@ -1512,8 +1511,13 @@ export const chromeFocus = () => invoke<void>("chrome_focus");
 /** Page-initiated new window (window.open / target="_blank" / modified click)
  *  forwarded from a tab webview → open it as a new Flux tab. `background` keeps
  *  focus on the current tab (middle-click / Ctrl-click). */
-export const onOpenUrl = (cb: (url: string, background: boolean) => void): Promise<UnlistenFn> =>
-  listen<[string, boolean]>("flux://open-url", (e) => cb(e.payload[0], e.payload[1]));
+/** A page (or a peek) asked for a new tab; `opener` is the tab it came from. */
+export const onOpenUrl = (
+  cb: (url: string, background: boolean, opener: number | null) => void,
+): Promise<UnlistenFn> =>
+  listen<[string, boolean, number | null | undefined]>("flux://open-url", (e) =>
+    cb(e.payload[0], e.payload[1], e.payload[2] ?? null),
+  );
 
 // ─── Navigation toggles (BACKLOG #51/#52) ────────────────────────────────────
 export const navStatus = () => invoke<[boolean, boolean]>("nav_status");
@@ -1811,3 +1815,14 @@ export const terminalKill = (session: number) => invoke<void>("terminal_kill", {
 /** Fires when a session's shell exits (EOF). */
 export const onTermExit = (cb: (session: number) => void): Promise<UnlistenFn> =>
   listen<number>("flux://term-exit", (e) => cb(e.payload));
+
+/** Text the agent will type, as you should read it before approving (audit
+ *  S9): quoted, capped, and with line breaks and control or direction
+ *  characters made visible, so what you see is all of what's typed. */
+export function typedText(text: string): string {
+  const shown = text.replace(
+    /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g,
+    (c) => (c === "\n" ? "⏎" : `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`),
+  );
+  return `“${shown.length > 200 ? `${shown.slice(0, 200)}…` : shown}”`;
+}

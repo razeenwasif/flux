@@ -442,7 +442,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     const t = activeTab();
     if (!t || t.kind !== "browser") return 1;
     try {
-      return zoomFor(new URL(t.url).hostname.replace(/^www\./, ""));
+      return zoomFor(new URL(t.url).hostname.replace(/^www\./, ""), !!(t.private || t.tor));
     } catch {
       return 1;
     }

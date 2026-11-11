@@ -4,9 +4,12 @@
 // split, which the startup budgets measure (scripts/perf-budget.mjs).
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
+import { katexWoff2Only } from "./vite.katex";
 
 export default defineConfig({
-  plugins: [solid()],
+  // The same woff2-only KaTeX fonts as the chrome (audit P16): the woff and
+  // ttf copies were 817 KB this build shipped and never read.
+  plugins: [solid(), katexWoff2Only()],
   build: {
     target: "esnext",
     minify: "esbuild",

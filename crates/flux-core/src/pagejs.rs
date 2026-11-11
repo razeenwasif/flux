@@ -10,6 +10,26 @@
 
 use std::time::Duration;
 
+/// Put `value` (JSON, from serde_json) in place of `placeholder` in one of
+/// Flux's page-script templates.
+///
+/// Exactly one occurrence is replaced, and the templates are pinned to hold
+/// exactly one, in code and never in a comment (`template_placeholders_once`):
+/// a second copy inside a `//` comment was how a selector became script (audit
+/// S7). serde_json leaves U+2028 and U+2029 raw, and JavaScript ends a comment
+/// line at either, so they're escaped too (`\u2028` is the same string in JSON).
+pub fn fill(template: &str, placeholder: &str, value: &str) -> String {
+    debug_assert_eq!(
+        template.matches(placeholder).count(),
+        1,
+        "{placeholder} must occur exactly once"
+    );
+    let value = value
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029");
+    template.replacen(placeholder, &value, 1)
+}
+
 use tauri::{AppHandle, Manager};
 
 use crate::state::TabId;
@@ -116,5 +136,68 @@ mod mac {
             inContentWorld: content_world
             completionHandler: &*block];
         let _: () = msg_send![source, release];
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fill;
+
+    /// Every template Rust fills in holds its placeholder exactly once, and
+    /// never inside a comment.
+    #[test]
+    fn template_placeholders_once() {
+        let templates: &[(&str, &str, &str)] = &[
+            (
+                "agent-probe.js",
+                include_str!("../assets/agent-probe.js"),
+                "__ARGS__",
+            ),
+            (
+                "agent-tree.js",
+                include_str!("../assets/agent-tree.js"),
+                "__VER__",
+            ),
+            (
+                "restyle.js",
+                include_str!("../assets/restyle.js"),
+                "__ARGS__",
+            ),
+            ("cite.js", include_str!("../assets/cite.js"), "__ARGS__"),
+            (
+                "fingerprint.js",
+                include_str!("../assets/fingerprint.js"),
+                "__FP_CONFIG__",
+            ),
+            (
+                "consent.js",
+                include_str!("../assets/consent.js"),
+                "__FLUX_REJECT_TERMS__",
+            ),
+        ];
+        for (name, js, ph) in templates {
+            assert_eq!(js.matches(ph).count(), 1, "{name}: {ph} must occur once");
+            for line in js.lines() {
+                let code = line.split("//").next().unwrap_or("");
+                if line.contains(ph) {
+                    assert!(code.contains(ph), "{name}: {ph} is in a comment: {line}");
+                }
+            }
+        }
+    }
+
+    /// A line or paragraph separator in a value can't end the line it lands on.
+    #[test]
+    fn fill_escapes_line_separators() {
+        let value = serde_json::json!({ "selector": "x\u{2028}alert(1);//" }).to_string();
+        let out = fill("const ARGS = __ARGS__;", "__ARGS__", &value);
+        assert!(!out.contains('\u{2028}') && !out.contains('\u{2029}'));
+        assert!(out.contains("\\u2028"));
+        let back: serde_json::Value = serde_json::from_str(
+            out.trim_start_matches("const ARGS = ")
+                .trim_end_matches(';'),
+        )
+        .unwrap();
+        assert_eq!(back["selector"], "x\u{2028}alert(1);//");
     }
 }

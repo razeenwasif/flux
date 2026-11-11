@@ -226,6 +226,7 @@ import {
   isLoading,
   memEvict,
   openTab,
+  openTabFrom,
   refreshTabs,
   setActiveWorkspace,
   zoomFor,
@@ -446,7 +447,8 @@ const App: Component = () => {
   // the active tab a new object, and each one rewrote the access map to storage.
   const activeBrowserUrl = createMemo(() => {
     const t = activeTab();
-    return t?.kind === "browser" ? t.url : null;
+    // Not for private or Tor tabs: the access map is saved to disk (audit S23).
+    return t?.kind === "browser" && !t.private && !t.tor ? t.url : null;
   });
   createEffect(
     on([activeId, activeBrowserUrl], ([, url]) => {
@@ -684,9 +686,13 @@ const App: Component = () => {
     );
     // Page-initiated new windows (window.open / target="_blank" / modified
     // click) → open as a Flux tab; background tabs don't steal focus.
+    // The child takes its opener's private/Tor/container mode, and a Tor tab's
+    // PDF stays a page (WebKit renders it through the tab's proxy) rather than
+    // going to the viewer, which the core fetches directly (audit S1, S3).
     holdListener(
-      onOpenUrl((url, background) => {
-        void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {});
+      onOpenUrl((url, background, opener) => {
+        const tor = opener != null && tabs().some((t) => t.id === opener && t.tor);
+        void openTabFrom(isPdfUrl(url) && !tor ? pdfViewerUrl(url) : url, background, opener).catch(() => {});
       }),
     );
     // Reader mode (#41): the injected extractor posts blocks back here. Only for
@@ -862,7 +868,8 @@ const App: Component = () => {
           // rect matches the last one sent, which is the case this is here for.
           if (paneLayout().some((p) => p.tab.id === tabId)) scheduleRelayout(tabId);
           // Re-apply this host's saved zoom (#36).
-          const z = zoomFor(hostOfUrl(url));
+          const zt = tabs().find((t) => t.id === tabId);
+          const z = zoomFor(hostOfUrl(url), !!(zt?.private || zt?.tor));
           if (z !== 1) void webviewZoom(tabId, z).catch(() => {});
           // Predictive prefetch (#103): learn this navigation transition, then
           // preconnect to the hosts the model expects you to visit next from here.
@@ -980,8 +987,9 @@ const App: Component = () => {
   // Start-page tabs have no webview yet, so the effect opens it once the url
   // becomes real; already-open tabs navigate in place.
   const go = (url: string) => {
-    // PDFs open in Flux's built-in viewer (#35) rather than the engine's.
-    if (isPdfUrl(url)) url = pdfViewerUrl(url);
+    // PDFs open in Flux's built-in viewer (#35) rather than the engine's, except
+    // in a Tor tab: the viewer's fetch goes direct (audit S3).
+    if (isPdfUrl(url) && !activeTab()?.tor) url = pdfViewerUrl(url);
     const tab = activeTab();
     if (tab?.kind !== "browser") {
       void openTab("browser", url);
@@ -1067,7 +1075,7 @@ const App: Component = () => {
     if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
     const host = hostOfUrl(t.url);
     if (!host) return;
-    const f = nudgeZoom(host, dir);
+    const f = nudgeZoom(host, dir, !t.private && !t.tor);
     void webviewZoom(t.id, f).catch(() => {});
   };
 
@@ -1430,16 +1438,31 @@ const App: Component = () => {
   // hidden or it paints through the launcher; a still of it goes into the card
   // first, so the launcher floats over the page rather than an empty card.
   const stilled = new Set<number>();
+  let launcherGen = 0;
   setLauncherOpener(async () => {
+    const gen = ++launcherGen;
+    // Its code loads while the stills are taken, not after them.
+    void import("./Launcher");
     const ids = paneLayout()
       .map((p) => p.tab.id)
       .filter((id) => openedWebviews.has(id));
-    const stills = await Promise.all(ids.map((id) => webviewSnapshot(id).catch(() => null)));
-    ids.forEach((id, i) => {
-      if (!stills[i]) return;
-      stilled.add(id);
-      setPageStill(id, stills[i]!);
-    });
+    let shown = false;
+    // A still that comes late is patched in, unless the launcher has closed
+    // (or opened again) since: then it would sit in the card for good.
+    const shots = ids.map((id) =>
+      webviewSnapshot(id)
+        .then((still) => {
+          if (!still || gen !== launcherGen || (shown && !launcherOpen())) return;
+          stilled.add(id);
+          setPageStill(id, still);
+        })
+        .catch(() => {}),
+    );
+    // Up to 80 ms for the stills (audit P4): a snapshot can take 400 ms per
+    // pane, and keys typed while the launcher waited went to the page.
+    await Promise.race([Promise.all(shots), new Promise((r) => setTimeout(r, 80))]);
+    if (gen !== launcherGen) return;
+    shown = true;
     setLauncherShown(true);
   });
   const closeLauncher = () => {

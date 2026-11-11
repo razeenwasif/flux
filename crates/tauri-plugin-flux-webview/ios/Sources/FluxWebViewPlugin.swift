@@ -30,6 +30,10 @@ struct OpenArgs: Decodable {
   let y: Double
   let width: Double
   let height: Double
+  /// A private tab: an in-memory store of its own (audit S34).
+  let ephemeral: Bool?
+  /// The tab's container, 0 for none: a separate persistent jar.
+  let container: Int?
 }
 
 struct BoundsArgs: Decodable {
@@ -378,10 +382,30 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
     StatusBar.set(light ? .darkContent : .lightContent, on: root)
   }
 
-  private func makeView(_ id: Int) -> WKWebView {
+  /// Containers on iOS 16, which has no identified persistent stores: kept
+  /// apart from the default and each other, but only for this run.
+  private var containerStores: [Int: WKWebsiteDataStore] = [:]
+
+  /// Where a tab keeps cookies and storage. A private tab gets an in-memory
+  /// store of its own, gone with the tab, like Safari's private tabs; a
+  /// container tab its own persistent jar; anything else the default.
+  private func dataStore(ephemeral: Bool, container: Int) -> WKWebsiteDataStore {
+    if ephemeral { return .nonPersistent() }
+    guard container > 0 else { return .default() }
+    if #available(iOS 17.0, *) {
+      let id = UUID(uuidString: String(format: "F1B0C0DE-0000-4000-8000-%012lX", container))!
+      return WKWebsiteDataStore(forIdentifier: id)
+    }
+    if let s = containerStores[container] { return s }
+    let s = WKWebsiteDataStore.nonPersistent()
+    containerStores[container] = s
+    return s
+  }
+
+  private func makeView(_ id: Int, ephemeral: Bool = false, container: Int = 0) -> WKWebView {
     let config = WKWebViewConfiguration()
     config.processPool = pool
-    config.websiteDataStore = .default()
+    config.websiteDataStore = dataStore(ephemeral: ephemeral, container: container)
     config.allowsInlineMediaPlayback = true
     config.allowsPictureInPictureMediaPlayback = true
     config.mediaTypesRequiringUserActionForPlayback = []
@@ -429,10 +453,28 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
     views.first(where: { $0.value === wv })?.key
   }
 
+  /// Each tab's committed URL (audit S17). `wv.url` moves to a navigation's
+  /// target as soon as it starts, while the old page is still the one showing,
+  /// so a page could start a load of bank.com on a port that hangs and the
+  /// pill would say bank.com over it. The pill shows the live URL only while
+  /// it is on the committed page's origin (pushState keeps its path).
+  private var committedURL: [Int: URL] = [:]
+
+  private func sameOrigin(_ a: URL, _ b: URL) -> Bool {
+    a.scheme?.lowercased() == b.scheme?.lowercased() && a.host?.lowercased() == b.host?.lowercased()
+      && a.port == b.port
+  }
+
+  private func shownURL(_ id: Int, _ wv: WKWebView) -> String {
+    guard let committed = committedURL[id] else { return "" }
+    if let live = wv.url, sameOrigin(live, committed) { return live.absoluteString }
+    return committed.absoluteString
+  }
+
   private func emitNav(_ id: Int, _ wv: WKWebView) {
     var data: JSObject = [:]
     data["id"] = id
-    data["url"] = wv.url?.absoluteString ?? ""
+    data["url"] = shownURL(id, wv)
     data["title"] = wv.title ?? ""
     data["canGoBack"] = wv.canGoBack
     data["canGoForward"] = wv.canGoForward
@@ -521,6 +563,7 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
 
   func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
     guard let id = idOf(webView) else { return }
+    if let u = webView.url { committedURL[id] = u }
     emitNav(id, webView)
     // A new page starts with the full bar.
     if scrollDown[id] == true {
@@ -561,9 +604,34 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
     if ["http", "https", "about", "blob", "data", "file"].contains(scheme) {
       return decisionHandler(.allow)
     }
-    UIApplication.shared.open(url)
     decisionHandler(.cancel)
+    // Another app (audit S16): only for a link you tapped in the page itself,
+    // never Flux's own scheme (it would come back as a tab), at most one ask
+    // per page every few seconds, and only after you say which app scheme.
+    guard scheme != "flux-browser",
+      action.targetFrame?.isMainFrame ?? false,
+      action.navigationType == .linkActivated
+    else { return }
+    let now = Date()
+    let key = ObjectIdentifier(webView)
+    if let last = lastExternalAsk[key], now.timeIntervalSince(last) < 3 { return }
+    lastExternalAsk[key] = now
+    let site = webView.url?.host ?? "This page"
+    let alert = UIAlertController(
+      title: "Open in another app?",
+      message: "\(site) wants to open a “\(scheme):” link outside Flux.",
+      preferredStyle: .alert)
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    alert.addAction(
+      UIAlertAction(title: "Open", style: .default) { _ in UIApplication.shared.open(url) })
+    let root = manager.viewController ?? shell?.window?.rootViewController
+    var top = root
+    while let presented = top?.presentedViewController { top = presented }
+    top?.present(alert, animated: true)
   }
+
+  /// When each page last asked to open another app, for the rate limit above.
+  private var lastExternalAsk: [ObjectIdentifier: Date] = [:]
 
   /// A web process that dies (memory pressure in the background) leaves a blank
   /// view; reload it rather than show nothing.
@@ -599,7 +667,7 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
     DispatchQueue.main.async {
       guard let pv = self.layers()?.view else { return }
       let wv = self.views[a.id] ?? {
-        let v = self.makeView(a.id)
+        let v = self.makeView(a.id, ephemeral: a.ephemeral ?? false, container: a.container ?? 0)
         self.views[a.id] = v
         pv.addSubview(v)
         return v
@@ -695,7 +763,9 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
     scrollDown[id] = nil
     shown[id] = nil
     stale.remove(id)
+    committedURL[id] = nil
     guard let wv = views.removeValue(forKey: id) else { return }
+    attachedRules[ObjectIdentifier(wv)] = nil
     // Stop sound and video before the view goes, so nothing plays on.
     wv.pauseAllMediaPlayback(completionHandler: nil)
     wv.stopLoading()
@@ -769,7 +839,10 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
     store.lookUpContentRuleList(forIdentifier: id) { found, _ in
       if let found = found { return self.useRules(found, id: id, store: store) }
       DispatchQueue.global(qos: .utility).async {
-        guard let json = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+        guard let json = try? String(contentsOfFile: path, encoding: .utf8) else {
+          // Not read: forget the stamp, so the next update tries again.
+          return DispatchQueue.main.async { if self.rulesStamp == stamp { self.rulesStamp = "" } }
+        }
         DispatchQueue.main.async {
           store.compileContentRuleList(forIdentifier: id, encodedContentRuleList: json) {
             list, error in
@@ -777,6 +850,8 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
               self.useRules(list, id: id, store: store)
             } else {
               NSLog("[flux] shields: rules didn't compile: \(String(describing: error))")
+              // Retried with the next update rather than never (audit S32).
+              if self.rulesStamp == stamp { self.rulesStamp = "" }
             }
           }
         }
@@ -801,13 +876,22 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
     for wv in views.values { applyRules(wv, host: wv.url?.host) }
   }
 
+  /// Which compiled list each tab has on, so a navigation that changes
+  /// nothing changes nothing (audit P19): every main-frame decision took the
+  /// 27 MB list off and put it back.
+  private var attachedRules: [ObjectIdentifier: ObjectIdentifier] = [:]
+
   /// Put the rules on a tab or take them off, as the switches say for `host`.
   private func applyRules(_ wv: WKWebView, host: String?) {
+    let key = ObjectIdentifier(wv)
+    var want: WKContentRuleList? = shieldsOn ? rules : nil
+    if let host = host, shieldsOff.contains(host) { want = nil }
+    let wantId = want.map { ObjectIdentifier($0) }
+    if attachedRules[key] == wantId { return }
     let ucc = wv.configuration.userContentController
     ucc.removeAllContentRuleLists()
-    guard let rules = rules, shieldsOn else { return }
-    if let host = host, shieldsOff.contains(host) { return }
-    ucc.add(rules)
+    if let want = want { ucc.add(want) }
+    attachedRules[key] = wantId
   }
 
   /// WebKit's private report that a rule list acted on a request (the same one

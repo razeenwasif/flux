@@ -381,10 +381,19 @@ impl Vault {
             .ok_or_else(|| VaultError::Import("no .json or .csv in the archive".into()))?;
         let is_json = Some(pick) == json_idx;
         let mut s = String::new();
-        zip.by_index(pick)
+        // Read at most MAX_IMPORT_BYTES of the entry, whatever its header claims
+        // (audit S46): a small archive could inflate to fill the memory.
+        let read = zip
+            .by_index(pick)
             .map_err(|e| VaultError::Import(e.to_string()))?
+            .take(MAX_IMPORT_BYTES + 1)
             .read_to_string(&mut s)
             .map_err(|e| VaultError::Import(e.to_string()))?;
+        if read as u64 > MAX_IMPORT_BYTES {
+            return Err(VaultError::Import(
+                "that export is too large to import".into(),
+            ));
+        }
         if is_json {
             self.import_json(&s)
         } else {
@@ -851,6 +860,9 @@ mod bitwarden {
         pub uri: Option<String>,
     }
 }
+
+/// The most of one exported file a vault import reads (audit S46).
+const MAX_IMPORT_BYTES: u64 = 64 * 1024 * 1024;
 
 #[cfg(test)]
 mod tests {

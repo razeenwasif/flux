@@ -135,10 +135,10 @@ fn dedup_path(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
 }
 
 fn fetch_http(url: &str) -> FluxResult<Vec<u8>> {
-    let agent = ureq::AgentBuilder::new()
+    let builder = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
-        .timeout_read(Duration::from_secs(60))
-        .build();
+        .timeout_read(Duration::from_secs(60));
+    let agent = crate::favicon::redirect_guarded(builder, url);
     let resp = agent.get(url).set("User-Agent", "Mozilla/5.0").call()?;
     let mut buf = Vec::new();
     // `timeout_read` bounds each read, not the download: a server dribbling

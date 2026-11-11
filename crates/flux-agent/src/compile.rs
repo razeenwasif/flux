@@ -49,6 +49,38 @@ fn highlight_prelude(selector: &str) -> String {
     )
 }
 
+/// Every name a control goes by, as one string: its aria-label, labelledby,
+/// own text, value, title and alt, its <label>s, and the alt / aria-label /
+/// title / <svg><title> of what's inside it, deduplicated. One function for the
+/// click guard here and the probe that classifies a step (agent-probe.js, via
+/// flux-core), so the two can't disagree about what a button says: an icon
+/// button whose only name is a child's `alt="Delete"` read as unnamed to both,
+/// and an unnamed click ran as a draft with no card (audit S10). Declares
+/// `__fluxNames` in the enclosing function scope.
+pub const NAMES_JS: &str = r#"const __fluxNames = (n) => {
+  const at = (x, k) => (x && x.getAttribute ? x.getAttribute(k) || '' : '');
+  const out = [
+    at(n, 'aria-label'),
+    at(n, 'aria-labelledby').split(/\s+/).map(id => (id && document.getElementById(id)?.textContent) || '').join(' '),
+    n.innerText ?? n.textContent,
+    n.type !== 'password' && typeof n.value === 'string' ? n.value : '',
+    at(n, 'title'),
+    at(n, 'alt'),
+  ];
+  if (n.labels) for (const l of n.labels) out.push(l.innerText || l.textContent);
+  if (n.querySelectorAll) {
+    for (const c of [...n.querySelectorAll('img[alt],[aria-label],[title],svg title')].slice(0, 20)) {
+      out.push(at(c, 'alt'), at(c, 'aria-label'), at(c, 'title'), c.tagName.toLowerCase() === 'title' ? c.textContent : '');
+    }
+  }
+  const seen = new Set();
+  return out
+    .filter(v => typeof v === 'string' && v.trim())
+    .map(v => v.replace(/\s+/g, ' ').trim().slice(0, 1000))
+    .filter(v => { const k = v.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
+    .join(' · ');
+};"#;
+
 /// JS that aborts a click when the resolved element's accessible name matches
 /// the destructive deny-list (BACKLOG #104). The term list is generated from
 /// the single Rust source of truth so it can never drift from
@@ -56,6 +88,7 @@ fn highlight_prelude(selector: &str) -> String {
 /// inside the click `setTimeout` body, so `return` exits before `__el.click()`.
 fn destructive_guard() -> String {
     let deny = js_str_arr(crate::DESTRUCTIVE_TERMS);
+    let names = NAMES_JS;
     format!(
         r#"/* Read EVERY naming source, on the element AND on the control a click on
        it activates: `a || b || c` stopped at the first non-empty source (an icon
@@ -63,9 +96,8 @@ fn destructive_guard() -> String {
        <span>) bubbles to its <button>. Each source is capped on its own, so a
        long one can't push a label out of the check. */
     const __ctl = __el.closest('button,a[href],input,select,summary,[role=button],[role=link],[role=menuitem],[role=option],[onclick]') || __el;
-    const __lbl = n => [n.getAttribute('aria-label'), (n.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => id && document.getElementById(id)?.textContent).join(' '), n.innerText ?? n.textContent, n.value, n.getAttribute('title'), n.getAttribute('alt')]
-      .filter(v => typeof v === 'string' && v).map(v => v.slice(0, 1000)).join(' ');
-    const __name = (__lbl(__el) + ' ' + (__ctl === __el ? '' : __lbl(__ctl))).replace(/\s+/g, ' ').toLowerCase();
+    {names}
+    const __name = (__fluxNames(__el) + ' ' + (__ctl === __el ? '' : __fluxNames(__ctl))).toLowerCase();
     const __hit = {deny}.find(t => __name.includes(t));
     if (__hit) {{ __el.style.cssText = __old; window.__FLUX__?.report('blocked_destructive', __hit); return; }}"#
     )
@@ -315,7 +347,9 @@ mod tests {
         }
         // The control the click bubbles to is named too.
         assert!(js.contains("__el.closest("));
-        assert!(js.contains("__lbl(__ctl)"));
+        assert!(js.contains("__fluxNames(__ctl)"));
+        // …and what's inside it: an icon button's image alt (audit S10).
+        assert!(js.contains("img[alt],[aria-label],[title],svg title"));
         assert!(js.contains("\"place your order\""));
     }
 

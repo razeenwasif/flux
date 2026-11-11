@@ -14,11 +14,14 @@
  * crops it, and the waves ease in from nothing, so the hand-over from the still
  * wallpaper is seamless.
  *
- * Cost: one draw a frame, held to 60 fps, at up to 1.5× the window's size (the
- * silk is soft). It only runs while the home page shows, Flux is focused and
- * visible, no web page is open beside it (`data-reading`), the window isn't being
- * resized, and Reduce Motion is off; otherwise it holds its last frame or, while
- * reading, hands back to the still wallpaper. Leaving home tears the context down.
+ * Cost (audit P1): one draw a frame, held to 30 fps, at 0.75× the window's CSS
+ * size (the silk is soft, and the glass above it blurs it 30–36 px). It only
+ * runs while the home page shows, Flux is focused and visible, no web page is
+ * open beside it (`data-reading`), the window isn't being resized or dragged
+ * (`body.resizing` / `body.busy`), something has been moved, typed or scrolled
+ * in the last 20 s, and Reduce Motion is off; otherwise it holds its last frame
+ * or, while reading, hands back to the still wallpaper. Leaving home tears the
+ * context down.
  */
 import { onCleanup, onMount, type Component } from "solid-js";
 
@@ -53,7 +56,11 @@ const SPEED = 3;
 const AMP = 0.016 * 1.25;
 /** Seconds the waves take to grow from the still image. */
 const EASE_IN = 2;
-const MIN_FRAME_MS = 1000 / 60 - 2;
+const MIN_FRAME_MS = 1000 / 30 - 2;
+/** Canvas pixels per CSS pixel, whatever the display's density. */
+const SCALE = 0.75;
+/** With no input for this long the waves hold still until there is some. */
+const IDLE_MS = 20_000;
 const ATTR = "data-silk-waves";
 
 const SilkWaves: Component = () => {
@@ -103,6 +110,11 @@ const SilkWaves: Component = () => {
       uAmp = u("amp"),
       uLight = u("light");
 
+    let lastInput = performance.now();
+    const onInput = () => {
+      lastInput = performance.now();
+      if (!running) sync();
+    };
     let ready = false,
       shown = false,
       running = false,
@@ -113,9 +125,8 @@ const SilkWaves: Component = () => {
       grown = 0;
 
     const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-      canvas.width = Math.max(1, Math.round(innerWidth * dpr));
-      canvas.height = Math.max(1, Math.round(innerHeight * dpr));
+      canvas.width = Math.max(1, Math.round(innerWidth * SCALE));
+      canvas.height = Math.max(1, Math.round(innerHeight * SCALE));
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.uniform2f(uRes, canvas.width, canvas.height);
       if (ready && !running) render();
@@ -138,9 +149,16 @@ const SilkWaves: Component = () => {
       !reading() &&
       !document.hidden &&
       document.hasFocus() &&
-      !document.body.classList.contains("resizing");
+      !document.body.classList.contains("resizing") &&
+      !document.body.classList.contains("busy") &&
+      performance.now() - lastInput < IDLE_MS;
 
     const frame = (now: number) => {
+      // Idle: hold this frame; the next input starts it again (onInput).
+      if (now - lastInput >= IDLE_MS) {
+        running = false;
+        return;
+      }
       raf = requestAnimationFrame(frame);
       // Held to 60 fps: a 120 Hz display draws every other refresh.
       if (drawn && now - drawn < MIN_FRAME_MS) return;
@@ -191,6 +209,8 @@ const SilkWaves: Component = () => {
     document.body.prepend(canvas);
     resize();
     addEventListener("resize", resize);
+    for (const ev of ["pointermove", "pointerdown", "keydown", "wheel"] as const)
+      addEventListener(ev, onInput, { passive: true, capture: true });
     document.addEventListener("visibilitychange", sync);
     addEventListener("focus", sync);
     addEventListener("blur", sync);
@@ -208,6 +228,8 @@ const SilkWaves: Component = () => {
       cancelAnimationFrame(raf);
       root.removeAttribute(ATTR);
       removeEventListener("resize", resize);
+      for (const ev of ["pointermove", "pointerdown", "keydown", "wheel"] as const)
+        removeEventListener(ev, onInput, { capture: true });
       document.removeEventListener("visibilitychange", sync);
       removeEventListener("focus", sync);
       removeEventListener("blur", sync);

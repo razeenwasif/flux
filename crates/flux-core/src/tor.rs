@@ -54,9 +54,43 @@ pub fn supported() -> bool {
             at_least != NO
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    // Phones: the native tab views (ADR 0012/0021) take no proxy, so a Tor tab
+    // there would connect directly (audit S34).
+    #[cfg(mobile)]
+    {
+        false
+    }
+    #[cfg(all(desktop, not(target_os = "macos")))]
     {
         true
+    }
+}
+
+/// Turn WebRTC off in a WKWebView's preferences, through WebKit's private
+/// `_setPeerConnectionEnabled:` (checked with respondsToSelector, so a WebKit
+/// without it is left alone; NO_WEBRTC_JS still runs in every frame).
+#[cfg(target_os = "macos")]
+pub fn disable_webrtc(wk: *mut objc::runtime::Object) {
+    use objc::runtime::{Object, BOOL, NO};
+    use objc::{msg_send, sel, sel_impl};
+    if wk.is_null() {
+        return;
+    }
+    unsafe {
+        let config: *mut Object = msg_send![wk, configuration];
+        if config.is_null() {
+            return;
+        }
+        let prefs: *mut Object = msg_send![config, preferences];
+        if prefs.is_null() {
+            return;
+        }
+        let can: BOOL = msg_send![prefs, respondsToSelector: sel!(_setPeerConnectionEnabled:)];
+        if can != NO {
+            let _: () = msg_send![prefs, _setPeerConnectionEnabled: NO];
+        } else {
+            tracing::warn!(target: "flux::tor", "this WebKit can't turn WebRTC off; the page script is the only guard");
+        }
     }
 }
 

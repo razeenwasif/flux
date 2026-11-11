@@ -17,6 +17,7 @@ import {
   agentStepGuard,
   agentTaskStep,
   agentVerifyStep,
+  typedText,
   type AgentAction,
   type StepGuard,
   type StepVerdict,
@@ -71,7 +72,7 @@ export function stepWhat(a: AgentAction, label?: string): string {
     case "extract_table":
       return `extract ${target(a.selector)} → ${a.format}`;
     case "type":
-      return `type into ${target(a.selector)}`;
+      return `type ${typedText(a.text)} into ${target(a.selector)}`;
     case "reveal":
       return `reveal ${target(a.selector)}`;
     case "refuse":

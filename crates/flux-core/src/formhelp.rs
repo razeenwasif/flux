@@ -224,7 +224,7 @@ pub fn formhelp_page_config(
     state: State<'_, FormHelpState>,
 ) -> Option<FormHelpPage> {
     crate::dom::caller_tab(&webview).ok()?;
-    state.page(webview.url().ok()?.as_str())
+    state.page(crate::committed::url_of(&webview).ok()?.as_str())
 }
 
 /// Page → Rust: the text for one field. `avoid` is the suggestion ⌃Space asked
@@ -237,7 +237,7 @@ pub async fn formhelp_suggest(
     avoid: Option<String>,
 ) -> Result<FormHelpReply, String> {
     let tab = crate::dom::caller_tab(&webview)?;
-    let Some(url) = webview.url().ok() else {
+    let Some(url) = crate::committed::url_of(&webview).ok() else {
         return Ok(FormHelpReply::of("off"));
     };
     let Some(page) = state.page(url.as_str()) else {

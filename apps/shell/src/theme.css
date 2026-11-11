@@ -645,6 +645,10 @@ body.resizing .shell {
 body.resizing,
 body.busy {
   --glass-blur: none;
+  /* Liquid Silk's own blur tokens, which the line above never reached
+     (audit P2): its cards re-sampled the backdrop on every resize frame. */
+  --silk-blur: none;
+  --silk-home-blur: none;
 }
 
 /* Title bar — a generous, always-draggable strip across the top. It sits in
@@ -4935,8 +4939,10 @@ body.resizing .panel-edge-resize::after {
   opacity: 0.5;
 }
 
-/* Agent action preview (#8): a planned action awaiting approve/skip. */
-.agent-plan {
+/* Agent action preview (#8): a planned action awaiting approve/skip. `ask`
+   is a step the model chose that asks before it runs (audit S11). */
+.agent-plan,
+.agent-ask {
   align-self: flex-start;
   color: var(--flux-magenta);
   background: rgba(var(--accent-hot-rgb), 0.1);
@@ -9509,7 +9515,6 @@ body.busy .start-card {
     padding-bottom: 7px;
   }
 }
-
 
 /* ─── Mobile (Android APK) — barebone layout, ADR 0012 ────────────────────────
    The phone build has one system WebView and no window chrome. Strip the
