@@ -1228,3 +1228,53 @@
   margin-right: 0;
   padding-right: 0;
 }
+
+/* ── Home shortcuts: icon only (StartPage, start/siteGlyphs) ───────────── */
+.silk-pills {
+  gap: 12px;
+}
+.silk-pill {
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  justify-content: center;
+  /* Bare icons on the wallpaper, like the dock: no ring, a soft wash on hover. */
+  border-color: transparent;
+}
+.silk-pill:hover {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.1);
+}
+.silk-glyph {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: #ffffff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+}
+.silk-glyph text {
+  font: 600 13px/1 var(--flux-font, system-ui), system-ui, sans-serif;
+}
+.silk-pill-add {
+  width: 46px;
+  border-style: solid;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* The footer: Settings is in the rail (and ⌘,), so not here as well. */
+:root[data-design][data-silk] .sidebar-footer button[title="Settings"] {
+  display: none;
+}
+/* The workspaces menu floats over the tab list: opaque, so the rows beneath
+   don't read through it. */
+:root[data-design][data-silk] .rail-ws-panel {
+  background: rgb(var(--silk-tint));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid var(--silk-edge);
+  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.6);
+}

@@ -6,6 +6,7 @@
  * (safe to inject; raw JS is intentionally not exposed). An "All sites" view manages
  * every boost across hosts.
  */
+import Icon from "./Icon";
 import { For, Show, createEffect, createSignal, type Component } from "solid-js";
 
 import { keepSame } from "./keepSame";
@@ -168,7 +169,7 @@ const Boosts: Component<{ initialOpen?: boolean }> = (props) => {
         title="Boosts — customize this site with AI or CSS"
         onClick={() => setOpen((v) => !v)}
       >
-        ✨
+        <Icon name="boosts" />
       </button>
       <Show when={open()}>
         <div class="shield-backdrop" onClick={() => setOpen(false)} />

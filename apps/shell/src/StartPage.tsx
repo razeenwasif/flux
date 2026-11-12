@@ -68,6 +68,7 @@ import { wallpaper } from "./wallpaper";
 import { silkWaves } from "./start/silkWavesPref";
 import { focusLine } from "./focusGate";
 import SiteIcon from "./start/SiteIcon";
+import { SiteGlyph, siteGlyph } from "./start/siteGlyphs";
 // Velvet Paper's own cards (design.ts): split out so Classic never loads them and
 // they stay off the boot path (`npm run perf`).
 const VpFocusCard = lazy(() => import("./start/VpFocusCard"));
@@ -1894,15 +1895,21 @@ const StartPage: Component<{
       {searchBox()}
 
       <div class="silk-pills">
-        <For each={shortcuts().slice(0, 8)}>
-          {(s) => (
-            <button class="silk-pill" title={s.url} onClick={() => props.onNavigate(s.url)}>
-              <span class="silk-pill-icon" aria-hidden="true">
-                <SiteIcon url={s.url} letters={s.label} />
-              </span>
-              {siteName(s.url)}
-            </button>
-          )}
+        {/* Icon only: each site as a white drawing (siteGlyphs), its name on hover. */}
+        <For each={shortcuts().slice(0, 24)}>
+          {(s) => {
+            const name = siteGlyph(s.url)?.name ?? siteName(s.url);
+            return (
+              <button
+                class="silk-pill"
+                title={name}
+                aria-label={name}
+                onClick={() => props.onNavigate(s.url)}
+              >
+                <SiteGlyph url={s.url} letter={(name[0] ?? "?").toUpperCase()} />
+              </button>
+            );
+          }}
         </For>
         <button
           class="silk-pill silk-pill-add"

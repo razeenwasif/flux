@@ -50,6 +50,7 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - A ↻ Reindex button in the Indexer reads new and changed notes and books. It also runs each time the panel opens, and only re-reads what changed.
 
 ### Changed
+- Liquid Silk's home shortcuts are icons only: each site is a white line drawing in the style of Flux's own icons (Proton Mail, Drive and Calendar, daily.dev, Microsoft 365, Google Drive and Workspace, myGov, GitHub, Amazon, YouTube, Patreon, eBay, CodePen, arXiv, LinkedIn, Discord; any other site gets its initial), with its name on hover and no ring. Up to 24 show. Boosts has a drawn wand instead of the ✨ emoji, the sidebar footer leaves out Settings (it's in the rail and ⌘,), and the workspaces menu is opaque.
 - In Liquid Silk, Calendar, Mail and Notes open on a cascade: the tabs peel off to the left one after another and the mode's parts slide in, with a little overshoot. The launcher rail with the window controls sits at the far left, before the sidebar.
 - Lighter on the battery and quicker to respond (audit P1, P2, P4, P8, P16):
   - Opal waves draw at 30 fps and at three quarters of the window's size, and hold still after 20 seconds with no mouse, keyboard or scrolling.
