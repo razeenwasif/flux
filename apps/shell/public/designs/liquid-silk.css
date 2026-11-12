@@ -880,9 +880,9 @@
   align-self: center;
   padding: 7px;
   border-radius: 22px;
-  border: 1px solid var(--silk-edge);
-  /* Fully clear: no tint and no blur, only its rim, with the icons' own
-     shadow (below) to keep them legible on the wallpaper. */
+  border: none;
+  /* Fully clear: no tint, no blur and no rim, with the icons' own shadow
+     (below) to keep them legible on the wallpaper. */
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -960,10 +960,13 @@
 /* ── The agent: silk folds in place of the aurora shader ──────────────── */
 /* Drawn on the agent's effects layer (.agent-fx, which is .busy while the
    agent works; AgentAurora mounts no shader under Silk): the ribbons, two
-   soft bands in the wallpaper's accents, on ::before, and the crease of light
-   on ::after, both faded out below the panel's top. */
+   soft bands in the wallpaper's accents, on ::before, faded out below the
+   panel's top. (A crease of light on ::after drew a hard line across the
+   panel; the agent's own glow shows it working now.) */
+:root[data-design][data-silk] .agent-fx::after {
+  content: none;
+}
 :root[data-design][data-silk] .agent-fx::before,
-:root[data-design][data-silk] .agent-fx::after,
 :root[data-design][data-silk] .agent-fx.busy::before {
   content: "";
   position: absolute;
@@ -990,21 +993,9 @@
   filter: blur(18px);
   opacity: 0.22;
 }
-:root[data-design][data-silk] .agent-fx::after {
-  top: 34px;
-  height: 220px;
-  border-radius: 50%;
-  border-top: 1.5px solid rgba(255, 255, 255, 0.8);
-  filter: drop-shadow(0 0 6px rgb(var(--accent-rgb)));
-  opacity: 0.18;
-}
 :root[data-design][data-silk] .agent-fx.busy::before {
   opacity: 0.6;
   animation: silk-fold-a 9s ease-in-out infinite alternate;
-}
-:root[data-design][data-silk] .agent-fx.busy::after {
-  opacity: 0.85;
-  animation: silk-crease 6s ease-in-out infinite;
 }
 @keyframes silk-fold-a {
   from {
@@ -1014,22 +1005,8 @@
     transform: translateX(8%) rotate(3deg);
   }
 }
-@keyframes silk-crease {
-  0% {
-    transform: translateX(-12%) rotate(-6deg);
-    opacity: 0.25;
-  }
-  50% {
-    opacity: 0.95;
-  }
-  100% {
-    transform: translateX(12%) rotate(4deg);
-    opacity: 0.25;
-  }
-}
 @media (prefers-reduced-motion: reduce) {
-  :root[data-design][data-silk] .agent-fx::before,
-  :root[data-design][data-silk] .agent-fx::after {
+  :root[data-design][data-silk] .agent-fx::before {
     animation: none !important;
   }
 }
@@ -1244,4 +1221,10 @@
 /* The launcher rail sits at the far left, before the sidebar (App's columns). */
 :root[data-design][data-silk] .bars-col {
   padding: var(--vp-gap) 0 var(--vp-gap) 8px;
+}
+/* The app dock's handle is in the window's far corner, not beside the agent
+   here, so the composer keeps its full width (AgentPanel.css). */
+:root[data-design][data-silk] .mode-dock .agent .agent-input-row {
+  margin-right: 0;
+  padding-right: 0;
 }

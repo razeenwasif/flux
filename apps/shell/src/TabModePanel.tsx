@@ -95,52 +95,104 @@ const listParts = (side: HTMLElement): HTMLElement[] => {
   });
 };
 
-/**
- * The cascade: what's there peels off to the left one after another, and the
- * new parts slide in from the right with a little overshoot. With `swap`, the
- * old parts finish leaving before it runs (a page giving way to another).
- */
-const cascade = (outs: HTMLElement[], ins: () => HTMLElement[], swap?: () => void) => {
-  const gone = outs.map((n, i) =>
-    n.animate(
-      [
-        { opacity: 1, visibility: "visible", transform: "none" },
-        { opacity: 0, visibility: "visible", transform: "translateX(-46px) rotate(-3deg)" },
-      ],
-      {
-        duration: 300 * WAVE_K,
-        delay: Math.min(i, 16) * 26 * WAVE_K,
-        easing: "cubic-bezier(.5,0,.75,0)",
-        fill: swap ? "forwards" : "backwards",
-      },
-    ),
+const PEEL_OUT: Keyframe[] = [
+  { opacity: 1, visibility: "visible", transform: "none" },
+  { opacity: 0, visibility: "visible", transform: "translateX(-46px) rotate(-3deg)" },
+];
+const SLIDE_IN: Keyframe[] = [
+  { opacity: 0, transform: "translateX(48px) rotate(2deg)" },
+  { opacity: 1, transform: "none" },
+];
+const DISSOLVE: Keyframe[] = [
+  { opacity: 1, visibility: "visible", filter: "blur(0)", transform: "none" },
+  { opacity: 0, visibility: "visible", filter: "blur(8px)", transform: "translateY(-8px) scale(.98)" },
+];
+const RISE_IN: Keyframe[] = [
+  { opacity: 0, filter: "blur(8px)", transform: "translateY(14px)" },
+  { opacity: 1, filter: "blur(0)", transform: "none" },
+];
+
+/** Play parts out, one after another. `keep` holds them gone at the end (a page
+ *  that's about to be swapped out); otherwise the stylesheet has hidden them. */
+const leaveAll = (
+  outs: HTMLElement[],
+  frames: Keyframe[],
+  o: { dur: number; first: number; step: number; ease: string; keep: boolean },
+) =>
+  outs.map((n, i) =>
+    n.animate(frames, {
+      duration: o.dur * WAVE_K,
+      delay: (o.first + Math.min(i, 12) * o.step) * WAVE_K,
+      easing: o.ease,
+      fill: o.keep ? "forwards" : "backwards",
+    }),
   );
-  const wait = swap ? 300 + Math.min(Math.max(outs.length - 1, 0), 16) * 26 : 200;
-  window.setTimeout(() => {
-    swap?.();
-    if (swap) gone.forEach((a) => a.cancel());
-    ins().forEach((n, i) =>
-      n.animate(
-        [
-          { opacity: 0, transform: "translateX(48px) rotate(2deg)" },
-          { opacity: 1, transform: "none" },
-        ],
-        {
-          duration: 520 * WAVE_K,
-          delay: i * 55 * WAVE_K,
-          easing: "cubic-bezier(.2,1.25,.35,1)",
-          fill: "backwards",
-        },
-      ),
+
+/** Bring parts in, one after another. They're hidden from this moment (the
+ *  animations exist at once, held at their first frame), so nothing shows and
+ *  then starts again. Parts still mounting (the agent's first time) are waited
+ *  for a few frames, keeping to the same schedule. */
+const arriveAll = (
+  parts: () => HTMLElement[],
+  frames: Keyframe[],
+  o: { dur: number; first: number; step: number; ease: string },
+) => {
+  const t0 = performance.now();
+  let tries = 0;
+  const go = () => {
+    const list = parts();
+    if (!list.length && tries++ < 30) {
+      requestAnimationFrame(go);
+      return;
+    }
+    const late = performance.now() - t0;
+    list.forEach((n, i) =>
+      n.animate(frames, {
+        duration: o.dur * WAVE_K,
+        delay: Math.max(0, o.first * WAVE_K - late) + i * o.step * WAVE_K,
+        easing: o.ease,
+        fill: "backwards",
+      }),
     );
-  }, wait * WAVE_K);
+  };
+  go();
 };
 
 /**
- * A band of light sweeps down the pane; the tab list dissolves as it passes,
- * and the panel's parts rise in behind it, top to bottom.
+ * The cascade: what's there peels off to the left one after another, and the
+ * new parts slide in from the right with a little overshoot. With `swap` (a
+ * page giving way to another), the new page is put in once most of the old
+ * one has gone.
  */
-const silkWave = (side: HTMLElement, parts: () => HTMLElement[]) => {
+const cascade = (outs: HTMLElement[], ins: () => HTMLElement[], swap?: () => void) => {
+  const gone = leaveAll(outs, PEEL_OUT, {
+    dur: 300,
+    first: 0,
+    step: 22,
+    ease: "cubic-bezier(.5,0,.75,0)",
+    keep: !!swap,
+  });
+  const bring = (first: number) =>
+    arriveAll(ins, SLIDE_IN, { dur: 520, first, step: 55, ease: "cubic-bezier(.2,1.25,.35,1)" });
+  if (!swap) return bring(110);
+  // Nothing to see go (the agent or terminal closes with the switch): at once.
+  if (!outs.length) {
+    swap();
+    return bring(0);
+  }
+  window.setTimeout(() => {
+    swap();
+    gone.forEach((a) => a.cancel());
+    bring(0);
+  }, 220 * WAVE_K);
+};
+
+/**
+ * The Silk wave: a band of light sweeps down the pane; what's there dissolves
+ * as it passes, and the panel's parts rise in behind it, top to bottom. With
+ * `swap`, as for the cascade.
+ */
+const silkWave = (side: HTMLElement, outs: HTMLElement[], ins: () => HTMLElement[], swap?: () => void) => {
   // Clipped to the pane's card (drawn on its ::before), so the light stays on it.
   const wave = document.createElement("div");
   wave.className = "silk-wave";
@@ -163,39 +215,18 @@ const silkWave = (side: HTMLElement, parts: () => HTMLElement[]) => {
     )
     .finished.catch(() => {})
     .then(() => wave.remove());
-
-  const outs = listParts(side);
-  outs.forEach((n, i) =>
-    n.animate(
-      [
-        { opacity: 1, visibility: "visible", filter: "blur(0)", transform: "none" },
-        { opacity: 0, visibility: "visible", filter: "blur(8px)", transform: "translateY(-8px) scale(.98)" },
-      ],
-      {
-        duration: 260 * WAVE_K,
-        delay: (40 + Math.min(i, 16) * 34) * WAVE_K,
-        easing: "ease-in",
-        fill: "backwards",
-      },
-    ),
-  );
-  // What arrives is read once the band is past the top: the first time, the
-  // agent or terminal is still mounting when the switch starts.
+  const gone = leaveAll(outs, DISSOLVE, { dur: 260, first: 40, step: 30, ease: "ease-in", keep: !!swap });
+  const bring = (first: number) =>
+    arriveAll(ins, RISE_IN, { dur: 420, first, step: 70, ease: "cubic-bezier(.2,.9,.2,1)" });
+  if (!swap) return bring(230);
+  if (!outs.length) {
+    swap();
+    return bring(150);
+  }
   window.setTimeout(() => {
-    parts().forEach((n, i) =>
-      n.animate(
-        [
-          { opacity: 0, filter: "blur(8px)", transform: "translateY(14px)" },
-          { opacity: 1, filter: "blur(0)", transform: "none" },
-        ],
-        {
-          duration: 420 * WAVE_K,
-          delay: i * 70 * WAVE_K,
-          easing: "cubic-bezier(.2,.9,.2,1)",
-          fill: "backwards",
-        },
-      ),
-    );
+    swap();
+    gone.forEach((a) => a.cancel());
+    bring(0);
   }, 230 * WAVE_K);
 };
 
@@ -661,7 +692,7 @@ const TabModePanel: Component<{
     if (reducedMotion()) return;
     const side = el.parentElement;
     if (side && silk()) {
-      if (isDock(tabMode())) silkWave(side, dockParts);
+      if (isDock(tabMode())) silkWave(side, listParts(side), dockParts);
       else cascade(listParts(side), pageParts);
     }
     rail.querySelector(".mode-rail-tile.on")?.scrollIntoView({ block: "nearest" });
@@ -708,13 +739,30 @@ const TabModePanel: Component<{
   /** Between two modes: the rail stays; the panel slides out toward the old
    *  side and in from the new one. */
   const cross = (to: Away, dir: number) => {
+    const from = shown();
     commitTabMode(to);
+    const side = el.parentElement;
+    if (silk() && side && !reducedMotion()) {
+      // The panel's top moves (the agent and terminal sit below the address)
+      // with the swap, not before the old page has gone.
+      const swap = () => {
+        setShown(to);
+        measure();
+      };
+      if (!isDock(to)) return cascade(pageParts(), pageParts, swap);
+      // Into the agent or terminal on the wave: from another mode's page, or
+      // straight across from the other one (they share the page).
+      if (isDock(from)) {
+        swap();
+        return silkWave(side, [], dockParts);
+      }
+      return silkWave(side, pageParts(), dockParts, swap);
+    }
     measure();
     if (reducedMotion()) {
       setShown(to);
       return;
     }
-    if (silk() && !isDock(to)) return cascade(pageParts(), pageParts, () => setShown(to));
     const out = body.animate(
       [
         { opacity: 1, transform: "none" },
