@@ -157,6 +157,17 @@ const GLYPHS: { match: (host: string) => boolean; name: string; art: Glyph }[] =
       c: [[12, 12, 8.5]],
     },
   },
+  {
+    name: "Medium",
+    match: (h) => h === "medium.com" || h.endsWith(".medium.com"),
+    art: {
+      c: [[7.5, 12, 4.8]],
+      d: [
+        "M15.6 7.3c1.2 0 2.1 2.1 2.1 4.7s-.9 4.7-2.1 4.7-2.1-2.1-2.1-4.7.9-4.7 2.1-4.7Z",
+        "M20.6 7.8c.4 0 .7 1.9.7 4.2s-.3 4.2-.7 4.2-.7-1.9-.7-4.2.3-4.2.7-4.2Z",
+      ],
+    },
+  },
 ];
 
 const hostOf = (url: string): string => {
