@@ -149,6 +149,14 @@ const GLYPHS: { match: (host: string) => boolean; name: string; art: Glyph }[] =
       ],
     },
   },
+  {
+    name: "Spotify",
+    match: (h) => h === "open.spotify.com" || h === "spotify.com" || h.endsWith(".spotify.com"),
+    art: {
+      d: ["M7.4 9.5c3.1-1 6.6-.8 9.3.8", "M8 12.6c2.6-.7 5.2-.5 7.5.8", "M8.7 15.5c1.9-.5 3.8-.3 5.4.6"],
+      c: [[12, 12, 8.5]],
+    },
+  },
 ];
 
 const hostOf = (url: string): string => {

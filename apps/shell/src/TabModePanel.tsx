@@ -62,6 +62,7 @@ import { parseQuickEvent } from "./quickEvent";
 const MailPane = lazy(() => import("./MailPane"));
 const TabNotes = lazy(() => import("./TabNotes"));
 const ConnectionsRail = lazy(() => import("./ConnectionsRail"));
+const VoiceEdge = lazy(() => import("./VoiceEdge"));
 
 // ── Motion ──────────────────────────────────────────────────────────────────
 const FAST = 120;
@@ -882,6 +883,12 @@ const TabModePanel: Component<{
       }
       inert={!open()}
     >
+      {/* Liquid Silk: the pane's edge ripples while the agent speaks. */}
+      <Show when={silk()}>
+        <Suspense>
+          <VoiceEdge />
+        </Suspense>
+      </Show>
       {/* The tabs, folded: one tile each, a click switches tab and stays here. */}
       <div class="mode-rail" ref={rail} role="list" aria-label="Tabs">
         <For each={pinnedTabs()}>

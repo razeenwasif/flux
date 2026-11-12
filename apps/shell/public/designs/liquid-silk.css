@@ -1278,3 +1278,12 @@
   border: 1px solid var(--silk-edge);
   box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.6);
 }
+/* The send button sits a little in from the composer's rounded end. */
+:root[data-design][data-silk] .agent-input-row .agent-send {
+  margin-right: 6px;
+}
+/* While the agent speaks, a line of light takes the sidebar's right edge over
+   (VoiceEdge): the card's own edge on that side steps aside. */
+:root[data-design][data-silk][data-agent-voice] .sidebar::before {
+  border-right-width: 0;
+}
