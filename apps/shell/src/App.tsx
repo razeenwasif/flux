@@ -1,4 +1,4 @@
-import { setTabMode, type TabMode } from "./tabMode";
+import { paneWide, setTabMode, type TabMode } from "./tabMode";
 import "./interfacePreferences";
 import {
   launcherInitial,
@@ -1717,10 +1717,15 @@ const App: Component = () => {
   const pageMinimum = createMemo(() =>
     Math.max(activeTab()?.url === SETTINGS_URL ? 720 : 560, tileMinimum()),
   );
+  /** Liquid Silk opens the agent and terminal in the sidebar, as two of its
+   *  modes (Sidebar, TabModePanel), so they take no column of their own; the
+   *  sidebar widens to hold them. */
+  const sideDock = () => design() === "liquid-silk" && !isMobile;
+  const sideW = () => (sideDock() && paneWide() ? Math.max(sidebarW(), 420) : sidebarW());
   const layoutIntent = () => ({
     sidebar: sidebarOpen(),
-    agent: agentOpen(),
-    terminal: terminalOpen(),
+    agent: agentOpen() && !sideDock(),
+    terminal: terminalOpen() && !sideDock(),
     panel: activePanel() != null || activePanelB() != null || calendarDocked(),
     connect: connectOpen(),
     dock: dockOpen(),
@@ -1745,7 +1750,7 @@ const App: Component = () => {
   });
   function layoutWidths(stack: number) {
     return {
-      sidebar: sidebarW(),
+      sidebar: sideW(),
       stack,
       panel: panelWidth(),
       bars: BARS_W,
@@ -1762,9 +1767,9 @@ const App: Component = () => {
 
   // The vertical terminal column (the persistent dev shell) shows whenever it's
   // toggled on and there's room — including alongside a terminal *tab*.
-  const termColVisible = () => responsive().terminal;
+  const termColVisible = () => (sideDock() ? terminalOpen() && responsive().sidebar : responsive().terminal);
   const panelColVisible = () => responsive().panel;
-  const agentColVisible = () => responsive().agent;
+  const agentColVisible = () => (sideDock() ? agentOpen() && responsive().sidebar : responsive().agent);
   const connectColVisible = () => responsive().connect;
   /** The dock column is up whenever anything wants to live in it. Mail is always
    *  a reason; the calendar only when it's set to this placement. */
@@ -1773,22 +1778,28 @@ const App: Component = () => {
   const barsColVisible = () => responsive().bars;
   /** The shared right-hand column is up whenever either pane in it is. */
   const stackVisible = () => agentColVisible() || termColVisible();
+  /** …and whether that takes a column (not when it's in the sidebar). */
+  const stackCol = () => stackVisible() && !sideDock();
   // Hiding a panel must not kill its PTY or discard an in-progress conversation.
   const agentMounted = createMemo((was: boolean) => was || agentColVisible(), false);
   const terminalMounted = createMemo((was: boolean) => was || termColVisible(), false);
 
-  const columns = () =>
-    focusMode()
-      ? "0px 1fr 0px 0px 0px 0px 0px" // focus/compact mode (#55): content only
+  const columns = () => {
+    const c = focusMode()
+      ? ["0px", "1fr", "0px", "0px", "0px", "0px", "0px"] // focus/compact mode (#55): content only
       : [
-          responsive().sidebar ? `${sidebarW()}px` : "var(--flux-sidebar-w-min)",
+          responsive().sidebar ? `${sideW()}px` : "var(--flux-sidebar-w-min)",
           "1fr",
           panelColVisible() ? `${panelWidth()}px` : "0px",
           barsColVisible() ? `${BARS_W}px` : "0px",
           dockColVisible() ? `${dockW()}px` : "0px",
-          stackVisible() ? `${shownStackW()}px` : "0px",
+          stackCol() ? `${shownStackW()}px` : "0px",
           connectColVisible() ? `${connectW()}px` : "0px",
-        ].join(" ");
+        ];
+    // Liquid Silk: the launcher rail goes first, at the far left (see the areas).
+    if (sideDock()) c.unshift(c.splice(3, 1)[0]!);
+    return c.join(" ");
+  };
 
   /** Drag the horizontal seam between the agent (top) and terminal (bottom). */
   const startStackDrag = (e: PointerEvent) => {
@@ -1893,7 +1904,9 @@ const App: Component = () => {
           : {
               "grid-template-columns": columns(),
               "grid-template-rows": "1fr",
-              "grid-template-areas": `"side content webpanel bars dock stack connect"`,
+              "grid-template-areas": sideDock()
+                ? `"bars side content webpanel dock stack connect"`
+                : `"side content webpanel bars dock stack connect"`,
             }
       }
     >
@@ -2046,7 +2059,7 @@ const App: Component = () => {
       <Show when={responsive().sidebar}>
         <div
           class="pane-splitter"
-          style={{ left: `${sidebarW()}px` }}
+          style={{ left: `${sideW() + (sideDock() && barsColVisible() ? BARS_W : 0)}px` }}
           onPointerDown={(e) => startPaneResize(e, sidebarW, setSidebarW, 1, "flux.w.sidebar", 180, 460)}
         />
       </Show>
@@ -2054,12 +2067,12 @@ const App: Component = () => {
         <div
           class="pane-splitter"
           style={{
-            right: `${(connectColVisible() ? connectW() : 0) + (stackVisible() ? shownStackW() : 0) + dockW()}px`,
+            right: `${(connectColVisible() ? connectW() : 0) + (stackCol() ? shownStackW() : 0) + dockW()}px`,
           }}
           onPointerDown={(e) => startPaneResize(e, dockW, setDockW, -1, "flux.w.dock", 260, 620)}
         />
       </Show>
-      <Show when={stackVisible()}>
+      <Show when={stackCol()}>
         <div
           class="pane-splitter"
           style={{ right: `${(connectColVisible() ? connectW() : 0) + shownStackW()}px` }}

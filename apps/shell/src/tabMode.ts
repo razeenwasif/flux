@@ -6,11 +6,22 @@
  * The other modes fold the tab list into a rail of favicons and put their
  * panel beside it (`TabModePanel`, lazy: its chunk loads on the first switch).
  * Not persisted: a launch always opens on the tabs.
+ *
+ * Liquid Silk adds two more: the agent and the terminal open here, in place of
+ * the tab list, instead of in a column beside the page (Sidebar keeps them in
+ * step with the agent and terminal toggles; TabModePanel hosts them).
  */
 import { createSignal } from "solid-js";
 
-export type TabMode = "tabs" | "calendar" | "mail" | "notes" | "context";
+export type TabMode = "tabs" | "calendar" | "mail" | "notes" | "context" | "agent" | "terminal";
 export const TAB_MODES: TabMode[] = ["tabs", "calendar", "mail", "notes", "context"];
+/** Liquid Silk's extra modes, after the others. */
+export const SIDE_PANELS: TabMode[] = ["agent", "terminal"];
+/** The pane is wide for one of them. Set by the panel as its morph starts, so
+ *  App widens the column in step with the animation (even on the first switch,
+ *  while the panel's chunk is still loading). */
+const [paneWide, setPaneWide] = createSignal(false);
+export { paneWide, setPaneWide };
 
 const [tabMode, setTabModeSig] = createSignal<TabMode>("tabs");
 export { tabMode };

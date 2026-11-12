@@ -11,11 +11,17 @@
  * copy in a fixed layer so neither scroller clips it on the way; what only the
  * old shape had fades where it stands; the new panel's parts arrive after, top
  * to bottom. Calendar ↔ Mail keeps the rail and slides the panel across.
+ *
+ * Liquid Silk's Agent and Terminal modes host the app's own agent and terminal
+ * column (App's `.rightstack`): the live element moves in here and back, so the
+ * conversation and the shells carry on. They sit below the address, which stays
+ * in sight, and arrive on the Silk wave (`silkWave`).
  */
 import {
   For,
   Show,
   Suspense,
+  createEffect,
   createMemo,
   createSignal,
   lazy,
@@ -39,7 +45,17 @@ import {
   unpinnedTabs,
 } from "./store";
 import { Favicon } from "./tabvisual";
-import { commitTabMode, setTabModeChanger, tabMode, TAB_MODES, type TabMode } from "./tabMode";
+import {
+  commitTabMode,
+  paneWide,
+  setPaneWide,
+  setTabModeChanger,
+  tabMode,
+  SIDE_PANELS,
+  TAB_MODES,
+  type TabMode,
+} from "./tabMode";
+import { design } from "./design";
 import { visibleInterval } from "./poll";
 import { parseQuickEvent } from "./quickEvent";
 
@@ -54,6 +70,146 @@ const PAGE = 360;
 const EMPHASIZED = "cubic-bezier(0.2, 0, 0, 1)";
 const EXIT = "cubic-bezier(0.3, 0, 1, 1)";
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// ── Liquid Silk's morphs: the Silk wave (into the agent or terminal) and the
+// cascade (into Calendar, Mail and Notes) ─────────────────────────────────────
+/** Their pace: half the speed of the first mockup, as picked. */
+const WAVE_K = 2;
+/** How long the sidebar takes to widen for the agent or terminal (App's
+ *  sideW); `.shell.side-morph` animates the columns for this long. */
+const WIDEN = 620 * WAVE_K;
+const isDock = (m: TabMode) => SIDE_PANELS.includes(m);
+const silk = () => design() === "liquid-silk";
+
+/** What leaves the tabs: the pane's own parts and the rows in view, top to
+ *  bottom. The stylesheet hides them already; the morph plays them out first. */
+const listParts = (side: HTMLElement): HTMLElement[] => {
+  const top = side.getBoundingClientRect();
+  return [
+    ...side.querySelectorAll<HTMLElement>(
+      ":scope > .page-actions, :scope > .ws-chips, :scope > .pin-grid, :scope > .new-tab-control, :scope > .tab-list-head, .tab-list .tab-row, .tab-list .group-head, :scope > .folders",
+    ),
+  ].filter((n) => {
+    const r = n.getBoundingClientRect();
+    return r.height > 0 && r.bottom > top.top && r.top < top.bottom;
+  });
+};
+
+/**
+ * The cascade: what's there peels off to the left one after another, and the
+ * new parts slide in from the right with a little overshoot. With `swap`, the
+ * old parts finish leaving before it runs (a page giving way to another).
+ */
+const cascade = (outs: HTMLElement[], ins: () => HTMLElement[], swap?: () => void) => {
+  const gone = outs.map((n, i) =>
+    n.animate(
+      [
+        { opacity: 1, visibility: "visible", transform: "none" },
+        { opacity: 0, visibility: "visible", transform: "translateX(-46px) rotate(-3deg)" },
+      ],
+      {
+        duration: 300 * WAVE_K,
+        delay: Math.min(i, 16) * 26 * WAVE_K,
+        easing: "cubic-bezier(.5,0,.75,0)",
+        fill: swap ? "forwards" : "backwards",
+      },
+    ),
+  );
+  const wait = swap ? 300 + Math.min(Math.max(outs.length - 1, 0), 16) * 26 : 200;
+  window.setTimeout(() => {
+    swap?.();
+    if (swap) gone.forEach((a) => a.cancel());
+    ins().forEach((n, i) =>
+      n.animate(
+        [
+          { opacity: 0, transform: "translateX(48px) rotate(2deg)" },
+          { opacity: 1, transform: "none" },
+        ],
+        {
+          duration: 520 * WAVE_K,
+          delay: i * 55 * WAVE_K,
+          easing: "cubic-bezier(.2,1.25,.35,1)",
+          fill: "backwards",
+        },
+      ),
+    );
+  }, wait * WAVE_K);
+};
+
+/**
+ * A band of light sweeps down the pane; the tab list dissolves as it passes,
+ * and the panel's parts rise in behind it, top to bottom.
+ */
+const silkWave = (side: HTMLElement, parts: () => HTMLElement[]) => {
+  // Clipped to the pane's card (drawn on its ::before), so the light stays on it.
+  const wave = document.createElement("div");
+  wave.className = "silk-wave";
+  wave.setAttribute("aria-hidden", "true");
+  const card = getComputedStyle(side, "::before");
+  for (const p of ["top", "right", "bottom", "left", "border-radius"] as const)
+    wave.style.setProperty(p, card.getPropertyValue(p));
+  const band = document.createElement("i");
+  wave.append(band);
+  side.append(wave);
+  void band
+    .animate(
+      [
+        { opacity: 0, transform: "translateY(-100%) skewY(-8deg)" },
+        { opacity: 1, offset: 0.15 },
+        { opacity: 1, offset: 0.8 },
+        { opacity: 0, transform: "translateY(240%) skewY(-8deg)" },
+      ],
+      { duration: 820 * WAVE_K, easing: "cubic-bezier(.45,0,.25,1)" },
+    )
+    .finished.catch(() => {})
+    .then(() => wave.remove());
+
+  const outs = listParts(side);
+  outs.forEach((n, i) =>
+    n.animate(
+      [
+        { opacity: 1, visibility: "visible", filter: "blur(0)", transform: "none" },
+        { opacity: 0, visibility: "visible", filter: "blur(8px)", transform: "translateY(-8px) scale(.98)" },
+      ],
+      {
+        duration: 260 * WAVE_K,
+        delay: (40 + Math.min(i, 16) * 34) * WAVE_K,
+        easing: "ease-in",
+        fill: "backwards",
+      },
+    ),
+  );
+  // What arrives is read once the band is past the top: the first time, the
+  // agent or terminal is still mounting when the switch starts.
+  window.setTimeout(() => {
+    parts().forEach((n, i) =>
+      n.animate(
+        [
+          { opacity: 0, filter: "blur(8px)", transform: "translateY(14px)" },
+          { opacity: 1, filter: "blur(0)", transform: "none" },
+        ],
+        {
+          duration: 420 * WAVE_K,
+          delay: i * 70 * WAVE_K,
+          easing: "cubic-bezier(.2,.9,.2,1)",
+          fill: "backwards",
+        },
+      ),
+    );
+  }, 230 * WAVE_K);
+};
+
+/** Widen or narrow the pane for the agent or terminal, animating the columns
+ *  while it does. */
+const widen = (side: HTMLElement, wide: boolean) => {
+  if (wide === paneWide()) return;
+  const shell = side.closest<HTMLElement>(".shell");
+  if (shell && !reducedMotion()) {
+    shell.classList.add("side-morph");
+    window.setTimeout(() => shell.classList.remove("side-morph"), WIDEN + 80);
+  }
+  setPaneWide(wide);
+};
 
 /** Where a mark is drawn, if it's actually on screen: a row scrolled out of its
  *  list (or a tile out of the rail) has nowhere to fly from. */
@@ -458,6 +614,7 @@ const TabModePanel: Component<{
   let el!: HTMLDivElement;
   let body!: HTMLDivElement;
   let rail!: HTMLDivElement;
+  let dock: HTMLDivElement | undefined;
   const away = (m: TabMode): Away => (m === "tabs" ? "calendar" : m);
   const [shown, setShownSig] = createSignal<Away>(away(tabMode()));
   const [open, setOpen] = createSignal(false);
@@ -475,7 +632,10 @@ const TabModePanel: Component<{
    *  signal set from onMount wouldn't reach the DOM until its batch ends. */
   const measure = () => {
     const side = el.parentElement;
-    const modes = side?.querySelector<HTMLElement>(":scope > .tab-modes");
+    // The agent and terminal start below the address, which stays in sight.
+    const modes = side?.querySelector<HTMLElement>(
+      isDock(tabMode()) ? ":scope > .addr-stack" : ":scope > .tab-modes",
+    );
     const foot = side?.querySelector<HTMLElement>(":scope > .sidebar-footer");
     if (!side || !modes || !foot) return;
     const cs = getComputedStyle(side);
@@ -499,6 +659,11 @@ const TabModePanel: Component<{
     measure();
     setOpen(true);
     if (reducedMotion()) return;
+    const side = el.parentElement;
+    if (side && silk()) {
+      if (isDock(tabMode())) silkWave(side, dockParts);
+      else cascade(listParts(side), pageParts);
+    }
     rail.querySelector(".mode-rail-tile.on")?.scrollIntoView({ block: "nearest" });
     fly(
       railTiles().flatMap((to) => {
@@ -544,10 +709,12 @@ const TabModePanel: Component<{
    *  side and in from the new one. */
   const cross = (to: Away, dir: number) => {
     commitTabMode(to);
+    measure();
     if (reducedMotion()) {
       setShown(to);
       return;
     }
+    if (silk() && !isDock(to)) return cascade(pageParts(), pageParts, () => setShown(to));
     const out = body.animate(
       [
         { opacity: 1, transform: "none" },
@@ -572,6 +739,7 @@ const TabModePanel: Component<{
 
   const change = (to: TabMode) => {
     const from = tabMode();
+    if (el.parentElement) widen(el.parentElement, isDock(to));
     if (to === "tabs") return leave();
     if (from === "tabs") {
       setShown(to);
@@ -579,6 +747,56 @@ const TabModePanel: Component<{
       return enter();
     }
     cross(to, TAB_MODES.indexOf(to) > TAB_MODES.indexOf(from) ? 1 : -1);
+  };
+
+  // ── The agent and terminal, hosted ──
+  /** App's agent + terminal column, wherever it is now. */
+  const stack = () => document.querySelector<HTMLElement>(".rightstack:not(.dock-col)");
+  let home: HTMLElement | null = null;
+  /** Bring the column in; it may not exist for a frame or two after the toggle
+   *  that mounts it. */
+  const claim = (tries = 30) => {
+    const s = stack();
+    if (!dock) return;
+    if (!s) {
+      if (tries > 0) requestAnimationFrame(() => claim(tries - 1));
+      return;
+    }
+    if (s.parentElement === dock) return;
+    home ??= s.parentElement;
+    dock.append(s);
+  };
+  /** Put it back in its column (another design, or this pane going away). */
+  const release = () => {
+    const s = dock?.querySelector<HTMLElement>(":scope > .rightstack");
+    if (s && home) home.append(s);
+  };
+  createEffect(() => {
+    if (!silk()) release();
+    else if (isDock(shown())) claim();
+  });
+  onCleanup(() => {
+    release();
+    setPaneWide(false);
+  });
+  /** The page showing, in parts for the cascade: its own children, or theirs
+   *  when it's just a wrapper or two. */
+  const pageParts = (): HTMLElement[] => {
+    const page = body.querySelector<HTMLElement>(":scope > .mode-page:not([hidden])");
+    if (!page) return [];
+    let kids = [...page.children] as HTMLElement[];
+    if (kids.length <= 2)
+      kids = kids.flatMap((k) => (k.children.length ? ([...k.children] as HTMLElement[]) : [k]));
+    return kids.filter((k) => k.getBoundingClientRect().height > 0).slice(0, 14);
+  };
+  /** The hosted panel's parts, for the wave to bring in one by one. */
+  const dockParts = (): HTMLElement[] => {
+    const slot = [...(dock?.querySelectorAll<HTMLElement>(".rightstack-slot") ?? [])].find(
+      (s) => s.style.display !== "none",
+    );
+    const inner = slot?.querySelector<HTMLElement>(".agent-inner") ?? slot?.firstElementChild;
+    const kids = inner ? ([...inner.children] as HTMLElement[]) : [];
+    return kids.filter((k) => k.getBoundingClientRect().height > 0);
   };
 
   onMount(() => {
@@ -589,7 +807,10 @@ const TabModePanel: Component<{
     for (const part of side.querySelectorAll(":scope > .tab-modes, :scope > .sidebar-footer"))
       ro.observe(part);
     // Mounted by the first switch, which the plain setter already committed.
-    if (tabMode() !== "tabs") enter();
+    if (tabMode() !== "tabs") {
+      widen(side, isDock(tabMode()));
+      enter();
+    }
     onCleanup(() => {
       ro.disconnect();
       setTabModeChanger(null);
@@ -601,7 +822,16 @@ const TabModePanel: Component<{
       ref={el}
       classList={{ "tab-mode-panel": true, open: open(), entering: entering() }}
       role="tabpanel"
-      aria-label={{ calendar: "Calendar", mail: "Mail", notes: "Notes", context: "Context" }[shown()]}
+      aria-label={
+        {
+          calendar: "Calendar",
+          mail: "Mail",
+          notes: "Notes",
+          context: "Context",
+          agent: "Flux Agent",
+          terminal: "Terminal",
+        }[shown()]
+      }
       inert={!open()}
     >
       {/* The tabs, folded: one tile each, a click switches tab and stays here. */}
@@ -664,6 +894,11 @@ const TabModePanel: Component<{
               <TabNotes />
             </Suspense>
           </div>
+        </Show>
+        {/* Liquid Silk's Agent and Terminal: App's own column, moved in here
+            (claim, above) so nothing restarts. */}
+        <Show when={seen().has("agent") || seen().has("terminal")}>
+          <div class="mode-page mode-dock" ref={dock} hidden={!isDock(shown())} />
         </Show>
         {/* Context: what the right-hand column holds, here instead. It lives in
             one place at a time; while the column is open, this says so. */}

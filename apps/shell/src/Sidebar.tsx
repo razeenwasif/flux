@@ -108,8 +108,8 @@ import {
   zoomFor,
 } from "./store";
 import Icon from "./Icon";
-import { cardLayout } from "./design";
-import { mailUnread, setTabMode, tabMode, TAB_MODES, type TabMode } from "./tabMode";
+import { cardLayout, design } from "./design";
+import { mailUnread, setTabMode, tabMode, SIDE_PANELS, TAB_MODES, type TabMode } from "./tabMode";
 import { visibleInterval } from "./poll";
 import { attachHScroll } from "./hscroll";
 import RailTip, { hideTip, showTip } from "./RailTip";
@@ -324,14 +324,26 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // field into the find bar until the search is cleared or the address is asked for.
   const [findFocus, setFindFocus] = createSignal(false);
   const finding = () => vp() && (findOpen() || findFocus()) && !addrFocused();
-  const MODE_INFO: Record<TabMode, { label: string; icon: "tabs" | "calendar" | "mail" | "note" | "trail" }> =
+  const MODE_INFO: Record<
+    TabMode,
     {
-      tabs: { label: "Tabs", icon: "tabs" },
-      calendar: { label: "Calendar", icon: "calendar" },
-      mail: { label: "Mail", icon: "mail" },
-      notes: { label: "Notes", icon: "note" },
-      context: { label: "Context", icon: "trail" },
-    };
+      label: string;
+      icon: "tabs" | "calendar" | "mail" | "note" | "trail" | "agent" | "terminal";
+      key?: string;
+    }
+  > = {
+    tabs: { label: "Tabs", icon: "tabs" },
+    calendar: { label: "Calendar", icon: "calendar" },
+    mail: { label: "Mail", icon: "mail" },
+    notes: { label: "Notes", icon: "note" },
+    context: { label: "Context", icon: "trail" },
+    agent: { label: "Agent", icon: "agent", key: "toggle-agent" },
+    terminal: { label: "Terminal", icon: "terminal", key: "toggle-terminal" },
+  };
+  /** Liquid Silk: the agent and terminal are modes of this pane (tabMode.ts). */
+  const sideDock = () => design() === "liquid-silk";
+  const modeList = () => (sideDock() ? [...TAB_MODES, ...SIDE_PANELS] : TAB_MODES);
+  const docked = () => SIDE_PANELS.includes(tabMode());
   // The legend in the pane's edge names the mode.
   const legend = () => {
     const m = tabMode();
@@ -339,6 +351,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
     if (m === "mail") return mailUnread() ? `Mail · Inbox · ${mailUnread()} new` : "Mail · Inbox";
     if (m === "notes") return "Notes & to-do";
     if (m === "context") return "Context · this page";
+    if (m === "agent") return "Flux Agent";
+    if (m === "terminal") return "Terminal";
     return `Calendar · ${new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}`;
   };
   // The switch's thumb travels to the picked segment, measured once it's laid out.
@@ -377,6 +391,38 @@ const Sidebar: Component<SidebarProps> = (props) => {
       },
       { defer: true },
     ),
+  );
+  // Liquid Silk: the agent and terminal toggles and the pane's modes move
+  // together. Opening either one switches the pane to it (and closes the
+  // other); leaving its mode closes it. A launch opens on the tabs.
+  createEffect(
+    on(
+      () => [props.agentOpen, props.terminalOpen] as const,
+      ([a, t], prev) => {
+        if (!sideDock()) return;
+        const [pa, pt] = prev ?? [false, false];
+        if (a && !pa) {
+          if (t) props.onToggleTerminal();
+          setTabMode("agent");
+        } else if (t && !pt) {
+          if (a) props.onToggleAgent();
+          setTabMode("terminal");
+        } else if (!a && tabMode() === "agent") setTabMode("tabs");
+        else if (!t && tabMode() === "terminal") setTabMode("tabs");
+      },
+      { defer: true },
+    ),
+  );
+  createEffect(
+    on([tabMode, sideDock], ([m, on]) => {
+      // Another design: back to the tabs; the panels go back to their column.
+      if (!on) {
+        if (SIDE_PANELS.includes(m)) setTabMode("tabs");
+        return;
+      }
+      if (props.agentOpen !== (m === "agent")) props.onToggleAgent();
+      if (props.terminalOpen !== (m === "terminal")) props.onToggleTerminal();
+    }),
   );
   // Leaving the tabs needs the panel's chunk; it stays mounted after that.
   const [modesLoaded, setModesLoaded] = createSignal(false);
@@ -1146,13 +1192,17 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 : { opacity: 0 }
             }
           />
-          <For each={TAB_MODES}>
+          <For each={modeList()}>
             {(m, i) => (
               <button
                 role="tab"
-                classList={{ "tab-mode": true, on: tabMode() === m }}
+                classList={{
+                  "tab-mode": true,
+                  on: tabMode() === m,
+                  [`tab-mode-${m}`]: SIDE_PANELS.includes(m),
+                }}
                 aria-selected={tabMode() === m}
-                title={withKey(MODE_INFO[m].label, `mode-${m}`)}
+                title={withKey(MODE_INFO[m].label, MODE_INFO[m].key ?? `mode-${m}`)}
                 onClick={() => setTabMode(m)}
               >
                 <Icon name={MODE_INFO[m].icon} />
@@ -1176,6 +1226,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
           style={vp() ? undefined : { display: "contents" }}
           onFocusIn={(e) => {
             if ((e.target as HTMLElement).id === "flux-find") setFindFocus(true);
+            // The address stays in sight over the agent and terminal; typing in
+            // it goes back to the tabs, where its suggestions show.
+            else if (docked()) setTabMode("tabs");
           }}
           onFocusOut={(e) => {
             if ((e.target as HTMLElement).id === "flux-find") setFindFocus(false);

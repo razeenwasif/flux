@@ -1147,3 +1147,101 @@
   height: 9px;
   border-radius: 50%;
 }
+
+/* ── Agent and Terminal in the sidebar (Sidebar, TabModePanel) ─────────────
+   Two more of the pane's modes: the tab list gives way to the agent or the
+   terminal, the address stays in sight above them, and the tabs fold into the
+   rail beside them. */
+/* The sidebar widens for them (App's sideW); the columns follow it for the
+   length of the morph only, so dragging a seam never lags. */
+:root[data-design][data-silk] .shell.side-morph {
+  transition: grid-template-columns 1240ms cubic-bezier(0.2, 0.9, 0.1, 1);
+}
+:root[data-design][data-silk] .sidebar[data-mode="agent"] > .addr-stack,
+:root[data-design][data-silk] .sidebar[data-mode="terminal"] > .addr-stack {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: none;
+}
+/* Their two buttons sit after the others, past a hairline, in their colours. */
+:root[data-design][data-silk] .tab-modes .tab-mode-agent {
+  position: relative;
+  margin-left: 9px;
+}
+:root[data-design][data-silk] .tab-modes .tab-mode-agent::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.14);
+}
+:root[data-design][data-silk] .tab-modes .tab-mode-agent.on {
+  color: #d9bdf7;
+}
+:root[data-design][data-silk] .tab-modes .tab-mode-terminal.on {
+  color: rgb(var(--accent-rgb));
+}
+/* The hosted column fills the panel; its cards lose their own frame. */
+:root[data-design][data-silk] .tab-mode-panel .mode-dock {
+  flex: 1 1 0;
+  min-height: 0;
+}
+:root[data-design][data-silk] .tab-mode-panel .mode-body:has(> .mode-dock:not([hidden])) {
+  overflow: hidden;
+}
+:root[data-design][data-silk] .mode-dock > .rightstack {
+  height: 100%;
+  padding: 0;
+  gap: 0;
+}
+:root[data-design][data-silk] .mode-dock .agent-inner {
+  padding: 2px 0 0;
+  box-shadow: none;
+}
+:root[data-design][data-silk] .mode-dock .agent-inner::before,
+:root[data-design][data-silk] .mode-dock .agent-inner::after,
+:root[data-design][data-silk] .mode-dock .terminal-col::after {
+  display: none;
+}
+:root[data-design][data-silk] .mode-dock .agent-fx {
+  inset: 0;
+}
+/* The wave: a band of light that sweeps down the card (TabModePanel's silkWave). */
+.silk-wave {
+  position: absolute;
+  z-index: 6;
+  overflow: hidden;
+  pointer-events: none;
+}
+.silk-wave > i {
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  top: 0;
+  height: 46%;
+  opacity: 0;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(147, 232, 216, 0.35) 38%,
+    rgba(255, 255, 255, 0.55) 50%,
+    rgba(200, 162, 240, 0.4) 62%,
+    transparent 92%
+  );
+  filter: blur(14px);
+  mix-blend-mode: screen;
+}
+/* Calendar, Mail and Notes arrive on the cascade (TabModePanel) instead of
+   Velvet Paper's rise. */
+:root[data-design][data-silk] .tab-mode-panel.entering .mode-cal > :not(.mode-month),
+:root[data-design][data-silk] .tab-mode-panel.entering .mode-month > *,
+:root[data-design][data-silk] .tab-mode-panel.entering .mail-pane > * {
+  animation: none;
+}
+/* The launcher rail sits at the far left, before the sidebar (App's columns). */
+:root[data-design][data-silk] .bars-col {
+  padding: var(--vp-gap) 0 var(--vp-gap) 8px;
+}

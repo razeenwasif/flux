@@ -92,7 +92,11 @@ const DESKTOP_PRELOAD_BUDGET = 73 * 1024;
 // Raised 243 → 244 KB on 2026-11-11 (approved by the maintainer) for Fairy in
 // the agent panel: her chip, eye and reply label load with it; asking her is a
 // lazy chunk (fairy.ts).
-const DEFAULT_BOOT_BUDGET = 244 * 1024;
+// Raised 244 → 245 KB on 2026-11-12 (approved by the maintainer) for Liquid
+// Silk's Agent and Terminal modes in the sidebar: the mode buttons, keeping the
+// agent and terminal toggles in step with the modes, and the sidebar-first
+// layout. The morphs themselves are in the lazy TabModePanel.
+const DEFAULT_BOOT_BUDGET = 245 * 1024;
 // The lazy chunks the default layout loads at startup on a window wide enough to
 // show all of it (sidebar, editor column, bookmark bar, agent + terminal stack,
 // launcher and connections columns, the Indexer orb), beyond the entry and the

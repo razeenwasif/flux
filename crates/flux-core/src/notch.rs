@@ -185,21 +185,24 @@ pub async fn window_notch(
     keep_menu_bar: Option<bool>,
 ) -> Result<Option<NotchGeometry>, String> {
     let keep_menu_bar = keep_menu_bar.unwrap_or(false);
+    tracing::info!(target: "flux::notch", on, keep_menu_bar, "full screen around the notch");
     #[cfg(target_os = "macos")]
     {
         let (tx, rx) = std::sync::mpsc::channel();
         let w = window.clone();
         window
             .run_on_main_thread(move || {
-                let geom = w
-                    .ns_window()
-                    .ok()
-                    .and_then(|p| unsafe { mac::set(p as _, on, keep_menu_bar) });
+                let ns = w.ns_window();
+                if let Err(e) = &ns {
+                    tracing::warn!(target: "flux::notch", "no NSWindow: {e}");
+                }
+                let geom = ns.ok().and_then(|p| unsafe { mac::set(p as _, on, keep_menu_bar) });
                 let _ = tx.send(geom);
             })
             .map_err(|e| e.to_string())?;
-        rx.recv_timeout(std::time::Duration::from_secs(3))
-            .map_err(|e| e.to_string())
+        let geom = rx.recv_timeout(std::time::Duration::from_secs(3)).map_err(|e| e.to_string());
+        tracing::info!(target: "flux::notch", ?geom, "notch result");
+        geom
     }
     #[cfg(not(target_os = "macos"))]
     {
