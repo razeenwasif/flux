@@ -1287,3 +1287,384 @@
 :root[data-design][data-silk][data-agent-voice] .sidebar::before {
   border-right-width: 0;
 }
+
+/* ── The agent panel in motion (agent/AgentMotion.ts) ──────────────────── */
+/* Behind the pane: the grain-and-dither backdrop and the voice glow. Docked
+   in the sidebar, it fills the sidebar's card. */
+.silk-ambience {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: inherit;
+}
+:root[data-design][data-silk] .sidebar > .silk-ambience {
+  inset: 10px 0 0;
+  border-radius: var(--vp-r);
+}
+.silk-ambience[hidden],
+.silk-dots[hidden],
+.silk-thinking[hidden],
+.silk-rail[hidden] {
+  display: none;
+}
+.silk-back {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+.silk-glow {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 260px;
+}
+/* Above the pane: the dots across its bottom third, fading out upward. */
+.silk-dots {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 100%;
+  height: 34%;
+  pointer-events: none;
+  border-radius: 0 0 var(--vp-r) var(--vp-r);
+  -webkit-mask-image: linear-gradient(transparent, #000 38%);
+  mask-image: linear-gradient(transparent, #000 38%);
+}
+/* The agent's own tide and folds make way for the new glow and backdrop. */
+:root[data-design][data-silk] .agent-tide {
+  display: none;
+}
+
+/* The symbol beside the name: sixteen dots, each handed a delay into one
+   shared pulse. The pattern is only a table of delays. */
+:root[data-design][data-silk] .agent-orb.silk-has-mx {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: none;
+  animation: none;
+}
+:root[data-design][data-silk] .agent-orb.silk-has-mx::before,
+:root[data-design][data-silk] .agent-orb.silk-has-mx::after {
+  display: none;
+}
+.silk-mx {
+  display: grid;
+  grid-template-columns: repeat(4, 3px);
+  grid-auto-rows: 3px;
+  gap: 2px;
+  --mx-base: rgba(255, 255, 255, 0.16);
+  --mx-on: #fff;
+  --mx-cycle: 1200ms;
+}
+.silk-mx i {
+  display: block;
+  border-radius: 1px;
+  background: var(--mx-base);
+  animation: silk-mx-pulse var(--mx-cycle) ease-in-out infinite;
+  animation-delay: calc(var(--d, 0) * 1ms);
+}
+.silk-mx i.rest,
+.silk-mx i.eq,
+.silk-mx i.hold {
+  animation: none;
+}
+.silk-mx i.hold {
+  background: color-mix(in srgb, var(--mx-on) 55%, transparent);
+}
+.silk-mx i.eq {
+  transition: background-color 90ms ease-out;
+}
+.silk-mx i.eq.on {
+  background: var(--mx-on);
+}
+@keyframes silk-mx-pulse {
+  0%,
+  45%,
+  100% {
+    background-color: var(--mx-base);
+  }
+  15% {
+    background-color: var(--mx-on);
+  }
+}
+/* The status word swaps with a small lift and blur. */
+.silk-status {
+  display: inline-block;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+  white-space: nowrap;
+  transition:
+    transform 150ms ease-in-out,
+    filter 150ms ease-in-out,
+    opacity 150ms ease-in-out;
+}
+.silk-status.is-exit {
+  transform: translateY(-4px);
+  filter: blur(2px);
+  opacity: 0;
+}
+.silk-status.is-enter-start {
+  transform: translateY(4px);
+  filter: blur(2px);
+  opacity: 0;
+  transition: none;
+}
+/* Shimmer: a band of light crosses the words while something is in progress. */
+.silk-shimmer.on {
+  background: linear-gradient(
+    90deg,
+    var(--flux-text-mute) 0%,
+    var(--flux-text-mute) 38%,
+    #fff 50%,
+    var(--flux-text-mute) 62%,
+    var(--flux-text-mute) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: silk-shimmer 2.1s linear infinite;
+}
+@keyframes silk-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+/* What the agent is doing right now, with a small turning mark. */
+.silk-thinking {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  font-size: 12.5px;
+  min-width: 0;
+}
+.silk-thinking > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.silk-dm {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, 4px);
+  gap: 2px;
+  animation: silk-dm 2.4s ease-in-out infinite;
+}
+.silk-dm u {
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: rgb(var(--accent-ai-rgb));
+}
+.silk-dm u:nth-child(2),
+.silk-dm u:nth-child(3) {
+  opacity: 0.55;
+}
+@keyframes silk-dm {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Bars on the mic while you hold to talk. */
+.silk-bars {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+}
+.silk-bars i {
+  display: block;
+  width: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  animation: silk-bars 900ms ease-in-out infinite;
+}
+.silk-bars i:nth-child(1),
+.silk-bars i:nth-child(5) {
+  height: 5px;
+}
+.silk-bars i:nth-child(2),
+.silk-bars i:nth-child(4) {
+  height: 9px;
+}
+.silk-bars i:nth-child(3) {
+  height: 14px;
+}
+.silk-bars i:nth-child(2) {
+  animation-delay: -270ms;
+}
+.silk-bars i:nth-child(3) {
+  animation-delay: -540ms;
+}
+.silk-bars i:nth-child(4) {
+  animation-delay: -135ms;
+}
+.silk-bars i:nth-child(5) {
+  animation-delay: -405ms;
+}
+@keyframes silk-bars {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(0.35);
+  }
+}
+:root[data-design][data-silk] .agent-mic-on > :not(.silk-bars) {
+  display: none;
+}
+:root[data-design][data-silk] .agent-mic-on > .silk-bars {
+  display: inline-flex;
+}
+/* The message rail: a tick per message beside the chat, a preview on hover. */
+:root[data-design][data-silk] .agent-feed.silk-railed {
+  padding-right: 26px;
+  scrollbar-width: none;
+}
+:root[data-design][data-silk] .agent-feed.silk-railed::-webkit-scrollbar {
+  display: none;
+}
+/* (The panel lifts its children above its effects layer with a rule that
+   would also un-place these two; these selectors outrank it.) */
+:root[data-design][data-silk] .agent-inner > .silk-rail {
+  position: absolute;
+  z-index: 2;
+}
+:root[data-design][data-silk] .agent-inner > .silk-peek {
+  position: absolute;
+  z-index: 4;
+}
+.silk-rail {
+  position: absolute;
+  right: 0;
+  z-index: 2;
+  width: 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.silk-rail button {
+  flex: none;
+  width: 22px;
+  border: 0;
+  background: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  cursor: pointer;
+}
+.silk-rail i {
+  display: block;
+  height: 1.5px;
+  width: 9px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.34);
+  transform-origin: right;
+  transition:
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.2s;
+}
+.silk-rail button.user i {
+  width: 13px;
+}
+.silk-rail button:hover i,
+.silk-rail button:focus-visible i {
+  transform: scaleX(1.5);
+  background: #fff;
+}
+.silk-rail button.on i {
+  transform: scaleX(1.5);
+  background: rgb(var(--accent-rgb));
+}
+.silk-rail button:focus-visible {
+  outline: none;
+}
+.silk-peek {
+  position: absolute;
+  right: 30px;
+  z-index: 4;
+  width: min(232px, calc(100% - 44px));
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(var(--silk-tint), 0.92);
+  border: 1px solid var(--silk-edge);
+  font-size: 12px;
+  line-height: 1.35;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(6px, -50%);
+  transition:
+    opacity 0.15s ease,
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.silk-peek.show {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+.silk-peek b {
+  display: block;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.silk-peek span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--flux-text-dim);
+  margin-top: 2px;
+}
+/* An answer that arrives whole is revealed top to bottom, with a soft edge. */
+.silk-reveal {
+  -webkit-mask-image: linear-gradient(#000 0, #000 33%, transparent 45%);
+  mask-image: linear-gradient(#000 0, #000 33%, transparent 45%);
+  -webkit-mask-size: 100% 300%;
+  mask-size: 100% 300%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  animation: silk-reveal var(--silk-reveal, 1200ms) linear both;
+}
+@keyframes silk-reveal {
+  from {
+    -webkit-mask-position: 0 100%;
+    mask-position: 0 100%;
+  }
+  to {
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .silk-mx i,
+  .silk-dm,
+  .silk-bars i,
+  .silk-reveal {
+    animation: none !important;
+  }
+  .silk-shimmer.on {
+    animation: none;
+    background: none;
+    color: var(--flux-text-dim);
+  }
+  .silk-status,
+  .silk-rail i,
+  .silk-peek,
+  .silk-back {
+    transition: none !important;
+  }
+}

@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@paper-design/shaders": "0.0.82",
     "@picovoice/porcupine-web": "^4.0.0",
     "@tauri-apps/api": "^2.5.0",
     "@xterm/addon-fit": "^0.10.0",

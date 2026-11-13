@@ -18,6 +18,7 @@ import {
   type JSX,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import { design } from "./design";
 import { listen } from "@tauri-apps/api/event";
 import {
   agentChatStream,
@@ -110,6 +111,8 @@ import type { Blocker, HandoffChoice } from "./taskLoop";
 const TaskBar = lazy(() => import("./TaskBar"));
 const CitedAnswer = lazy(() => import("./CitedAnswer"));
 const RestyleCard = lazy(() => import("./RestyleCard"));
+// Liquid Silk's backdrop, glow, symbol and message rail (off the startup path).
+const AgentMotion = lazy(() => import("./agent/AgentMotion"));
 /** A cited answer's [P12] marks (cite.rs): passage numbers that mean nothing
  *  outside the turn they were written in. */
 const CITE_MARK = /\[P\d+(?:\s*,\s*P\d+)*\]/gi;
@@ -3113,8 +3116,10 @@ const AgentPanel: Component = () => {
     });
   }
 
+  let rootEl!: HTMLElement;
   return (
     <aside
+      ref={rootEl}
       class="agent"
       classList={{ "agent-droppable": filesPanelOpen(), "agent-dropping": dropping() }}
       onDragOver={(e) => {
@@ -3127,6 +3132,26 @@ const AgentPanel: Component = () => {
       }}
       onDrop={(e) => void onDrop(e)}
     >
+      <Show when={design() === "liquid-silk"}>
+        <AgentMotion
+          root={() => rootEl}
+          state={() =>
+            listening() || recording()
+              ? "listen"
+              : speaking() || fairySpeaking()
+                ? "speak"
+                : status().state === "acting" || fairyWorking()
+                  ? "act"
+                  : working()
+                    ? "think"
+                    : "idle"
+          }
+          detail={() => {
+            const s = status();
+            return s.state === "acting" ? s.description : "";
+          }}
+        />
+      </Show>
       <div class="agent-inner">
         {/* Ambient effects layer: circular aurora background + orbital edge glow. Its
             own absolutely-positioned + clipped layer so it never affects layout
