@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-eval-tab"
+description = "Enables the eval_tab command without any pre-configured scope."
+commands.allow = ["eval_tab"]
+
+[[permission]]
+identifier = "deny-eval-tab"
+description = "Denies the eval_tab command without any pre-configured scope."
+commands.deny = ["eval_tab"]

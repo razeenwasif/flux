@@ -90,6 +90,10 @@ notify = "6"
 # and the content-blocker filter lists (EasyList/EasyPrivacy, https → needs TLS).
 ureq = { version = "2", default-features = false, features = ["tls", "gzip"] }
 imap = { version = "2", default-features = false }
+# The phone link's HTTPS server (phonelink.rs). Both are already in the build
+# through rustls-connector and the updater; ring is the provider used.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+sha2 = "0.10"
 rustls-connector = { version = "0.23.6", default-features = false, features = ["rustls--ring", "webpki-root-certs", "platform-verifier"] }
 
 # Windows-only: DWM rounded corners (the window is opaque, so CSS can't round

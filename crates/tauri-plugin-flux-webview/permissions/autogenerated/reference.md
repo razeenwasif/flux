@@ -12,6 +12,15 @@ Lets the shell listen to the tab views' events (nav, scroll, back), open the sys
 - `allow-forget-folder`
 - `allow-take-opened`
 - `allow-set-chrome`
+- `allow-notch-geometry`
+- `allow-set-island`
+- `allow-haptic`
+- `allow-eval-tab`
+- `allow-find-in-page`
+- `allow-link-status`
+- `allow-link-pair`
+- `allow-link-request`
+- `allow-link-forget`
 
 ## Permission Table
 
@@ -21,6 +30,58 @@ Lets the shell listen to the tab views' events (nav, scroll, back), open the sys
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`flux-webview:allow-eval-tab`
+
+</td>
+<td>
+
+Enables the eval_tab command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:deny-eval-tab`
+
+</td>
+<td>
+
+Denies the eval_tab command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:allow-find-in-page`
+
+</td>
+<td>
+
+Enables the find_in_page command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:deny-find-in-page`
+
+</td>
+<td>
+
+Denies the find_in_page command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>
@@ -70,6 +131,162 @@ Enables the forget_folder command without any pre-configured scope.
 <td>
 
 Denies the forget_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:allow-haptic`
+
+</td>
+<td>
+
+Enables the haptic command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:deny-haptic`
+
+</td>
+<td>
+
+Denies the haptic command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:allow-link-forget`
+
+</td>
+<td>
+
+Enables the link_forget command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:deny-link-forget`
+
+</td>
+<td>
+
+Denies the link_forget command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:allow-link-pair`
+
+</td>
+<td>
+
+Enables the link_pair command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:deny-link-pair`
+
+</td>
+<td>
+
+Denies the link_pair command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:allow-link-request`
+
+</td>
+<td>
+
+Enables the link_request command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:deny-link-request`
+
+</td>
+<td>
+
+Denies the link_request command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:allow-link-status`
+
+</td>
+<td>
+
+Enables the link_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:deny-link-status`
+
+</td>
+<td>
+
+Denies the link_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:allow-notch-geometry`
+
+</td>
+<td>
+
+Enables the notch_geometry command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:deny-notch-geometry`
+
+</td>
+<td>
+
+Denies the notch_geometry command without any pre-configured scope.
 
 </td>
 </tr>
@@ -174,6 +391,32 @@ Enables the set_chrome command without any pre-configured scope.
 <td>
 
 Denies the set_chrome command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:allow-set-island`
+
+</td>
+<td>
+
+Enables the set_island command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`flux-webview:deny-set-island`
+
+</td>
+<td>
+
+Denies the set_island command without any pre-configured scope.
 
 </td>
 </tr>

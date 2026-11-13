@@ -295,6 +295,30 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the eval_tab command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-eval-tab",
+          "markdownDescription": "Enables the eval_tab command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the eval_tab command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-eval-tab",
+          "markdownDescription": "Denies the eval_tab command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the find_in_page command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-find-in-page",
+          "markdownDescription": "Enables the find_in_page command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the find_in_page command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-find-in-page",
+          "markdownDescription": "Denies the find_in_page command without any pre-configured scope."
+        },
+        {
           "description": "Enables the folders command without any pre-configured scope.",
           "type": "string",
           "const": "allow-folders",
@@ -317,6 +341,78 @@
           "type": "string",
           "const": "deny-forget-folder",
           "markdownDescription": "Denies the forget_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the haptic command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-haptic",
+          "markdownDescription": "Enables the haptic command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the haptic command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-haptic",
+          "markdownDescription": "Denies the haptic command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the link_forget command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-link-forget",
+          "markdownDescription": "Enables the link_forget command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the link_forget command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-link-forget",
+          "markdownDescription": "Denies the link_forget command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the link_pair command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-link-pair",
+          "markdownDescription": "Enables the link_pair command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the link_pair command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-link-pair",
+          "markdownDescription": "Denies the link_pair command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the link_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-link-request",
+          "markdownDescription": "Enables the link_request command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the link_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-link-request",
+          "markdownDescription": "Denies the link_request command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the link_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-link-status",
+          "markdownDescription": "Enables the link_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the link_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-link-status",
+          "markdownDescription": "Denies the link_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the notch_geometry command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-notch-geometry",
+          "markdownDescription": "Enables the notch_geometry command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the notch_geometry command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-notch-geometry",
+          "markdownDescription": "Denies the notch_geometry command without any pre-configured scope."
         },
         {
           "description": "Enables the pick_folder command without any pre-configured scope.",
@@ -367,6 +463,18 @@
           "markdownDescription": "Denies the set_chrome command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_island command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-island",
+          "markdownDescription": "Enables the set_island command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_island command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-island",
+          "markdownDescription": "Denies the set_island command without any pre-configured scope."
+        },
+        {
           "description": "Enables the share command without any pre-configured scope.",
           "type": "string",
           "const": "allow-share",
@@ -391,10 +499,10 @@
           "markdownDescription": "Denies the take_opened command without any pre-configured scope."
         },
         {
-          "description": "Lets the shell listen to the tab views' events (nav, scroll, back), open the system share sheet, pick folders through iOS, and take links shared to Flux. The tab commands stay Rust-only.\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-share`\n- `allow-pick-folder`\n- `allow-folders`\n- `allow-forget-folder`\n- `allow-take-opened`\n- `allow-set-chrome`",
+          "description": "Lets the shell listen to the tab views' events (nav, scroll, back), open the system share sheet, pick folders through iOS, and take links shared to Flux. The tab commands stay Rust-only.\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-share`\n- `allow-pick-folder`\n- `allow-folders`\n- `allow-forget-folder`\n- `allow-take-opened`\n- `allow-set-chrome`\n- `allow-notch-geometry`\n- `allow-set-island`\n- `allow-haptic`\n- `allow-eval-tab`\n- `allow-find-in-page`\n- `allow-link-status`\n- `allow-link-pair`\n- `allow-link-request`\n- `allow-link-forget`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Lets the shell listen to the tab views' events (nav, scroll, back), open the system share sheet, pick folders through iOS, and take links shared to Flux. The tab commands stay Rust-only.\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-share`\n- `allow-pick-folder`\n- `allow-folders`\n- `allow-forget-folder`\n- `allow-take-opened`\n- `allow-set-chrome`"
+          "markdownDescription": "Lets the shell listen to the tab views' events (nav, scroll, back), open the system share sheet, pick folders through iOS, and take links shared to Flux. The tab commands stay Rust-only.\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-share`\n- `allow-pick-folder`\n- `allow-folders`\n- `allow-forget-folder`\n- `allow-take-opened`\n- `allow-set-chrome`\n- `allow-notch-geometry`\n- `allow-set-island`\n- `allow-haptic`\n- `allow-eval-tab`\n- `allow-find-in-page`\n- `allow-link-status`\n- `allow-link-pair`\n- `allow-link-request`\n- `allow-link-forget`"
         }
       ]
     }

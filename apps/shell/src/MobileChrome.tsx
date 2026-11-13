@@ -45,6 +45,8 @@ import {
   type HistoryEntry,
 } from "./ipc";
 import { Icon } from "./mobileicons";
+import NotchIsland from "./NotchIsland";
+import { isIOS } from "./platform";
 import {
   activeId,
   activeTab,
@@ -412,6 +414,14 @@ const MobileChrome: Component<{
   return (
     <>
       <div class="mc-status" ref={strip} />
+      <Show when={isIOS}>
+        <NotchIsland
+          go={props.go}
+          openSearch={openSearch}
+          openTabs={() => props.setSheet("tabs")}
+          hidden={() => props.sheet() !== null}
+        />
+      </Show>
 
       <footer
         ref={bar}

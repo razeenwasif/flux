@@ -365,14 +365,42 @@ fn uid_sets(uids: impl IntoIterator<Item = u32>, per_command: usize) -> Vec<Stri
         .collect()
 }
 
+/// How many messages in INBOX are unread, and the newest `limit`, newest
+/// first: what the phone's notch island shows (phonelink.rs). Read-only like
+/// the rest: `SEARCH UNSEEN` and envelopes, so nothing is marked read.
+pub async fn mail_glance(app: AppHandle, limit: u32) -> Result<(u32, Vec<MailMsg>), String> {
+    let cfg = load_config(&app).ok_or("no mail account configured")?;
+    let pass = password(&cfg.email)?;
+    let limit = limit.clamp(1, 100) as usize;
+    tauri::async_runtime::spawn_blocking(move || {
+        with_session(&cfg, &pass, |s| {
+            let unread = s
+                .select("INBOX")
+                .map_err(|e| format!("select INBOX: {e}"))
+                .and_then(|_| s.search("UNSEEN").map_err(|e| format!("search: {e}")))?
+                .len() as u32;
+            Ok((unread, newest(s, limit)?))
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// The newest `limit` messages in INBOX, newest first, with unread flagged.
 #[tauri::command]
 pub async fn mail_fetch(app: AppHandle, limit: Option<u32>) -> Result<Vec<MailMsg>, String> {
     let cfg = load_config(&app).ok_or("no mail account configured")?;
     let pass = password(&cfg.email)?;
     let limit = limit.unwrap_or(20).clamp(1, 100) as usize;
-    tauri::async_runtime::spawn_blocking(move || {
-        with_session(&cfg, &pass, |s| {
+    tauri::async_runtime::spawn_blocking(move || with_session(&cfg, &pass, |s| newest(s, limit)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// The newest `limit` messages in INBOX (selected here), newest first.
+fn newest(s: &mut imap::Session<Box<dyn ReadWrite>>, limit: usize) -> Result<Vec<MailMsg>, String> {
+    {
+        {
             let mbox = s
                 .select("INBOX")
                 .map_err(|e| format!("select INBOX: {e}"))?;
@@ -422,10 +450,8 @@ pub async fn mail_fetch(app: AppHandle, limit: Option<u32>) -> Result<Vec<MailMs
                 .collect();
             out.reverse(); // newest first
             Ok(out)
-        })
-    })
-    .await
-    .map_err(|e| e.to_string())?
+        }
+    }
 }
 
 #[cfg(test)]

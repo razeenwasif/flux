@@ -18,6 +18,15 @@ const COMMANDS: &[&str] = &[
     "forget_folder",
     "take_opened",
     "set_chrome",
+    "notch_geometry",
+    "set_island",
+    "haptic",
+    "eval_tab",
+    "find_in_page",
+    "link_status",
+    "link_pair",
+    "link_request",
+    "link_forget",
 ];
 
 fn main() {

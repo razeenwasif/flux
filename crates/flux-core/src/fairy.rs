@@ -580,6 +580,30 @@ pub async fn fairy_ask(
     }
 }
 
+/// Ask Fairy from the phone's notch island (phonelink.rs): the question and the
+/// page as material, no browser tools (the page isn't on this Mac), and not
+/// read aloud (you're holding the phone, not at the Mac). Blocks until she's
+/// done, up to five minutes.
+pub fn ask_plain(question: &str, context: PageContext) -> Result<String, String> {
+    let question = cap_chars(question.trim(), 4_000);
+    if question.is_empty() {
+        return Err("Ask Fairy something".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let ask = serde_json::json!({ "type": "ask", "text": question, "context": context, "speak": false });
+        let mut conn = link::connect(true)?;
+        link::send(&mut conn, &ask)?;
+        let mut reader = std::io::BufReader::new(conn);
+        link::read_reply(&mut reader, std::time::Duration::from_secs(5 * 60), |_| {})
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = context;
+        Err("Fairy runs on macOS".into())
+    }
+}
+
 /// Stop the answer Fairy is writing.
 #[tauri::command]
 pub async fn fairy_stop() -> Result<(), String> {

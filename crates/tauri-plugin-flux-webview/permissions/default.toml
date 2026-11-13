@@ -11,4 +11,13 @@ permissions = [
   "allow-forget-folder",
   "allow-take-opened",
   "allow-set-chrome",
+  "allow-notch-geometry",
+  "allow-set-island",
+  "allow-haptic",
+  "allow-eval-tab",
+  "allow-find-in-page",
+  "allow-link-status",
+  "allow-link-pair",
+  "allow-link-request",
+  "allow-link-forget",
 ]

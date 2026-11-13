@@ -13,9 +13,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { terminalScreenReader, setTerminalScreenReader } from "./terminalAccessibility";
 import { settingsWriter } from "./settingsWriter";
 import { protectionMetrics, requestControlsHint } from "./protectionStatus";
-import { isMac, isWindows } from "./platform";
+import { isMac, isMobile, isWindows } from "./platform";
 import type { FormHelpPrefs, ShieldsStatus } from "./ipc";
 import { Row, Toggle } from "./SettingsControls";
+import PhoneLinkSettings from "./PhoneLinkSettings";
 import SettingsNavigator, { Section } from "./SettingsNavigator";
 import KeyboardSettings from "./KeyboardSettings";
 import UpdateSettings from "./UpdateSettings";
@@ -1500,6 +1501,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             </button>
           </div>
         </Section>
+
+        <Show when={!isMobile}>
+          <Section title="Phone link">
+            <PhoneLinkSettings />
+          </Section>
+        </Show>
 
         <Section title="Integrations">
           <Row

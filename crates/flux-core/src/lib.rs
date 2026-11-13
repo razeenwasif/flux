@@ -60,6 +60,7 @@ pub mod memory;
 #[cfg(windows)]
 pub mod msys;
 pub mod nav;
+pub mod phonelink;
 pub mod netfilter;
 pub mod netspeed;
 pub mod mdnotes;
@@ -312,6 +313,9 @@ fn init_core_state(app: &tauri::App, intent: cli::LaunchIntent, boot_started: st
     // Fairy's browser tools: a socket her asks from the agent panel may use (fairy.rs).
     #[cfg(target_os = "macos")]
     fairy::tools::start(app.handle());
+    // The phone link: the iPhone's notch island reads the calendar and inbox
+    // here, over Tailscale (phonelink.rs). Listens only once it's turned on.
+    phonelink::start(app.handle());
     // Single source of truth, injected into every command. Restored
     // from the persisted session so tabs survive a restart (#19).
     let session_path = app
@@ -1370,6 +1374,10 @@ pub fn run(intent: cli::LaunchIntent) {
             mail::mail_disconnect,
             mail::mail_fetch,
             mail::mail_mark_all_read,
+            phonelink::phonelink_state,
+            phonelink::phonelink_set_enabled,
+            phonelink::phonelink_pair,
+            phonelink::phonelink_forget,
             storage::storage_usage,
             storage::storage_clear,
             storage::storage_clear_cancel,

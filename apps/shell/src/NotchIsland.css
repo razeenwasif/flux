@@ -1,0 +1,848 @@
+/* The notch island (NotchIsland.tsx). Black, so on an OLED phone it reads as
+   the notch itself grown out of the screen's edge. One spring for every change
+   of shape. */
+
+.ni {
+  --ni-spring: cubic-bezier(0.32, 1.25, 0.42, 1);
+  position: fixed;
+  top: 0;
+  left: 50%;
+  z-index: 80;
+  transform: translateX(-50%);
+  overflow: hidden;
+  background: #000;
+  color: #f4f4f6;
+  font: 500 13px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  transition:
+    width 0.55s var(--ni-spring),
+    height 0.55s var(--ni-spring),
+    border-radius 0.55s ease,
+    box-shadow 0.4s ease;
+}
+.ni.open {
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+.ni.hidden {
+  visibility: hidden;
+}
+/* Idle: the touch strip under and beside the notch (the notch itself can't
+   be touched). Invisible. */
+.ni-grab {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  z-index: 81;
+  transform: translateX(-50%);
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.ni-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 79;
+  background: rgba(6, 6, 10, 0);
+  pointer-events: none;
+  transition: background 0.35s ease;
+}
+.ni-scrim.on {
+  background: rgba(6, 6, 10, 0.45);
+  pointer-events: auto;
+}
+
+/* ── The lip ─────────────────────────────────────────────────────────────── */
+.ni-lip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 15px 2px;
+  box-sizing: border-box;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.ni.compact .ni-lip {
+  opacity: 1;
+  transition-delay: 0.12s;
+}
+.ni-lip-ico {
+  display: flex;
+  color: #2ff3ff;
+}
+.ni-lip-ico.fairy {
+  color: #9b8bff;
+  animation: ni-pulse 1.6s ease-in-out infinite;
+}
+.ni-lip-ico.calendar {
+  color: #f472e6;
+}
+.ni-lip-ico.toast {
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  align-items: center;
+  justify-content: center;
+  background: #2ff3ff;
+  color: #00262a;
+}
+.ni-lip-ico.toast svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 3;
+}
+.ni-lip-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+.ni-lip-detail {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a7a7b0;
+}
+.ni-lip-detail.calendar {
+  color: #f472e6;
+}
+.ni-lip-detail.mail {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: #2ff3ff;
+  color: #00262a;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ni-more {
+  width: 5px;
+  height: 5px;
+  border-radius: 3px;
+  background: #a7a7b0;
+}
+.ni-dots {
+  display: flex;
+  gap: 3px;
+}
+.ni-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 2px;
+  background: #b3a5ff;
+  animation: ni-blink 1.2s ease-in-out infinite;
+}
+.ni-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.ni-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.ni-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+}
+.ni-eq i {
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: #2ff3ff;
+  transform-origin: 50% 100%;
+  animation: ni-eq 0.9s ease-in-out infinite;
+}
+.ni-eq i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.ni-eq i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+.ni-eq i:nth-child(4) {
+  animation-delay: 0.1s;
+}
+@keyframes ni-pulse {
+  0%,
+  100% {
+    transform: scale(0.82);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+@keyframes ni-blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+@keyframes ni-eq {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* ── Open ────────────────────────────────────────────────────────────────── */
+.ni-body {
+  position: absolute;
+  inset: 0;
+  animation: ni-in 0.3s ease 0.12s both;
+}
+@keyframes ni-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* The notch's ears, free while the status bar is hidden. */
+.ni-ear {
+  position: absolute;
+  top: 6px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+.ni-ear.left {
+  left: 30px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.ni-ear.right {
+  right: 26px;
+  gap: 4px;
+}
+.ni-pdot {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.3);
+  transition:
+    width 0.3s ease,
+    background 0.3s ease;
+}
+.ni-pdot.on {
+  width: 14px;
+  background: #fff;
+}
+.ni-view {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 42px;
+  bottom: 34px;
+  overflow: hidden;
+}
+.ni-track {
+  display: flex;
+  height: 100%;
+  transition: transform 0.5s cubic-bezier(0.3, 1.18, 0.42, 1);
+}
+.ni-track.dragging,
+.ni-slot.dragging {
+  transition: none;
+}
+.ni-slot {
+  flex: none;
+  height: 100%;
+  transition:
+    opacity 0.4s ease,
+    transform 0.5s cubic-bezier(0.3, 1.18, 0.42, 1);
+}
+.ni-page {
+  height: 100%;
+  box-sizing: border-box;
+  padding: 2px 16px 0;
+  overflow: hidden;
+}
+.ni-handle {
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  width: 80px;
+  height: 26px;
+  margin-left: -40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ni-handle i {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: #3a3a42;
+}
+
+/* ── Shared bits ─────────────────────────────────────────────────────────── */
+.ni button {
+  font: inherit;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.ni-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: #a7a7b0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ni-empty {
+  padding: 28px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: #a7a7b0;
+  line-height: 1.5;
+}
+.ni-fav {
+  flex: none;
+  border-radius: 9px;
+  object-fit: contain;
+  background: #1c1c22;
+}
+.ni-fav.glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #f4f4f6;
+}
+.ni-fav.glyph.big {
+  width: 36px;
+  height: 36px;
+}
+.ni-round {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ni-round:disabled {
+  opacity: 0.35;
+}
+.ni-round.big {
+  width: 46px;
+  height: 46px;
+  border-radius: 23px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ni-round.send {
+  background: #7b61ff;
+  color: #fff;
+}
+.ni-pills {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ni-pills.wrap {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.ni-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 12px !important;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ni-pill:disabled {
+  opacity: 0.4;
+}
+.ni-pill.small {
+  height: 26px;
+  margin-top: 8px;
+  padding: 0 10px;
+  font-size: 11px !important;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ni-pill.strong {
+  background: #2ff3ff;
+  color: #00262a !important;
+  font-weight: 600;
+}
+.ni-pill.join {
+  background: #f472e6;
+  color: #2a0526 !important;
+  font-weight: 600;
+}
+.ni-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Quick ───────────────────────────────────────────────────────────────── */
+.ni-cur {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 50px;
+}
+.ni-cur-main,
+.ni-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+.ni-cur-title,
+.ni-row-title {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ni-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.ni-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 64px;
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 11px !important;
+  font-weight: 500;
+}
+.ni-tile:active {
+  background: rgba(255, 255, 255, 0.16);
+}
+.ni-tile:disabled {
+  opacity: 0.35;
+}
+.ni-tile.ai {
+  background: rgba(123, 97, 255, 0.22);
+}
+.ni-tile.ai svg {
+  color: #b3a5ff;
+}
+
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+.ni-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid #1d1d22;
+  background: transparent;
+}
+.ni-dot-live {
+  width: 7px;
+  height: 7px;
+  border-radius: 4px;
+  background: #2ff3ff;
+}
+
+/* ── The pairing card ────────────────────────────────────────────────────── */
+.ni-pair {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding-bottom: 8px;
+}
+.ni-pair-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ni-pair-text {
+  margin: 0;
+  max-width: 300px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #a7a7b0;
+}
+.ni-pair-err {
+  margin: 0;
+  max-width: 320px;
+  font-size: 11px;
+  color: #f7a0ef;
+}
+
+/* ── Calendar ────────────────────────────────────────────────────────────── */
+.ni-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  height: 46px;
+}
+.ni-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: #a7a7b0;
+}
+.ni-day b {
+  font-size: 13px;
+  font-weight: 500;
+  color: #f4f4f6;
+}
+.ni-day.today {
+  color: #2ff3ff;
+}
+.ni-day.today b {
+  width: 26px;
+  height: 20px;
+  border-radius: 10px;
+  background: #2ff3ff;
+  color: #00262a;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ni-day i {
+  width: 4px;
+  height: 4px;
+  border-radius: 2px;
+}
+.ni-day i.on {
+  background: #a7a7b0;
+}
+.ni-next {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(236, 75, 224, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(236, 75, 224, 0.35);
+}
+.ni-next-main {
+  flex: 1;
+  min-width: 0;
+}
+.ni-next-when {
+  font-size: 11px;
+  font-weight: 600;
+  color: #f7a0ef;
+}
+.ni-next-title {
+  margin: 2px 0;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ni-ev {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  font-size: 13px;
+  border-bottom: 1px solid #1d1d22;
+}
+.ni-ev:last-child {
+  border-bottom: 0;
+}
+.ni-ev-time {
+  width: 46px;
+  font-size: 12px;
+  color: #a7a7b0;
+}
+.ni-ev i {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: #2ff3ff;
+}
+.ni-ev-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ni-ev .ni-sub {
+  max-width: 80px;
+}
+
+/* ── Mail ────────────────────────────────────────────────────────────────── */
+.ni-mail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+}
+.ni-mail-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ni-badge {
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: rgba(47, 243, 255, 0.15);
+  color: #9ef9ff;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+}
+.ni-mail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid #1d1d22;
+  background: transparent;
+}
+.ni-mail:last-child {
+  border-bottom: 0;
+}
+.ni-avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  background: #2b2350;
+  color: #e2dbff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ni-mail-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ni-unread {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: #2ff3ff;
+}
+.ni-mail-from {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ni-mail-subject {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ni-mail-from.read,
+.ni-mail-subject.read {
+  font-weight: 400;
+  color: #c9c9d1;
+}
+
+/* ── Playing ─────────────────────────────────────────────────────────────── */
+.ni-play-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 4px;
+}
+.ni-art {
+  flex: none;
+  width: 84px;
+  height: 84px;
+  border-radius: 18px;
+  object-fit: cover;
+  background: #2a1f52;
+  color: #2ff3ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ni-play-title {
+  font-size: 16px;
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ni-scrub {
+  margin-top: 18px;
+  height: 4px;
+  border-radius: 2px;
+  background: #2a2a30;
+  overflow: hidden;
+}
+.ni-scrub div {
+  height: 100%;
+  border-radius: 2px;
+  background: #f4f4f6;
+  transition: width 0.9s linear;
+}
+.ni-times {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #a7a7b0;
+  font-variant-numeric: tabular-nums;
+}
+.ni-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  margin-top: 8px;
+}
+.ni-play {
+  width: 60px;
+  height: 60px;
+  padding: 0;
+  border: 0;
+  border-radius: 30px;
+  background: #fff;
+  color: #000 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ni-play svg {
+  fill: currentColor;
+}
+
+/* ── Fairy ───────────────────────────────────────────────────────────────── */
+.ni-answer {
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(123, 97, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(123, 97, 255, 0.35);
+}
+.ni-answer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #cfc6ff;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ni-answer-head svg {
+  flex: none;
+  color: #9b8bff;
+}
+.ni-answer-text {
+  margin: 8px 0 0;
+  max-height: 80px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #ecebf5;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ni-answer-text.dim {
+  color: #a7a7b0;
+}
+.ni-ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  height: 44px;
+  padding: 0 5px 0 14px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.ni-ask input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f4f4f6;
+  font: 400 15px -apple-system, system-ui, sans-serif;
+}
+.ni-ask input::placeholder {
+  color: #8e8e98;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ni,
+  .ni-track,
+  .ni-slot {
+    transition-duration: 0.01s;
+  }
+  .ni-lip-ico.fairy,
+  .ni-dots i,
+  .ni-eq i {
+    animation: none;
+  }
+}

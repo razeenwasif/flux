@@ -178,6 +178,64 @@ struct ChromeArgs: Decodable {
 /// Holds the shell's WKWebView. Over a visible page, only the bars take touches;
 /// everywhere else hit-testing returns nil, so UIKit carries on to the page
 /// underneath.
+/// The notch island (MobileChrome's NotchIsland): where it is, in the shell's
+/// points, and whether it's open. Open, the shell takes every touch (a tap
+/// outside closes it) and the status bar fades out so the island can use the
+/// notch's ears.
+struct IslandArgs: Decodable {
+  let x: Double
+  let y: Double
+  let w: Double
+  let h: Double
+  let open: Bool
+}
+
+struct LinkPairArgs: Decodable {
+  let link: String
+}
+
+struct LinkRequestArgs: Decodable {
+  let method: String
+  let path: String
+  let body: String?
+}
+
+struct HapticArgs: Decodable {
+  /// "light", "medium", "soft" or "rigid".
+  let style: String
+}
+
+struct EvalArgs: Decodable {
+  let id: Int
+  /// The body of an async function, run in the page's own world; what it
+  /// returns comes back as JSON text.
+  let js: String
+}
+
+/// The notch, for the island to hang from. iOS has no API for its shape, so
+/// it's a table by model: the X family's notch (X, XS, XS Max, 11 Pro, 11 Pro
+/// Max) is the same at 3x. Others return nothing until they're measured, and
+/// the island stays off.
+enum Notch {
+  static var model: String {
+    if let sim = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] { return sim }
+    var u = utsname()
+    uname(&u)
+    return withUnsafeBytes(of: &u.machine) { raw in
+      String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
+    }
+  }
+
+  static func size(_ model: String) -> CGSize? {
+    switch model {
+    case "iPhone10,3", "iPhone10,6", "iPhone11,2", "iPhone11,4", "iPhone11,6", "iPhone12,3", "iPhone12,5":
+      return CGSize(width: 210, height: 32)
+    default:
+      return nil
+    }
+  }
+}
+
 final class ChromeHost: UIView {
   var passThrough: (CGPoint) -> Bool = { _ in false }
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -203,13 +261,31 @@ enum StatusBar {
   static var style: UIStatusBarStyle = .lightContent
   private static var installed = false
 
+  /// Hidden while the notch island is open, so it can use the notch's ears.
+  static var hidden = false
+
   static func install(on vc: UIViewController) {
     if installed { return }
     installed = true
+    let cls: AnyClass = type(of: vc)
     let read: @convention(block) (AnyObject) -> Int = { _ in StatusBar.style.rawValue }
     class_replaceMethod(
-      type(of: vc), #selector(getter: UIViewController.preferredStatusBarStyle),
+      cls, #selector(getter: UIViewController.preferredStatusBarStyle),
       imp_implementationWithBlock(read), "q@:")
+    let isHidden: @convention(block) (AnyObject) -> Bool = { _ in StatusBar.hidden }
+    class_replaceMethod(
+      cls, #selector(getter: UIViewController.prefersStatusBarHidden),
+      imp_implementationWithBlock(isHidden), "B@:")
+    let fade: @convention(block) (AnyObject) -> Int = { _ in UIStatusBarAnimation.fade.rawValue }
+    class_replaceMethod(
+      cls, #selector(getter: UIViewController.preferredStatusBarUpdateAnimation),
+      imp_implementationWithBlock(fade), "q@:")
+  }
+
+  static func setHidden(_ h: Bool, on vc: UIViewController?) {
+    if h == hidden { return }
+    hidden = h
+    UIView.animate(withDuration: 0.25) { vc?.setNeedsStatusBarAppearanceUpdate() }
   }
 
   static func set(_ s: UIStatusBarStyle, on vc: UIViewController?) {
@@ -237,6 +313,50 @@ struct NavArgs: Decodable {
 /// wide, so this keeps the cached JPEG small.
 private let thumbWidth: CGFloat = 220
 
+/// What's playing in a tab, for the notch island. A script in Flux's own world
+/// listens for the page's media starting and stopping (the events reach the
+/// document in the capture phase) and posts what it finds, with the page's
+/// Media Session details when it set any.
+enum MediaWatch {
+  static let name = "fluxMedia"
+  static let source = """
+    (() => {
+      const pick = () => {
+        const els = [...document.querySelectorAll('video,audio')];
+        return els.find(e => !e.paused && !e.ended) || els.find(e => e.currentTime > 0 && !e.ended) || null;
+      };
+      let last = '';
+      const post = () => {
+        const el = pick();
+        const md = navigator.mediaSession && navigator.mediaSession.metadata;
+        const art = md && md.artwork && md.artwork.length ? md.artwork[md.artwork.length - 1].src : '';
+        const m = {
+          has: !!el,
+          playing: !!(el && !el.paused && !el.ended),
+          video: !!(el && el.tagName === 'VIDEO'),
+          title: (md && md.title) || document.title || '',
+          artist: (md && md.artist) || '',
+          art: art || '',
+        };
+        const k = JSON.stringify(m);
+        if (k === last) return;
+        last = k;
+        window.webkit.messageHandlers.fluxMedia.postMessage(m);
+      };
+      for (const ev of ['play', 'playing', 'pause', 'ended', 'emptied']) document.addEventListener(ev, post, true);
+    })();
+    """
+}
+
+/// Holds the plugin weakly: WebKit keeps its message handlers alive.
+final class WeakHandler: NSObject, WKScriptMessageHandler {
+  weak var target: FluxWebViewPlugin?
+  init(_ t: FluxWebViewPlugin) { target = t }
+  func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
+    target?.media(message)
+  }
+}
+
 class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
   private weak var shell: WKWebView?
   private var pages: PagesController?
@@ -245,6 +365,9 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
   private var topH: CGFloat = 0
   private var barH: CGFloat = 0
   private var pageShown = false
+  /// The notch island's frame, and whether it's open (`set_island`).
+  private var islandRect: CGRect = .zero
+  private var islandOpen = false
   /// Shields (ADR 0021): the compiled rules, and the switches from Rust.
   private var rules: WKContentRuleList?
   private var rulesStamp = ""
@@ -290,6 +413,11 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
     webview.backgroundColor = .clear
     webview.scrollView.backgroundColor = .clear
     webview.scrollView.scrollsToTop = false
+    // iOS 26's scroll edge effect fades whatever is under the status bar into
+    // a flat colour. The shell doesn't scroll, and it draws there on purpose:
+    // the wallpaper runs up behind the clock, and the notch island hangs from
+    // the screen's top edge.
+    if #available(iOS 26.0, *) { webview.scrollView.topEdgeEffect.isHidden = true }
   }
 
   var shellView: WKWebView? { shell }
@@ -334,6 +462,7 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
     ch.addSubview(shell)
     ch.passThrough = { [weak self] p in
       guard let self = self, self.pageShown, let ch = self.chrome else { return false }
+      if self.islandOpen || self.islandRect.contains(p) { return false }
       return p.y > self.topH && p.y < ch.bounds.height - self.barH
     }
     pages = pc
@@ -409,6 +538,9 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
     config.allowsInlineMediaPlayback = true
     config.allowsPictureInPictureMediaPlayback = true
     config.mediaTypesRequiringUserActionForPlayback = []
+    config.userContentController.addUserScript(
+      WKUserScript(source: MediaWatch.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+    config.userContentController.add(WeakHandler(self), contentWorld: .defaultClient, name: MediaWatch.name)
     let wv = WKWebView(frame: .zero, configuration: config)
     wv.navigationDelegate = self
     wv.uiDelegate = self
@@ -925,6 +1057,120 @@ class FluxWebViewPlugin: Plugin, WKNavigationDelegate, WKUIDelegate {
     invoke.resolve()
   }
 
+  /// A tab's media started or stopped (MediaWatch): passed on as `media`.
+  func media(_ message: WKScriptMessage) {
+    guard let wv = message.webView, let id = views.first(where: { $0.value === wv })?.key,
+      let m = message.body as? [String: Any]
+    else { return }
+    var data: JSObject = [:]
+    data["id"] = id
+    data["has"] = (m["has"] as? Bool) ?? false
+    data["playing"] = (m["playing"] as? Bool) ?? false
+    data["video"] = (m["video"] as? Bool) ?? false
+    data["title"] = String(((m["title"] as? String) ?? "").prefix(200))
+    data["artist"] = String(((m["artist"] as? String) ?? "").prefix(200))
+    data["art"] = String(((m["art"] as? String) ?? "").prefix(2000))
+    trigger("media", data: data)
+  }
+
+  /// The notch's size on this model, or null where the island stays off.
+  @objc public func notchGeometry(_ invoke: Invoke) throws {
+    let model = Notch.model
+    guard let n = Notch.size(model) else { return invoke.resolve(["model": model]) }
+    invoke.resolve(["model": model, "w": Double(n.width), "h": Double(n.height)])
+  }
+
+  /// Where the notch island is, so touches there reach the shell instead of
+  /// the page under it; open, it takes every touch and hides the status bar.
+  @objc public func setIsland(_ invoke: Invoke) throws {
+    let a = try invoke.parseArgs(IslandArgs.self)
+    DispatchQueue.main.async {
+      self.islandRect = CGRect(x: a.x, y: a.y, width: max(0, a.w), height: max(0, a.h))
+      self.islandOpen = a.open
+      let root = self.manager.viewController ?? self.shell?.window?.rootViewController
+      StatusBar.setHidden(a.open, on: root)
+    }
+    invoke.resolve()
+  }
+
+  // MARK: The phone link (MacLink.swift)
+
+  @objc public func linkStatus(_ invoke: Invoke) throws {
+    let p = MacLink.shared.load()
+    invoke.resolve(["paired": p != nil, "name": p?.name ?? ""])
+  }
+
+  @objc public func linkPair(_ invoke: Invoke) throws {
+    let a = try invoke.parseArgs(LinkPairArgs.self)
+    MacLink.shared.pair(link: a.link) { r in
+      switch r {
+      case .success(let name): invoke.resolve(["name": name])
+      case .failure(let e): invoke.reject(e.localizedDescription)
+      }
+    }
+  }
+
+  @objc public func linkRequest(_ invoke: Invoke) throws {
+    let a = try invoke.parseArgs(LinkRequestArgs.self)
+    MacLink.shared.request(method: a.method, path: a.path, body: a.body) { r in
+      switch r {
+      case .success(let (status, body)): invoke.resolve(["status": status, "body": body])
+      case .failure(let e): invoke.reject(e.localizedDescription)
+      }
+    }
+  }
+
+  @objc public func linkForget(_ invoke: Invoke) throws {
+    MacLink.shared.save(nil)
+    invoke.resolve()
+  }
+
+  @objc public func haptic(_ invoke: Invoke) throws {
+    let a = try invoke.parseArgs(HapticArgs.self)
+    DispatchQueue.main.async {
+      let style: UIImpactFeedbackGenerator.FeedbackStyle =
+        switch a.style {
+        case "medium": .medium
+        case "soft": .soft
+        case "rigid": .rigid
+        default: .light
+        }
+      UIImpactFeedbackGenerator(style: style).impactOccurred()
+    }
+    invoke.resolve()
+  }
+
+  /// Runs a script in a tab and returns its result as JSON text ("null"
+  /// when there's no such tab). For the island: what's playing and its
+  /// controls, and the page's text for Fairy.
+  @objc public func evalTab(_ invoke: Invoke) throws {
+    let a = try invoke.parseArgs(EvalArgs.self)
+    DispatchQueue.main.async {
+      guard let wv = self.views[a.id] else { return invoke.resolve(["json": "null"]) }
+      let body = "const __r = await (async () => { \(a.js) })(); return JSON.stringify(__r === undefined ? null : __r);"
+      // Flux's own world, so nothing the page has redefined (JSON, the media
+      // elements' methods) runs in place of what this script calls.
+      wv.callAsyncJavaScript(body, arguments: [:], in: nil, in: .defaultClient) { r in
+        switch r {
+        case .success(let v): invoke.resolve(["json": (v as? String) ?? "null"])
+        case .failure(let e): invoke.reject(e.localizedDescription)
+        }
+      }
+    }
+  }
+
+  /// iOS's own find bar (iOS 16+) on the shown tab.
+  @objc public func findInPage(_ invoke: Invoke) throws {
+    DispatchQueue.main.async {
+      guard let wv = self.views.values.first(where: { !$0.isHidden }) else { return invoke.resolve() }
+      if #available(iOS 16.0, *) {
+        wv.isFindInteractionEnabled = true
+        wv.findInteraction?.presentFindNavigator(showingReplace: false)
+      }
+      invoke.resolve()
+    }
+  }
+
   /// Links shared to Flux since the shell last asked (see `Opened`).
   @objc public func takeOpened(_ invoke: Invoke) throws {
     DispatchQueue.main.async { invoke.resolve(Opened.shared.drain()) }
@@ -1161,6 +1407,17 @@ final class Opened {
   weak var plugin: FluxWebViewPlugin?
 
   func take(_ contexts: Set<UIOpenURLContext>) {
+    for c in contexts where c.url.scheme == "flux-browser" && c.url.host == "pair" {
+      let link = c.url.absoluteString
+      MacLink.shared.pair(link: link) { [weak self] r in
+        DispatchQueue.main.async {
+          switch r {
+          case .success(let name): self?.plugin?.trigger("linked", data: ["name": name])
+          case .failure(let e): self?.plugin?.trigger("linked", data: ["error": e.localizedDescription])
+          }
+        }
+      }
+    }
     for c in contexts {
       guard c.url.scheme == "flux-browser", c.url.host == "open",
         let raw = URLComponents(url: c.url, resolvingAgainstBaseURL: false)?

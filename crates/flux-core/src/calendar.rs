@@ -601,6 +601,8 @@ fn for_each_vevent(ics: &str, utc_offset_min: i64, mut f: impl FnMut(Vevent)) {
     let mut nested = 0u32;
     let mut summary = String::new();
     let mut location = String::new();
+    // Google's ICS gives a Meet call as X-GOOGLE-CONFERENCE, not a location.
+    let mut conference = String::new();
     let mut start: Option<DtParts> = None;
     let mut end_time = String::new();
     let mut rrule = String::new();
@@ -615,6 +617,7 @@ fn for_each_vevent(ics: &str, utc_offset_min: i64, mut f: impl FnMut(Vevent)) {
             nested = 0;
             summary.clear();
             location.clear();
+            conference.clear();
             end_time.clear();
             rrule.clear();
             exdates.clear();
@@ -631,7 +634,9 @@ fn for_each_vevent(ics: &str, utc_offset_min: i64, mut f: impl FnMut(Vevent)) {
                     } else {
                         summary.clone()
                     },
-                    location: location.clone(),
+                    // An event with no place of its own shows its call link
+                    // there (and the phone's island offers to join it).
+                    location: if location.is_empty() { conference.clone() } else { location.clone() },
                     end_time: end_time.clone(),
                     start: s,
                     rrule: rrule.clone(),
@@ -668,6 +673,7 @@ fn for_each_vevent(ics: &str, utc_offset_min: i64, mut f: impl FnMut(Vevent)) {
         match name {
             "SUMMARY" => summary = decode_text(value),
             "LOCATION" => location = decode_text(value),
+            "X-GOOGLE-CONFERENCE" => conference = value.trim().to_string(),
             // `…Z` start/end times are shown on the viewer's clock. EXDATE,
             // RECURRENCE-ID (and UNTIL) stay as written: the rule is expanded in
             // DTSTART's own terms (RFC 5545) and each occurrence moved on output.
@@ -1792,6 +1798,17 @@ END:VCALENDAR\n";
         assert_eq!(ev[1].date, "2026-06-20");
         assert_eq!(ev[1].time, ""); // all-day
         assert_eq!(ev[1].calendar, "Work");
+    }
+
+    #[test]
+    fn a_meet_call_shows_where_an_event_has_no_place() {
+        let ics = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Design review\r\nDTSTART:20260619T103000\r\n\
+X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nSUMMARY:Lunch\r\n\
+DTSTART:20260619T123000\r\nLOCATION:Canteen\r\nX-GOOGLE-CONFERENCE:https://meet.google.com/xyz\r\nEND:VEVENT\r\nEND:VCALENDAR";
+        let ev = parse_events_at(ics, "Work", day(2026, 6, 15));
+        assert_eq!(ev[0].location, "https://meet.google.com/abc-defg-hij");
+        // A place of its own wins.
+        assert_eq!(ev[1].location, "Canteen");
     }
 
     #[test]
