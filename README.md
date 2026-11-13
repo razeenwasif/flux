@@ -7,6 +7,14 @@ llama.cpp (Gemma-class 12B) on-device inference. See
 [ADR 0001](docs/adr/0001-architecture-and-performance-budgets.md) for the
 architecture rationale and the CI-enforced performance budgets.
 
+![Flux's start page in Liquid Silk, full screen around the notch, the Opal wallpaper moving](docs/media/start-waves.gif)
+
+| Start page | Fairy in the agent panel |
+|---|---|
+| ![Start page](docs/media/start.jpg) | ![Agent panel](docs/media/agent.jpg) |
+
+A sharper clip of the moving wallpaper: [docs/media/start-waves.mp4](docs/media/start-waves.mp4).
+
 ## Monorepo layout
 
 ```
