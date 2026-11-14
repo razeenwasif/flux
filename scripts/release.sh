@@ -14,6 +14,19 @@
 # nothing that key didn't sign. Keep a copy of that key somewhere safe. Without
 # it, copies of Flux already out there can't take another update.
 #
+# The key has a password, so a copy of the key file alone (a backup, a synced
+# folder) can't sign an update. The password lives in your login Keychain and
+# reaches the signer through its environment, never on a command line, where
+# `ps` would show it:
+#
+#   security add-generic-password -s flux-updater-key -a "$USER" -w    (asks for it)
+#
+# FLUX_UPDATER_KEY_PASSWORD names one for a single run instead. A key made
+# without a password is refused unless FLUX_UPDATER_KEY_UNPROTECTED=1 says you
+# mean it (for the one release that hands over to a new, protected key); that
+# alone is enough, with nothing in the Keychain. The password is checked against
+# the key before anything is bumped or built.
+#
 # The archive is named Flux_<version>_<arch>.app.tar.gz, and the signature
 # covers that name: Flux checks it against the version it's offered, so an old
 # build can't be passed off as a new one.
@@ -45,6 +58,44 @@ esac
 
 is_version() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 
+# The updater key's password, worked out once, here, before anything is bumped
+# or built: FLUX_UPDATER_KEY_PASSWORD if it's set (even to nothing), else nothing
+# at all when FLUX_UPDATER_KEY_UNPROTECTED=1, else the Keychain item
+# flux-updater-key. Kept in a shell variable, and taken out of the environment,
+# so npm, cargo, git and gh never inherit it.
+if [ -n "${FLUX_UPDATER_KEY_PASSWORD+set}" ]; then
+  UPDATER_PASSWORD="$FLUX_UPDATER_KEY_PASSWORD"
+elif [ "${FLUX_UPDATER_KEY_UNPROTECTED:-}" = "1" ]; then
+  UPDATER_PASSWORD=""
+else
+  UPDATER_PASSWORD="$(security find-generic-password -s flux-updater-key -w 2>/dev/null)" ||
+    die "no password for the updater key. Put it in the Keychain:
+  security add-generic-password -s flux-updater-key -a \"\$USER\" -w"
+fi
+unset FLUX_UPDATER_KEY_PASSWORD
+if [ -z "$UPDATER_PASSWORD" ] && [ "${FLUX_UPDATER_KEY_UNPROTECTED:-}" != "1" ]; then
+  die "the updater key has no password, so anyone with a copy of the file could sign an update. Make a key with one (tauri signer generate), or set FLUX_UPDATER_KEY_UNPROTECTED=1 for this run."
+fi
+
+# sign_archive <file>: writes <file>.sig with the updater key.
+sign_archive() {
+  local file="$1"
+  rm -f "$file.sig"
+  # In the signer's environment only: `-p` would put it in the process list.
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$UPDATER_PASSWORD" \
+    npx --no-install tauri signer sign -f "$KEY" "$file" >/dev/null ||
+    die "signing failed (a wrong password for the updater key?)"
+  [ -s "$file.sig" ] || die "signing made no signature"
+}
+
+# A wrong password should stop the release now, not after the version is bumped
+# and Flux has spent minutes building: sign a scrap file to find out.
+PROBE="$(mktemp -d)"
+echo flux >"$PROBE/probe"
+sign_archive "$PROBE/probe"
+rm -f "$PROBE/probe" "$PROBE/probe.sig"
+rmdir "$PROBE"
+
 # pack <Flux.app> <version> <out-dir> <base-url> [notes]
 # Writes the archive, its signature and latest.json into <out-dir>; the archive
 # is expected at <base-url>/<archive name>.
@@ -57,9 +108,7 @@ pack() {
   say "Packing $name"
   # The archive holds Flux.app itself: the updater swaps the whole bundle.
   COPYFILE_DISABLE=1 tar -czf "$out/$name" -C "$(dirname "$app")" "$(basename "$app")"
-  rm -f "$out/$name.sig"
-  npx --no-install tauri signer sign -f "$KEY" -p "" "$out/$name" >/dev/null
-  [ -s "$out/$name.sig" ] || die "signing the archive failed"
+  sign_archive "$out/$name"
   FLUX_PACK_VERSION="$version" FLUX_PACK_NOTES="$notes" FLUX_PACK_SIG="$(cat "$out/$name.sig")" \
     FLUX_PACK_URL="${base%/}/$name" FLUX_PACK_TARGET="darwin-$ARCH" \
     node -e '

@@ -79,18 +79,105 @@ impl Credential {
     /// host or a sub/parent-domain relationship (e.g. a `github.com` entry fills
     /// `gist.github.com`). Conservative — never a blanket substring match.
     pub fn matches_host(&self, host: &str) -> bool {
-        let host = host.trim().to_ascii_lowercase();
-        if host.is_empty() {
-            return false;
-        }
-        self.urls.iter().any(|u| {
-            let ph = web_host_of(u);
-            !ph.is_empty()
-                && (ph == host
-                    || host.ends_with(&format!(".{ph}"))
-                    || ph.ends_with(&format!(".{host}")))
-        })
+        self.match_for(host, None).is_some()
     }
+
+    /// How this login relates to the page at `host` (and `port`, the page
+    /// origin's effective port, when the caller knows it), with the stored host
+    /// that matched: the one the user saved it for, which is what a prompt
+    /// should name.
+    ///
+    /// [`HostMatch::Exact`] is the same host (`www.` aside) on a compatible
+    /// port. [`HostMatch::Related`] is a sub- or parent domain, or the same host
+    /// on another port: close enough to offer, different enough that the user
+    /// should see both names before a password goes there, because a subdomain
+    /// can belong to someone else (`evil.tumblr.com` and `tumblr.com`) and so can
+    /// another port on one machine.
+    pub fn match_for(&self, host: &str, port: Option<u16>) -> Option<(HostMatch, String)> {
+        let host = host.trim().to_ascii_lowercase();
+        let host = strip_www(&host);
+        if host.is_empty() {
+            return None;
+        }
+        let mut related = None;
+        for url in &self.urls {
+            let (saved, saved_port, plain_http) = web_origin_of(url);
+            if saved.is_empty() {
+                continue;
+            }
+            // A stored entry with no scheme ("github.com") names no port. One
+            // stored as plain `http://site` (old exports) is the same site once
+            // it's served over https, the only way Flux fills it now.
+            let same_port = match (saved_port, port) {
+                (Some(a), Some(b)) => a == b || (plain_http && b == 443),
+                _ => true,
+            };
+            if saved == host && same_port {
+                return Some((HostMatch::Exact, saved));
+            }
+            if related.is_some() {
+                continue;
+            }
+            if saved == host {
+                // Only the port differs, so the port is what tells them apart.
+                let named = match saved_port {
+                    Some(p) => format!("{saved}:{p}"),
+                    None => saved,
+                };
+                related = Some((HostMatch::Related, named));
+            } else if host.ends_with(&format!(".{saved}")) || saved.ends_with(&format!(".{host}")) {
+                related = Some((HostMatch::Related, saved));
+            }
+        }
+        related
+    }
+}
+
+/// How closely a stored login's site matches a page (see
+/// [`Credential::match_for`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HostMatch {
+    /// The site the login was saved for.
+    Exact,
+    /// A sub- or parent domain of it, or another port on it.
+    Related,
+}
+
+/// `www.example.com` and `example.com` are one site; `www.com` is a site of
+/// its own, not `com`.
+fn strip_www(host: &str) -> &str {
+    match host.strip_prefix("www.") {
+        Some(rest) if rest.contains('.') => rest,
+        _ => host,
+    }
+}
+
+/// A stored web URL's host, the port its origin uses (the one written, else
+/// the scheme's own, 443 or 80, else none for an entry with no scheme), and
+/// whether it is plain `http://` with no port written. Empty host for anything
+/// that isn't a web origin (see [`web_host_of`]).
+fn web_origin_of(url: &str) -> (String, Option<u16>, bool) {
+    let host = web_host_of(url);
+    if host.is_empty() {
+        return (host, None, false);
+    }
+    let s = url.trim();
+    let (scheme, rest) = match s.split_once("://") {
+        Some((scheme, rest)) => (Some(scheme.to_ascii_lowercase()), rest),
+        None => (None, s),
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    let authority = authority.rsplit('@').next().unwrap_or(authority);
+    let written = authority
+        .rsplit_once(':')
+        .and_then(|(_, p)| p.parse::<u16>().ok());
+    let port = written.or(match scheme.as_deref() {
+        Some("https") => Some(443),
+        Some("http") => Some(80),
+        _ => None,
+    });
+    let plain_http = written.is_none() && scheme.as_deref() == Some("http");
+    (host, port, plain_http)
 }
 
 /// The host a stored URL may autofill on. Only web origins have one:
@@ -116,7 +203,7 @@ fn host_of(url: &str) -> String {
     let s = s.split(['/', '?', '#']).next().unwrap_or(s);
     let s = s.rsplit('@').next().unwrap_or(s); // strip userinfo
     let s = s.split(':').next().unwrap_or(s); // strip port
-    s.trim_start_matches("www.").to_ascii_lowercase()
+    strip_www(&s.to_ascii_lowercase()).to_string()
 }
 
 /// The decrypted vault: a flat list of credentials.
@@ -365,11 +452,14 @@ impl Vault {
             .map_err(|e| VaultError::Import(e.to_string()))?;
         let (mut json_idx, mut csv_idx) = (None, None);
         for i in 0..zip.len() {
-            let name = zip
+            let entry = zip
                 .by_index(i)
-                .map_err(|e| VaultError::Import(e.to_string()))?
-                .name()
-                .to_ascii_lowercase();
+                .map_err(|e| VaultError::Import(e.to_string()))?;
+            // An entry whose name can't be read isn't the export: skip it.
+            let Ok(name) = entry.name().map(|n| n.to_ascii_lowercase()) else {
+                continue;
+            };
+            drop(entry);
             if name.ends_with(".json") && json_idx.is_none() {
                 json_idx = Some(i);
             } else if name.ends_with(".csv") && csv_idx.is_none() {
@@ -1021,6 +1111,95 @@ mod tests {
         assert!(!c.matches_host("github.com.evil.com"));
         assert!(!c.matches_host("notgithub.com"));
         assert!(!c.matches_host(""));
+    }
+
+    fn saved_at(urls: &[&str]) -> Credential {
+        Credential {
+            id: "1".into(),
+            name: "site".into(),
+            urls: urls.iter().map(|u| u.to_string()).collect(),
+            username: "me".into(),
+            password: String::new(),
+            totp: String::new(),
+            notes: String::new(),
+            created_ms: 0,
+        }
+    }
+
+    #[test]
+    fn match_for_tells_the_saved_site_from_its_relatives() {
+        let c = saved_at(&["https://tumblr.com/login"]);
+        let exact = Some((HostMatch::Exact, "tumblr.com".to_string()));
+        let related = Some((HostMatch::Related, "tumblr.com".to_string()));
+        assert_eq!(c.match_for("tumblr.com", Some(443)), exact);
+        assert_eq!(c.match_for("www.tumblr.com", Some(443)), exact);
+        assert_eq!(c.match_for("TUMBLR.com", None), exact);
+        // A subdomain can be someone else's page: offered, but never as "the same".
+        assert_eq!(c.match_for("evil.tumblr.com", Some(443)), related);
+        // The same host on another port is another server, and the port is
+        // what the prompt has to show.
+        assert_eq!(
+            c.match_for("tumblr.com", Some(8443)),
+            Some((HostMatch::Related, "tumblr.com:443".to_string()))
+        );
+        assert_eq!(c.match_for("tumblr.com.evil.io", Some(443)), None);
+        assert_eq!(c.match_for("", Some(443)), None);
+
+        // Saved on a subdomain, asked for on the parent.
+        let sub = saved_at(&["https://login.example.com"]);
+        assert_eq!(
+            sub.match_for("example.com", Some(443)),
+            Some((HostMatch::Related, "login.example.com".to_string()))
+        );
+    }
+
+    #[test]
+    fn match_for_reads_ports_from_the_saved_url() {
+        let dev = saved_at(&["http://localhost:3000/"]);
+        assert_eq!(
+            dev.match_for("localhost", Some(3000)).map(|m| m.0),
+            Some(HostMatch::Exact)
+        );
+        assert_eq!(
+            dev.match_for("localhost", Some(8080)).map(|m| m.0),
+            Some(HostMatch::Related)
+        );
+        // No scheme, so no port is claimed: any port on that host is the site.
+        let bare = saved_at(&["github.com"]);
+        assert_eq!(
+            bare.match_for("github.com", Some(443)).map(|m| m.0),
+            Some(HostMatch::Exact)
+        );
+        // An exact URL wins over a related one, whichever comes first.
+        let both = saved_at(&["https://example.com", "https://app.example.com"]);
+        assert_eq!(
+            both.match_for("app.example.com", Some(443)),
+            Some((HostMatch::Exact, "app.example.com".to_string()))
+        );
+        // Saved over plain http (an old export), served over https now: the
+        // same site. Another port is still another server.
+        let old = saved_at(&["http://example.com/login"]);
+        assert_eq!(
+            old.match_for("example.com", Some(443)).map(|m| m.0),
+            Some(HostMatch::Exact)
+        );
+        assert_eq!(
+            old.match_for("example.com", Some(8443)).map(|m| m.0),
+            Some(HostMatch::Related)
+        );
+        // `www.` is dropped once, and only from a name that keeps a dot:
+        // `www.com` is its own site and must not match every `.com` login.
+        let dotcom = saved_at(&["https://example.com"]);
+        assert_eq!(dotcom.match_for("www.com", Some(443)), None);
+        assert_eq!(
+            dotcom
+                .match_for("www.www.example.com", Some(443))
+                .map(|m| m.0),
+            Some(HostMatch::Related)
+        );
+        // App package URIs still name no web host.
+        let app = saved_at(&["androidapp://com.example.app"]);
+        assert_eq!(app.match_for("example.app", Some(443)), None);
     }
 
     #[test]

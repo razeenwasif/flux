@@ -103,10 +103,18 @@ fn frame_ancestors(csp: &str) -> Option<String> {
 #[tauri::command]
 pub async fn frame_policy(url: String) -> FramePolicy {
     tauri::async_runtime::spawn_blocking(move || {
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(std::time::Duration::from_secs(5))
-            .timeout_read(std::time::Duration::from_secs(5))
-            .build();
+        // A site open in a Tor tab isn't asked from here (net.rs, #209): no
+        // answer reads as "no refusal seen", the same as an unreachable site.
+        if crate::net::check_core_fetch(&url).is_err() {
+            return FramePolicy::ok();
+        }
+        // Through the guarded resolver, so a redirect is held to the same rule.
+        let agent = crate::favicon::redirect_guarded(
+            ureq::AgentBuilder::new()
+                .timeout_connect(std::time::Duration::from_secs(5))
+                .timeout_read(std::time::Duration::from_secs(5)),
+            &url,
+        );
         // HEAD, because only the headers matter — no reason to pull the document.
         let Ok(resp) = agent.head(&url).call() else {
             return FramePolicy::ok();

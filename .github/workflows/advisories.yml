@@ -1,0 +1,36 @@
+name: advisories
+
+# Fail when a locked dependency (Cargo.lock, package-lock.json) has an advisory
+# nobody has reviewed. The check is scripts/advisories.mjs; the reviewed ones,
+# each with its reason and a date to look again, are in
+# scripts/advisories-allow.json.
+#
+# It also runs every night, because a new advisory arrives without any push
+# here: the lockfile that passed yesterday can fail today.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 18 * * *" # 05:17 in Sydney
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  advisories:
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to commits, not tags: a tag can be moved to different code.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      # No `npm ci`: the script has no dependencies, so nothing from the
+      # lockfile it is judging runs here.
+      - run: node --test scripts/advisories.test.mjs
+      - run: node scripts/advisories.mjs

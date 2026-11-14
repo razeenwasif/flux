@@ -1343,9 +1343,17 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "vault_set_autolock":
       return Promise.resolve(undefined as T);
     case "vault_list":
-      return Promise.resolve(mockVault.map(({ password: _pw, ...m }) => m) as T);
+      return Promise.resolve(
+        mockVault.map(({ password: _pw, ...m }) => ({ ...m, saved_host: null, exact: null })) as T,
+      );
     case "vault_for_host":
-      return Promise.resolve(mockVault.map(({ password: _pw, ...m }) => m) as T);
+      // As Rust answers it: each login with the site it was saved for.
+      return Promise.resolve(
+        mockVault.map(({ password: _pw, ...m }) => {
+          const saved = (m.urls[0] ?? "").replace(/^[a-z]+:\/\//, "").replace(/[/:].*$/, "");
+          return { ...m, saved_host: saved, exact: saved === String(args?.host ?? saved) };
+        }) as T,
+      );
     case "vault_reveal":
       return Promise.resolve((mockVault.find((c) => c.id === args?.id)?.password ?? null) as T);
     case "vault_add": {
@@ -1368,6 +1376,9 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "vault_export":
       return Promise.resolve(mockVault.length as T); // no filesystem in the preview
     case "vault_fill":
+    case "vault_save_confirm":
+    case "vault_save_dismiss":
+    case "vault_never_save":
       return Promise.resolve(undefined as T);
     case "cookies_status":
       return Promise.resolve({ clear_on_close: [] } as T);

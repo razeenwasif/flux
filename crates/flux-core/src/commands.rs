@@ -224,6 +224,8 @@ pub fn tab_focus(app: AppHandle, state: State<'_, FluxState>, id: TabId) {
 pub fn tab_close(app: AppHandle, state: State<'_, FluxState>, id: TabId) {
     crate::netfilter::forget(id);
     crate::tabsleep::forget(&app, id);
+    crate::vault::forget_tab(&app, id);
+    crate::net::forget_tab(id);
     state.tabs.remove(&id);
     state.dom_cache.remove(&id);
     state.order_remove(id);
@@ -411,8 +413,13 @@ pub fn workspace_update(
 /// Delete a workspace + its tabs; returns the closed tab ids (so the shell tears
 /// down their webviews).
 #[tauri::command]
-pub fn workspace_delete(state: State<'_, FluxState>, id: TabId) -> Vec<TabId> {
+pub fn workspace_delete(app: AppHandle, state: State<'_, FluxState>, id: TabId) -> Vec<TabId> {
     let closed = state.workspace_delete(id as u32);
+    // Its tabs are closed without `tab_close`: forget them the same way.
+    for tab in &closed {
+        crate::vault::forget_tab(&app, *tab);
+        crate::net::forget_tab(*tab);
+    }
     state.persist();
     closed
 }

@@ -346,18 +346,18 @@ export type PermAsk = { id: number; host: string; kind: PermKind }
  * What the Settings page shows, and the `flux://update-ready` payload.
  */
 export type UpdateStatus = { current: string; supported: boolean; auto: boolean; ready: string | null; notes: string | null; busy: boolean; checked_at: number | null; error: string | null }
-export type CredentialMeta = { id: string; name: string; urls: string[]; username: string; has_totp: boolean }
+export type CredentialMeta = { id: string; name: string; urls: string[]; username: string; has_totp: boolean; saved_host: string | null; exact: boolean | null }
 export type VaultStatus = { available: boolean; locked: boolean; protection: string; source: string; count: number; autolock_minutes: number }
 /**
  * The chrome's "Save password?" bar payload — host + username only; the
  * captured password stays in Rust ([`PendingSave`]) until the user confirms.
  */
-export type VaultSavePrompt = { host: string; username: string; update: boolean; warning: Verdict | null }
+export type VaultSavePrompt = { tab: number; staged: number; host: string; username: string; update: boolean; warning: Verdict | null }
 /**
  * One login the chrome's fill bar can offer. Metadata only: the password stays
  * in Rust until the user confirms and `vault_fill` injects it.
  */
-export type FillChoice = { id: string; username: string; name: string }
+export type FillChoice = { id: string; username: string; name: string; saved_host: string; exact: boolean }
 /**
  * The chrome's "Fill password?" bar payload: a page asked to autofill.
  */

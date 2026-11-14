@@ -135,6 +135,8 @@ fn dedup_path(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
 }
 
 fn fetch_http(url: &str) -> FluxResult<Vec<u8>> {
+    // Not for a site open in a Tor tab, nor an onion address (net.rs, #209).
+    crate::net::check_core_fetch(url).map_err(FluxError::Http)?;
     let builder = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(60));

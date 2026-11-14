@@ -477,6 +477,11 @@ mod real {
         let app_for_load = app.clone();
         let app_for_title = app.clone();
         let app_for_nav = app.clone();
+        // A Tor tab is on its way to this site from here on, before its first
+        // page commits: the core mustn't contact it meanwhile (net.rs, #209).
+        if tor {
+            crate::net::note_tor_page(tab_id, &target);
+        }
         let mut builder = WebviewBuilder::new(label(tab_id), WebviewUrl::External(target))
             .incognito(private)
             .initialization_script(&init)
@@ -572,6 +577,11 @@ mod real {
             if matches!(payload.event(), PageLoadEvent::Started) {
                 // The document every caller-origin check judges by (audit S8).
                 crate::committed::note(webview.label(), payload.url());
+                // Where each Tor tab is, so the core never contacts that site
+                // itself from this machine's address (net.rs, #209).
+                if tor {
+                    crate::net::note_tor_page(tab_id, payload.url());
+                }
                 if let Some(s) = app_for_load.try_state::<crate::hibernate::HibernateStore>() {
                     s.note_commit(tab_id, payload.url());
                 }
@@ -1444,6 +1454,11 @@ mod real {
     #[tauri::command]
     pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> {
         crate::netfilter::forget(tab_id);
+        // The page is gone for good (a close, or the last tab turning into a
+        // start tab; sleeping goes through `webview_hibernate`): so are the
+        // login it had waiting to be saved and its place among the Tor tabs.
+        crate::vault::forget_tab(&app, tab_id);
+        crate::net::forget_tab(tab_id);
         crate::tabsleep::forget(&app, tab_id);
         let label = label(tab_id);
         // Clear-on-close (#58): if this tab's host is flagged, its cookies go from

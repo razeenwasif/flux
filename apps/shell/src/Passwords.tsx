@@ -50,7 +50,7 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
       .catch(() => {});
     const h = host();
     if (h && !locked())
-      void vaultForHost(h)
+      void vaultForHost(h, activeId())
         .then(setMatches)
         .catch(() => setMatches([]));
     else setMatches([]);
@@ -115,7 +115,9 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
     let filled = true;
     let why = "";
     try {
-      await vaultFill(id, c.id);
+      // Picking a row here is the deliberate step: the row names the site the
+      // login was saved for when that isn't this page's own.
+      await vaultFill(id, c.id, true);
     } catch (e) {
       filled = false;
       why = String(e).replace(/^Error:\s*/, "");
@@ -225,6 +227,10 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
                       <div class="ext-head">
                         <span class="ext-name" title={c.urls[0] ?? ""}>
                           {c.name || c.urls[0]} <span class="ext-ver">{c.username}</span>
+                          <Show when={c.exact === false && c.saved_host}>
+                            {" "}
+                            <span class="ext-ver">saved for {c.saved_host}</span>
+                          </Show>
                         </span>
                         <button
                           class="vault-fill"

@@ -536,11 +536,15 @@ pub fn reader_publish(
     if !take_reader_request(&READER_ASKED, tab_id, now_ms()) {
         return Err("no reader view was asked for".into());
     }
-    let (private, tor) = app
+    // A tab Flux can't find is treated as off the record: no remote images.
+    let off_record = match app
         .try_state::<FluxState>()
-        .and_then(|s| s.tabs.get(&tab_id).map(|t| (t.private, t.tor)))
-        .unwrap_or((false, false));
-    let blocks = clean_reader_blocks(blocks, private || tor);
+        .and_then(|s| crate::net::TabNet::of_tab(&s, tab_id))
+    {
+        Some(net) => net.off_record(),
+        None => true,
+    };
+    let blocks = clean_reader_blocks(blocks, off_record);
     let title: String = title.chars().take(300).collect();
     app.emit("flux://reader", (tab_id, title, blocks))
         .map_err(|e| e.to_string())

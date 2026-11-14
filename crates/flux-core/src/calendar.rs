@@ -445,6 +445,7 @@ fn fetch_ics(url: &str) -> Result<String, String> {
     {
         return Err("calendar url must be http(s) or webcal".into());
     }
+    crate::net::check_core_fetch(url)?;
     // webcal:// is just http(s) with a different scheme hint.
     let fetch = url.replacen("webcal://", "https://", 1);
     let builder = ureq::AgentBuilder::new()

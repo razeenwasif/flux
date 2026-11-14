@@ -1,0 +1,141 @@
+[
+  {
+    "ecosystem": "crates.io",
+    "package": "zip",
+    "version": "4.6.1",
+    "id": "GHSA-8hxf-qr8p-62x4",
+    "reason": "zip 4.6.1 comes from tauri-plugin-updater and is only compiled for Windows and Linux, where no update build exists yet (BACKLOG #26). The macOS updater unpacks a tar.gz, and only after the archive's signature has been checked. Flux's own zip use (the vault import) is on zip 9.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "crates.io",
+    "package": "zip",
+    "version": "4.6.1",
+    "id": "GHSA-m665-v7pm-7grj",
+    "reason": "Same crate and path as GHSA-8hxf-qr8p-62x4: tauri-plugin-updater's zip 4.6.1, Windows and Linux only, after the signature check.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "crates.io",
+    "package": "zip",
+    "version": "4.6.1",
+    "id": "RUSTSEC-2026-0429",
+    "reason": "Same crate and path as GHSA-8hxf-qr8p-62x4: tauri-plugin-updater's zip 4.6.1, Windows and Linux only, after the signature check.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "crates.io",
+    "package": "zip",
+    "version": "4.6.1",
+    "id": "RUSTSEC-2026-0367",
+    "reason": "Same crate and path as GHSA-8hxf-qr8p-62x4: tauri-plugin-updater's zip 4.6.1, Windows and Linux only, after the signature check.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "crates.io",
+    "package": "zip",
+    "version": "4.6.1",
+    "id": "RUSTSEC-2026-0368",
+    "reason": "Same crate and path as GHSA-8hxf-qr8p-62x4: tauri-plugin-updater's zip 4.6.1, Windows and Linux only, after the signature check.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "crates.io",
+    "package": "zip",
+    "version": "4.6.1",
+    "id": "RUSTSEC-2026-0369",
+    "reason": "Same crate and path as GHSA-8hxf-qr8p-62x4: tauri-plugin-updater's zip 4.6.1, Windows and Linux only, after the signature check.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "crates.io",
+    "package": "quick-xml",
+    "id": "RUSTSEC-2026-0194",
+    "reason": "quick-xml reaches Flux through plist (Tauri reading the app's own property lists) and tauri-winrt-notification (Windows toasts built from Flux's own text). Neither parses XML from a page or the network, and the fix (0.41) is a breaking release those crates haven't taken.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "crates.io",
+    "package": "quick-xml",
+    "id": "RUSTSEC-2026-0195",
+    "reason": "Same paths as RUSTSEC-2026-0194 (plist and tauri-winrt-notification); no untrusted XML reaches them.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "crates.io",
+    "package": "rsa",
+    "id": "RUSTSEC-2023-0071",
+    "reason": "rsa comes from pgp, used only to open a PGP-encrypted password export the user picks in the vault import. The Marvin attack needs someone timing many decryptions over a network; this is one local decryption. No fixed 0.9 release exists.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "crates.io",
+    "package": "crypto-bigint",
+    "id": "RUSTSEC-2026-0387",
+    "reason": "Reached through pgp's elliptic-curve crates, on the same one-off local import as rsa. The timing variation needs a remote observer of repeated operations. The fix (0.7.6) is a breaking release pgp 0.14 can't take.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "crates.io",
+    "package": "lexical-core",
+    "id": "RUSTSEC-2023-0086",
+    "reason": "Pulled in by imap 2 through nom 5, for number parsing in IMAP replies from the user's own mail server over TLS. The durable fix is replacing imap 2, which is in the hardening plan (Layer 6).",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "crates.io",
+    "package": "glib",
+    "id": "RUSTSEC-2024-0429",
+    "reason": "Linux only, through Tauri's GTK 3 stack (glib 0.18). The unsound iterator is VariantStrIter, which Flux doesn't call, and glib 0.20 needs the GTK 4 bindings Tauri hasn't moved to.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "crates.io",
+    "package": "libsqlite3-sys",
+    "id": "RUSTSEC-2026-0459",
+    "reason": "Only in the lockfile for the optional `crsync` feature (a cr-sqlite prototype, off by default and not in any shipped build).",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "npm",
+    "package": "katex",
+    "id": "GHSA-238p-pmpm-9mq7",
+    "reason": "Needs prototype pollution already present in the page, and Flux renders with trust off (mathblock.ts). The fix is in 0.18, a breaking release for a 0.x package; moving to it wants a look at rendered maths, so it's its own change.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "npm",
+    "package": "seroval",
+    "id": "GHSA-7rv5-mrxv-xcr9",
+    "reason": "seroval is imported only by solid-js's server build (web/dist/server.js) and isn't in the shell's bundle (checked: no seroval code in dist). solid-js 1.9.16+ depends on a fixed seroval but puts the desktop-preloads budget 20 bytes over; raising a budget is the maintainer's call.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "npm",
+    "package": "seroval",
+    "id": "GHSA-97r2-qh9m-474h",
+    "reason": "Same as GHSA-7rv5-mrxv-xcr9: server-only code, not in the shell's bundle.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "npm",
+    "package": "seroval",
+    "id": "GHSA-jp82-f5mq-hwhp",
+    "reason": "Same as GHSA-7rv5-mrxv-xcr9: server-only code, not in the shell's bundle.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "npm",
+    "package": "seroval",
+    "id": "GHSA-p6vx-979v-rg4c",
+    "reason": "Same as GHSA-7rv5-mrxv-xcr9: server-only code, not in the shell's bundle.",
+    "review": "2027-02-14"
+  },
+  {
+    "ecosystem": "npm",
+    "package": "seroval",
+    "id": "GHSA-wp97-x4hv-qvhp",
+    "reason": "Same as GHSA-7rv5-mrxv-xcr9: server-only code, not in the shell's bundle.",
+    "review": "2027-02-14"
+  }
+]

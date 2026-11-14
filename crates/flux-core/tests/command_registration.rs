@@ -173,6 +173,11 @@ fn invoked_commands(files: &[PathBuf]) -> BTreeSet<String> {
             if core_plugin_command(raw).is_some() {
                 continue;
             }
+            // The phone's native-tab plugin registers its own commands (its
+            // build.rs); `every_flux_webview_command_is_declared` checks those.
+            if raw.starts_with(FLUX_WEBVIEW) {
+                continue;
+            }
             let cmd = raw.rsplit('|').next().unwrap(); // strip plugin:… prefix
             if !cmd.is_empty()
                 && cmd
@@ -190,8 +195,16 @@ fn invoked_commands(files: &[PathBuf]) -> BTreeSet<String> {
 /// robust way to check the injected assets (which call via `inv`/`call`, not
 /// `invoke`).
 fn fluxtab_literals(files: &[PathBuf]) -> BTreeSet<String> {
+    plugin_literals(files, "plugin:fluxtab|")
+}
+
+/// The prefix of a call to the phone's native-tab plugin
+/// (`crates/tauri-plugin-flux-webview`).
+const FLUX_WEBVIEW: &str = "plugin:flux-webview|";
+
+/// Bare command names from `<marker><cmd>` literals in `files`.
+fn plugin_literals(files: &[PathBuf], marker: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
-    let marker = "plugin:fluxtab|";
     for f in files {
         let Ok(src) = std::fs::read_to_string(f) else {
             continue;
@@ -267,5 +280,39 @@ fn every_core_plugin_command_is_allowed() {
         missing.is_empty(),
         "the shell calls core plugin commands its capability doesn't allow (→ rejected at runtime, \
          swallowed by the caller); add to capabilities/default.json: {missing:?}",
+    );
+}
+
+/// The phone's native-tab plugin has its own command list, in its build.rs. A
+/// shell call to one that isn't there fails at run time the same quiet way.
+#[test]
+fn every_flux_webview_command_is_declared() {
+    let root = workspace_root();
+    let build = std::fs::read_to_string(root.join("crates/tauri-plugin-flux-webview/build.rs"))
+        .expect("read the plugin's build.rs");
+    let list = build
+        .split_once("const COMMANDS")
+        .and_then(|(_, rest)| rest.split_once("];"))
+        .map(|(list, _)| list)
+        .expect("the plugin's COMMANDS list");
+    let declared: BTreeSet<String> = list
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect();
+    assert!(
+        declared.len() > 5,
+        "COMMANDS scan looks wrong: {declared:?}"
+    );
+
+    let mut shell = Vec::new();
+    collect(&root.join("apps/shell/src"), &["ts", "tsx"], &mut shell);
+    let invoked = plugin_literals(&shell, FLUX_WEBVIEW);
+    assert!(!invoked.is_empty(), "the shell calls the plugin somewhere");
+    let undeclared: Vec<&String> = invoked.difference(&declared).collect();
+    assert!(
+        undeclared.is_empty(),
+        "the shell calls flux-webview commands its build.rs doesn't declare: {undeclared:?}"
     );
 }

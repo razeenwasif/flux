@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use zeroize::Zeroizing;
 
-use flux_vault::{Credential, KeyWrap, Vault};
+use flux_vault::{Credential, HostMatch, KeyWrap, Vault};
 
 const KEYRING_SERVICE: &str = "Flux";
 const KEYRING_ACCOUNT: &str = "vault-key-v1";
@@ -54,10 +54,14 @@ pub struct VaultState {
     source: RwLock<&'static str>,
     autolock_min: AtomicU64,
     last_activity: AtomicU64,
-    /// A credential the sentinel captured on submit, awaiting the user's
-    /// "Save"/"Never" answer in the chrome bar (#61 follow-up). In memory only;
-    /// the password lives here no longer than the prompt is on screen.
-    pending_save: RwLock<Option<PendingSave>>,
+    /// Credentials the sentinel captured on submit, awaiting the user's
+    /// "Save"/"Never" answer in the chrome bar (#61 follow-up), one per tab: a
+    /// single slot let any tab, a background one included, replace the capture
+    /// another tab had just staged (audit S26). In memory only; a password
+    /// lives here no longer than its prompt can be answered.
+    pending_save: RwLock<HashMap<u64, PendingSave>>,
+    /// How often each tab has raised a vault prompt lately (audit S25, S26).
+    asks: AskLimiter,
     /// Hosts the user chose "Never save" for. Persisted to `never-save.json`.
     never_save: RwLock<HashSet<String>>,
 }
@@ -65,8 +69,94 @@ pub struct VaultState {
 /// A pending save awaiting the chrome-side prompt's answer.
 struct PendingSave {
     host: String,
+    /// The page origin's port, so an Update only ever touches the login saved
+    /// for this very site.
+    port: Option<u16>,
+    /// The origin as a URL (`https://host`, `http://localhost:3000`): what a
+    /// new entry is saved under.
+    origin: String,
     username: String,
     password: Zeroizing<String>,
+    staged_ms: u64,
+}
+
+/// What Save answers when the capture its bar showed is gone or was replaced.
+/// The save bar closes itself on it.
+const SAVE_GONE: &str = "that login is no longer waiting to be saved";
+
+/// Captured logins waiting for an answer: one per tab, across at most this many
+/// tabs, each for at most [`PENDING_SAVE_TTL_MS`].
+const MAX_PENDING_SAVES: usize = 16;
+const PENDING_SAVE_TTL_MS: u64 = 10 * 60_000;
+
+/// Which prompt a page is asking the chrome to raise.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum AskKind {
+    Fill,
+    Save,
+}
+
+impl AskKind {
+    /// The least time between two asks of this kind from one tab. A fill ask
+    /// follows a click on the page's chip; a save ask follows a form submit,
+    /// and a second submit can come quickly after a mistyped first.
+    fn gap_ms(self) -> u64 {
+        match self {
+            AskKind::Fill => 1_500,
+            AskKind::Save => 500,
+        }
+    }
+}
+
+/// At most this many asks of one kind from one tab in [`ASK_WINDOW_MS`].
+const ASK_PER_WINDOW: u32 = 8;
+const ASK_WINDOW_MS: u64 = 60_000;
+
+struct AskLog {
+    window_start: u64,
+    count: u32,
+    last: u64,
+}
+
+/// A page can call the vault's page commands as often as it likes, and each call
+/// that gets through puts a bar in the chrome. Unlimited, that is a way to flash
+/// a "Fill your password?" bar until a click lands on it. This allows a tab a
+/// few asks, spaced out, and refuses the rest.
+#[derive(Default)]
+struct AskLimiter(parking_lot::Mutex<HashMap<(u64, AskKind), AskLog>>);
+
+impl AskLimiter {
+    fn admit(&self, tab: u64, kind: AskKind, now: u64) -> bool {
+        let mut logs = self.0.lock();
+        let Some(log) = logs.get_mut(&(tab, kind)) else {
+            logs.insert(
+                (tab, kind),
+                AskLog {
+                    window_start: now,
+                    count: 1,
+                    last: now,
+                },
+            );
+            return true;
+        };
+        if now.saturating_sub(log.last) < kind.gap_ms() {
+            return false;
+        }
+        if now.saturating_sub(log.window_start) >= ASK_WINDOW_MS {
+            log.window_start = now;
+            log.count = 0;
+        }
+        if log.count >= ASK_PER_WINDOW {
+            return false;
+        }
+        log.count += 1;
+        log.last = now;
+        true
+    }
+
+    fn forget(&self, tab: u64) {
+        self.0.lock().retain(|(t, _), _| *t != tab);
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -115,9 +205,35 @@ impl VaultState {
             source: RwLock::new(if password_mode { "password" } else { "loading" }),
             autolock_min: AtomicU64::new(meta.autolock_minutes),
             last_activity: AtomicU64::new(now_ms()),
-            pending_save: RwLock::new(None),
+            pending_save: RwLock::new(HashMap::new()),
+            asks: AskLimiter::default(),
             never_save: RwLock::new(never_save),
         }
+    }
+
+    /// Hold a captured login for `tab` until its prompt is answered, replacing
+    /// any earlier capture from that tab. Stale captures go, and when too many
+    /// tabs have one waiting the oldest goes too.
+    fn stage_save(&self, tab: u64, save: PendingSave) {
+        let mut pending = self.pending_save.write();
+        let now = save.staged_ms;
+        pending.retain(|_, p| now.saturating_sub(p.staged_ms) < PENDING_SAVE_TTL_MS);
+        if !pending.contains_key(&tab) && pending.len() >= MAX_PENDING_SAVES {
+            let oldest = pending
+                .iter()
+                .min_by_key(|(_, p)| p.staged_ms)
+                .map(|(t, _)| *t);
+            if let Some(oldest) = oldest {
+                pending.remove(&oldest);
+            }
+        }
+        pending.insert(tab, save);
+    }
+
+    /// The tab closed: drop the capture it had waiting and its ask history.
+    pub fn forget_tab(&self, tab: u64) {
+        self.pending_save.write().remove(&tab);
+        self.asks.forget(tab);
     }
 
     /// Finish keychain-mode auto-unlock off the Tauri setup path.
@@ -422,6 +538,10 @@ pub struct CredentialMeta {
     pub urls: Vec<String>,
     pub username: String,
     pub has_totp: bool,
+    /// For a login listed for a page (`vault_for_host`): the site it was saved
+    /// for, and whether that is the page's own host. `None` in the full list.
+    pub saved_host: Option<String>,
+    pub exact: Option<bool>,
 }
 
 impl From<&Credential> for CredentialMeta {
@@ -432,6 +552,8 @@ impl From<&Credential> for CredentialMeta {
             urls: c.urls.clone(),
             username: c.username.clone(),
             has_totp: !c.totp.is_empty(),
+            saved_host: None,
+            exact: None,
         }
     }
 }
@@ -634,14 +756,32 @@ pub fn vault_list(state: State<'_, VaultState>) -> Result<Vec<CredentialMeta>, S
 /// Not activity: the open Passwords popover polls this.
 #[tauri::command]
 pub fn vault_for_host(
+    app: AppHandle,
     state: State<'_, VaultState>,
     host: String,
+    tab: Option<u64>,
 ) -> Result<Vec<CredentialMeta>, String> {
+    // The tab's port, so a login saved for another port on this host is listed
+    // as what it is (and named with its port), not as this page's own.
+    let port = tab
+        .and_then(|id| app.get_webview(&format!("tab-{id}")))
+        .and_then(|wv| crate::committed::url_of(&wv).ok())
+        .and_then(|url| url.port_or_known_default());
     state.probe_open(|v| {
-        v.matches(&host)
-            .into_iter()
-            .map(CredentialMeta::from)
-            .collect()
+        let mut found: Vec<CredentialMeta> = v
+            .entries
+            .iter()
+            .filter_map(|c| {
+                let (kind, saved) = c.match_for(&host, port)?;
+                let mut meta = CredentialMeta::from(c);
+                meta.saved_host = Some(saved);
+                meta.exact = Some(kind == HostMatch::Exact);
+                Some(meta)
+            })
+            .collect();
+        // The page's own logins first; the sort is stable within each group.
+        found.sort_by_key(|m| m.exact != Some(true));
+        found
     })
 }
 
@@ -876,12 +1016,19 @@ mod export_tests {
 
 /// Fill the active tab's login form with credential `id` (same-origin enforced;
 /// password injected straight into the page, never via the chrome's JS).
+///
+/// A login saved for this very site (host and port) fills. One saved for a
+/// related site, a sub- or parent domain or another port, fills only with
+/// `confirm_related`, which the chrome sends after showing the user both names
+/// (audit S25): `evil.tumblr.com` is not `tumblr.com`.
 #[tauri::command]
 pub fn vault_fill(
     app: AppHandle,
     state: State<'_, VaultState>,
     tab_id: u64,
     id: String,
+    confirm_related: Option<bool>,
+    expected_host: Option<String>,
 ) -> Result<(), String> {
     let webview = app
         .get_webview(&format!("tab-{tab_id}"))
@@ -894,6 +1041,12 @@ pub fn vault_fill(
         .host_str()
         .ok_or("no host on current page")?
         .to_ascii_lowercase();
+    // The fill bar asked about one page. If the tab has moved on since, what the
+    // user agreed to (above all "use it on this related site") was about
+    // another page: ask again there.
+    if expected_host.is_some_and(|shown| shown != shown_host(&current_url)) {
+        return Err("the page changed since the fill bar opened; ask again".into());
+    }
 
     // Credential-entry firewall (ADR 0013, Pillar 2): never type a saved password
     // into a site that impersonates a brand the user values — even if a
@@ -907,14 +1060,19 @@ pub fn vault_fill(
         ));
     }
 
+    let port = current_url.port_or_known_default();
     let found = state.read_open(|v| {
-        v.entries
-            .iter()
-            .find(|c| c.id == id)
-            .filter(|c| c.matches_host(&host))
-            .map(|c| (c.username.clone(), c.password.clone()))
+        v.entries.iter().find(|c| c.id == id).and_then(|c| {
+            let (kind, saved) = c.match_for(&host, port)?;
+            Some((kind, saved, c.username.clone(), c.password.clone()))
+        })
     })?;
-    let (user, pass) = found.ok_or_else(|| format!("no credential matches {host}"))?;
+    let (kind, saved, user, pass) = found.ok_or_else(|| format!("no credential matches {host}"))?;
+    if kind == HostMatch::Related && confirm_related != Some(true) {
+        return Err(format!(
+            "this login was saved for {saved}, not for {host}; confirm to use it here"
+        ));
+    }
 
     // Recheck URL right before injection:
     let rechecked = crate::committed::url_of(&webview)?;
@@ -956,6 +1114,12 @@ pub struct FillChoice {
     pub id: String,
     pub username: String,
     pub name: String,
+    /// The site this login was saved for, which the bar names: the page's own
+    /// host says nothing about whose login is about to be typed into it.
+    pub saved_host: String,
+    /// False for a login saved for a related site (a sub- or parent domain, or
+    /// another port). The bar then shows both names and asks a second time.
+    pub exact: bool,
 }
 
 /// The chrome's "Fill password?" bar payload: a page asked to autofill.
@@ -1143,12 +1307,83 @@ fn require_secure_credential_origin(url: &tauri::Url) -> Result<(), String> {
     ))
 }
 
-fn webview_secure_host(webview: &tauri::Webview) -> Result<String, String> {
+/// The origin of the document a webview is running, for a credential decision.
+struct PageOrigin {
+    host: String,
+    /// The host as a prompt shows it ([`shown_host`]).
+    shown: String,
+    /// The origin's effective port (443 for https with none written).
+    port: Option<u16>,
+    /// `https://host`, or with its port when that isn't the scheme's own.
+    origin: String,
+}
+
+fn page_origin(webview: &tauri::Webview) -> Result<PageOrigin, String> {
     let url = crate::committed::url_of(webview)?;
     require_secure_credential_origin(&url)?;
-    url.host_str()
+    let host = url
+        .host_str()
         .map(|h| h.to_ascii_lowercase())
-        .ok_or_else(|| "no host on current page".into())
+        .ok_or("no host on current page")?;
+    Ok(PageOrigin {
+        shown: shown_host(&url),
+        host,
+        port: url.port_or_known_default(),
+        origin: url.origin().ascii_serialization(),
+    })
+}
+
+fn webview_secure_host(webview: &tauri::Webview) -> Result<String, String> {
+    page_origin(webview).map(|p| p.host)
+}
+
+/// A page's host as a prompt shows it: with its port when the URL writes one
+/// (a port that isn't the scheme's own), since `localhost:3000` and
+/// `localhost:8080` are different servers.
+fn shown_host(url: &tauri::Url) -> String {
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    }
+}
+
+/// Whether this exact login is already stored for the page (so there is nothing
+/// to ask), and whether saving it would replace the password of the login saved
+/// for this very site (an Update). A login saved for a related site is never
+/// updated from here (audit S26): a page on `a.example.com` doesn't get to
+/// change what is stored for `example.com`.
+fn save_kind(
+    v: &Vault,
+    host: &str,
+    port: Option<u16>,
+    username: &str,
+    password: &str,
+) -> (bool, bool) {
+    // This site's own entry decides when there is one: the same password is
+    // "already", another is an Update. A related site's entry with this very
+    // password only counts when this site has none of its own, so signing in on
+    // a subdomain with the parent's login doesn't ask every time.
+    let (mut exact_same, mut exact_other, mut related_same) = (false, false, false);
+    for c in v.entries.iter().filter(|c| c.username == username) {
+        match c.match_for(host, port) {
+            Some((HostMatch::Exact, _)) if c.password == password => exact_same = true,
+            Some((HostMatch::Exact, _)) => exact_other = true,
+            Some((HostMatch::Related, _)) if c.password == password => related_same = true,
+            _ => {}
+        }
+    }
+    let already = exact_same || (related_same && !exact_other);
+    (already, exact_other && !exact_same)
+}
+
+/// A tab's capture is no longer wanted (its login turned out to be stored
+/// already, or a later submit couldn't be judged): drop it and take its prompt
+/// down, so a stale "Update" can't be clicked after the fact.
+fn withdraw_save(app: &AppHandle, state: &VaultState, tab: u64) {
+    if state.pending_save.write().remove(&tab).is_some() {
+        let _ = app.emit("flux://vault-save-clear", tab);
+    }
 }
 
 fn tab_host(app: &AppHandle, tab_id: u64) -> Result<String, String> {
@@ -1216,18 +1451,28 @@ pub fn vault_fill_page(
 ) -> Result<(), String> {
     let refused = || "autofill unavailable".to_string();
     let tab = caller_tab(&webview).map_err(|_| refused())?;
-    let host = webview_secure_host(&webview).map_err(|_| refused())?;
-    if crate::sentinel::credential_origin_risk(&app, &host).is_some() {
+    // Before anything else, so a page that keeps asking learns nothing more
+    // from the calls that are turned away.
+    if !state.asks.admit(tab, AskKind::Fill, now_ms()) {
         return Err(refused());
     }
-    let choices: Vec<FillChoice> = state
+    let page = page_origin(&webview).map_err(|_| refused())?;
+    if crate::sentinel::credential_origin_risk(&app, &page.host).is_some() {
+        return Err(refused());
+    }
+    let mut choices: Vec<FillChoice> = state
         .probe_open(|v| {
-            v.matches(&host)
-                .into_iter()
-                .map(|c| FillChoice {
-                    id: c.id.clone(),
-                    username: c.username.clone(),
-                    name: c.name.clone(),
+            v.entries
+                .iter()
+                .filter_map(|c| {
+                    let (kind, saved_host) = c.match_for(&page.host, page.port)?;
+                    Some(FillChoice {
+                        id: c.id.clone(),
+                        username: c.username.clone(),
+                        name: c.name.clone(),
+                        saved_host,
+                        exact: kind == HostMatch::Exact,
+                    })
                 })
                 .collect()
         })
@@ -1235,9 +1480,15 @@ pub fn vault_fill_page(
     if choices.is_empty() {
         return Err(refused());
     }
+    // This site's own logins first (stable within each group).
+    choices.sort_by_key(|c| !c.exact);
     let _ = app.emit(
         "flux://vault-fill-request",
-        VaultFillRequest { tab, host, choices },
+        VaultFillRequest {
+            tab,
+            host: page.shown,
+            choices,
+        },
     );
     Ok(())
 }
@@ -1268,8 +1519,14 @@ pub fn vault_save_from_page(
     if password.is_empty() {
         return Err("empty password".into());
     }
-    let _tab = caller_tab(&webview)?;
-    let host = webview_secure_host(&webview)?;
+    let tab = caller_tab(&webview)?;
+    if !state.asks.admit(tab, AskKind::Save, now_ms()) {
+        // This submit can't be judged, so an earlier capture may be out of date.
+        withdraw_save(&app, &state, tab);
+        return Err("try again in a moment".into());
+    }
+    let page = page_origin(&webview)?;
+    let host = page.host.clone();
     if host.is_empty() {
         return Err("no host".into());
     }
@@ -1280,27 +1537,31 @@ pub fn vault_save_from_page(
     }
     // No never-save skip here: the user just accepted a generated password, and
     // dropping it silently would lock them out of the new account.
-    let (already, update) = state.probe_open(|v| {
-        let m = v.matches(&host);
-        let already = m
-            .iter()
-            .any(|c| c.username == username && c.password == password);
-        (
-            already,
-            !already && m.iter().any(|c| c.username == username),
-        )
-    })?;
+    let (already, update) =
+        state.probe_open(|v| save_kind(v, &host, page.port, &username, &password))?;
     if already {
-        return Ok(()); // identical credential already stored
+        // Identical credential already stored. An earlier capture from this tab
+        // (a mistyped password, say) is now wrong: take it back.
+        withdraw_save(&app, &state, tab);
+        return Ok(());
     }
-    *state.pending_save.write() = Some(PendingSave {
-        host: host.clone(),
-        username: username.clone(),
-        password: Zeroizing::new(password),
-    });
+    let staged = now_ms();
+    state.stage_save(
+        tab,
+        PendingSave {
+            host: host.clone(),
+            port: page.port,
+            origin: page.origin,
+            username: username.clone(),
+            password: Zeroizing::new(password),
+            staged_ms: staged,
+        },
+    );
     let _ = app.emit(
         "flux://vault-save-prompt",
         VaultSavePrompt {
+            tab,
+            staged,
             host,
             username,
             update,
@@ -1316,6 +1577,12 @@ pub fn vault_save_from_page(
 /// captured password stays in Rust ([`PendingSave`]) until the user confirms.
 #[derive(serde::Serialize, Clone, specta::Type)]
 pub struct VaultSavePrompt {
+    /// The tab the login was typed in. Its capture is that tab's own, and the
+    /// bar shows only while that tab is in front.
+    pub tab: u64,
+    /// Which capture this prompt is about (when it was staged). Save sends it
+    /// back, and only that capture is saved: not one that replaced it since.
+    pub staged: u64,
     pub host: String,
     pub username: String,
     /// True when the site already has this username stored with a *different*
@@ -1343,12 +1610,18 @@ pub fn vault_offer_save(
     if password.is_empty() {
         return Ok(());
     }
-    let Ok(_tab) = caller_tab(&webview) else {
+    let Ok(tab) = caller_tab(&webview) else {
         return Ok(());
     };
-    let Ok(host) = webview_secure_host(&webview) else {
+    if !state.asks.admit(tab, AskKind::Save, now_ms()) {
+        // This submit can't be judged, so an earlier capture may be out of date.
+        withdraw_save(&app, &state, tab);
+        return Ok(());
+    }
+    let Ok(page) = page_origin(&webview) else {
         return Ok(());
     };
+    let host = page.host.clone();
     if host.is_empty() {
         return Ok(());
     }
@@ -1363,6 +1636,8 @@ pub fn vault_offer_save(
         let _ = app.emit(
             "flux://vault-save-prompt",
             VaultSavePrompt {
+                tab,
+                staged: 0,
                 host,
                 username,
                 update: false,
@@ -1376,27 +1651,34 @@ pub fn vault_offer_save(
     }
     // Decide save vs update vs skip against the (unlocked) vault. Locked →
     // silently do nothing; we can't dedupe and the save would fail anyway.
-    let Ok((already, update)) = state.probe_open(|v| {
-        let m = v.matches(&host);
-        let already = m
-            .iter()
-            .any(|c| c.username == username && c.password == password);
-        let update = !already && m.iter().any(|c| c.username == username);
-        (already, update)
-    }) else {
+    let Ok((already, update)) =
+        state.probe_open(|v| save_kind(v, &host, page.port, &username, &password))
+    else {
         return Ok(());
     };
     if already {
-        return Ok(()); // identical credential already stored
+        // Identical credential already stored. An earlier capture from this tab
+        // (a mistyped password, say) is now wrong: take it back.
+        withdraw_save(&app, &state, tab);
+        return Ok(());
     }
-    *state.pending_save.write() = Some(PendingSave {
-        host: host.clone(),
-        username: username.clone(),
-        password: Zeroizing::new(password),
-    });
+    let staged = now_ms();
+    state.stage_save(
+        tab,
+        PendingSave {
+            host: host.clone(),
+            port: page.port,
+            origin: page.origin,
+            username: username.clone(),
+            password: Zeroizing::new(password),
+            staged_ms: staged,
+        },
+    );
     let _ = app.emit(
         "flux://vault-save-prompt",
         VaultSavePrompt {
+            tab,
+            staged,
             host,
             username,
             update,
@@ -1406,60 +1688,86 @@ pub fn vault_offer_save(
     Ok(())
 }
 
-/// Commit the pending save (the chrome bar's "Save"/"Update"). Chrome-only.
+/// Commit `tab`'s pending save (the chrome bar's "Save"/"Update"). Chrome-only.
 #[tauri::command]
-pub fn vault_save_confirm(app: AppHandle, state: State<'_, VaultState>) -> Result<(), String> {
-    let pending = state.pending_save.write().take().ok_or("nothing to save")?;
-    let password = pending.password.to_string();
-    let saved = state.write_open(|v| {
-        // Update in place if this host already has an entry for the username
-        // (from any stored URL shape) — so a password *change* replaces rather
-        // than piling up a sibling. Otherwise add a fresh entry.
-        if let Some(c) = v
-            .entries
-            .iter_mut()
-            .find(|c| c.username == pending.username && c.matches_host(&pending.host))
-        {
-            c.password = password;
-        } else {
-            let url = format!("https://{}", pending.host);
-            v.upsert(Credential {
-                id: Credential::stable_id(&pending.host, &pending.username, &url),
-                name: pending.host.clone(),
-                urls: vec![url],
-                username: pending.username.clone(),
-                password,
-                totp: String::new(),
-                notes: String::new(),
-                created_ms: 0,
-            });
+pub fn vault_save_confirm(
+    app: AppHandle,
+    state: State<'_, VaultState>,
+    tab: u64,
+    staged: u64,
+) -> Result<(), String> {
+    let pending = {
+        let mut all = state.pending_save.write();
+        let current = all.get(&tab).ok_or(SAVE_GONE)?;
+        // Only the capture the bar showed, and only while it is fresh.
+        if current.staged_ms != staged {
+            return Err(SAVE_GONE.into());
         }
-    });
+        if now_ms().saturating_sub(current.staged_ms) >= PENDING_SAVE_TTL_MS {
+            all.remove(&tab);
+            return Err(SAVE_GONE.into());
+        }
+        all.remove(&tab).ok_or(SAVE_GONE)?
+    };
+    let saved = state.write_open(|v| apply_save(v, &pending));
     if let Err(e) = saved {
         // Locked (auto-lock fired while the bar was up) or the write failed: put
         // the capture back, unless a newer one replaced it, so the bar's Save can
         // be retried after unlocking instead of the password being dropped.
-        let mut slot = state.pending_save.write();
-        if slot.is_none() {
-            *slot = Some(pending);
-        }
+        state.pending_save.write().entry(tab).or_insert(pending);
         return Err(e);
     }
     let _ = app.emit("flux://vault-saved", pending.host);
     Ok(())
 }
 
-/// Dismiss the pending save ("Not now"). Chrome-only.
-#[tauri::command]
-pub fn vault_save_dismiss(state: State<'_, VaultState>) {
-    *state.pending_save.write() = None;
+/// Write a confirmed capture into the vault: the new password for the login
+/// already saved for this very site and username (so a password *change*
+/// replaces rather than piling up a sibling), else a new entry for this site.
+/// A login saved for a related site is left alone.
+fn apply_save(v: &mut Vault, pending: &PendingSave) {
+    let password = pending.password.to_string();
+    if let Some(c) = v.entries.iter_mut().find(|c| {
+        c.username == pending.username
+            && matches!(
+                c.match_for(&pending.host, pending.port),
+                Some((HostMatch::Exact, _))
+            )
+    }) {
+        c.password = password;
+        return;
+    }
+    let url = pending.origin.clone();
+    v.upsert(Credential {
+        id: Credential::stable_id(&pending.host, &pending.username, &url),
+        name: pending.host.clone(),
+        urls: vec![url],
+        username: pending.username.clone(),
+        password,
+        totp: String::new(),
+        notes: String::new(),
+        created_ms: 0,
+    });
 }
 
-/// "Never for this site": drop the pending save and remember not to offer for
-/// its host again. Chrome-only.
+/// Dismiss `tab`'s pending save ("Not now"). Chrome-only.
 #[tauri::command]
-pub fn vault_never_save(state: State<'_, VaultState>) -> Result<(), String> {
-    let host = state.pending_save.write().take().map(|p| p.host);
+pub fn vault_save_dismiss(state: State<'_, VaultState>, tab: u64) {
+    state.pending_save.write().remove(&tab);
+}
+
+/// The tab closed (`tab_close`): nothing it captured should outlive it.
+pub fn forget_tab(app: &AppHandle, tab: u64) {
+    if let Some(state) = app.try_state::<VaultState>() {
+        state.forget_tab(tab);
+    }
+}
+
+/// "Never for this site": drop `tab`'s pending save and remember not to offer
+/// for its host again. Chrome-only.
+#[tauri::command]
+pub fn vault_never_save(state: State<'_, VaultState>, tab: u64) -> Result<(), String> {
+    let host = state.pending_save.write().remove(&tab).map(|p| p.host);
     if let Some(host) = host {
         state.never_save.write().insert(host);
         write_never_save(&state.dir, &state.never_save.read())?;
@@ -1484,13 +1792,205 @@ mod activity_tests {
             source: RwLock::new("password"),
             autolock_min: AtomicU64::new(10),
             last_activity: AtomicU64::new(u64::MAX), // a value `touch` never writes
-            pending_save: RwLock::new(None),
+            pending_save: RwLock::new(HashMap::new()),
+            asks: AskLimiter::default(),
             never_save: RwLock::new(HashSet::new()),
         };
         assert_eq!(s.probe_open(|v| v.entries.len()), Ok(0));
         assert_eq!(s.last_activity.load(Ordering::Relaxed), u64::MAX);
         s.read_open(|_| ()).unwrap();
         assert_ne!(s.last_activity.load(Ordering::Relaxed), u64::MAX);
+    }
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+
+    fn login(url: &str, username: &str, password: &str) -> Credential {
+        Credential {
+            id: Credential::stable_id(url, username, url),
+            name: url.into(),
+            urls: vec![url.into()],
+            username: username.into(),
+            password: password.into(),
+            totp: String::new(),
+            notes: String::new(),
+            created_ms: 0,
+        }
+    }
+
+    fn capture(host: &str, origin: &str, username: &str, password: &str, at: u64) -> PendingSave {
+        PendingSave {
+            host: host.into(),
+            port: Some(443),
+            origin: origin.into(),
+            username: username.into(),
+            password: Zeroizing::new(password.into()),
+            staged_ms: at,
+        }
+    }
+
+    fn state() -> VaultState {
+        VaultState {
+            open: RwLock::new(None),
+            dir: PathBuf::new(),
+            path: PathBuf::new(),
+            protection: RwLock::new(Protection::Password),
+            source: RwLock::new("password"),
+            autolock_min: AtomicU64::new(10),
+            last_activity: AtomicU64::new(0),
+            pending_save: RwLock::new(HashMap::new()),
+            asks: AskLimiter::default(),
+            never_save: RwLock::new(HashSet::new()),
+        }
+    }
+
+    #[test]
+    fn a_tab_gets_a_few_spaced_asks_and_no_more() {
+        let asks = AskLimiter::default();
+        assert!(asks.admit(1, AskKind::Fill, 10_000));
+        // Straight away again: refused, and it doesn't use up the allowance.
+        assert!(!asks.admit(1, AskKind::Fill, 10_100));
+        // Another tab, and another kind of prompt, are counted on their own.
+        assert!(asks.admit(2, AskKind::Fill, 10_100));
+        assert!(asks.admit(1, AskKind::Save, 10_100));
+        let mut now = 10_000;
+        for _ in 1..ASK_PER_WINDOW {
+            now += AskKind::Fill.gap_ms();
+            assert!(asks.admit(1, AskKind::Fill, now));
+        }
+        now += AskKind::Fill.gap_ms();
+        assert!(!asks.admit(1, AskKind::Fill, now), "the window is full");
+        // A minute after the window opened, it starts over.
+        assert!(asks.admit(1, AskKind::Fill, 10_000 + ASK_WINDOW_MS));
+        asks.forget(1);
+        assert!(asks.admit(1, AskKind::Fill, 10_000 + ASK_WINDOW_MS + 1));
+    }
+
+    #[test]
+    fn one_tabs_capture_never_replaces_anothers() {
+        let s = state();
+        s.stage_save(
+            1,
+            capture("a.example", "https://a.example", "me", "one", 1_000),
+        );
+        s.stage_save(
+            2,
+            capture("b.example", "https://b.example", "me", "two", 1_100),
+        );
+        // The same tab again replaces only its own.
+        s.stage_save(
+            2,
+            capture("b.example", "https://b.example", "me", "three", 1_200),
+        );
+        let pending = s.pending_save.read();
+        assert_eq!(pending.len(), 2);
+        assert_eq!(pending[&1].password.as_str(), "one");
+        assert_eq!(pending[&2].password.as_str(), "three");
+        drop(pending);
+        s.forget_tab(1);
+        assert!(!s.pending_save.read().contains_key(&1));
+    }
+
+    #[test]
+    fn captures_are_bounded_in_number_and_in_time() {
+        let s = state();
+        for tab in 0..MAX_PENDING_SAVES as u64 + 3 {
+            s.stage_save(
+                tab,
+                capture("x.example", "https://x.example", "me", "pw", 1_000 + tab),
+            );
+        }
+        let pending = s.pending_save.read();
+        assert_eq!(pending.len(), MAX_PENDING_SAVES);
+        assert!(!pending.contains_key(&0), "the oldest went first");
+        drop(pending);
+        // Much later, one new capture clears out everything stale.
+        s.stage_save(
+            99,
+            capture(
+                "y.example",
+                "https://y.example",
+                "me",
+                "pw",
+                5_000 + PENDING_SAVE_TTL_MS,
+            ),
+        );
+        assert_eq!(s.pending_save.read().len(), 1);
+    }
+
+    #[test]
+    fn update_is_offered_only_for_the_login_saved_for_this_very_site() {
+        let mut v = Vault::new();
+        v.upsert(login("https://example.com", "me", "old"));
+        // The same site, a new password: an Update.
+        assert_eq!(
+            save_kind(&v, "example.com", Some(443), "me", "new"),
+            (false, true)
+        );
+        // Already stored exactly: nothing to ask.
+        assert_eq!(
+            save_kind(&v, "example.com", Some(443), "me", "old"),
+            (true, false)
+        );
+        // A subdomain with a new password is a new login, never an Update.
+        assert_eq!(
+            save_kind(&v, "a.example.com", Some(443), "me", "new"),
+            (false, false)
+        );
+        // Another user on the same site is a new login too.
+        assert_eq!(
+            save_kind(&v, "example.com", Some(443), "you", "new"),
+            (false, false)
+        );
+        // The parent's login used on a subdomain is nothing new to ask about.
+        assert_eq!(
+            save_kind(&v, "a.example.com", Some(443), "me", "old"),
+            (true, false)
+        );
+        // But this site's own entry decides when it has one: a related entry
+        // that happens to hold the new password doesn't hide the Update.
+        v.upsert(login("https://a.example.com", "me", "new"));
+        assert_eq!(
+            save_kind(&v, "example.com", Some(443), "me", "new"),
+            (false, true)
+        );
+    }
+
+    #[test]
+    fn a_save_from_a_subdomain_leaves_the_parents_login_alone() {
+        let mut v = Vault::new();
+        v.upsert(login("https://example.com", "me", "parent-password"));
+        apply_save(
+            &mut v,
+            &capture(
+                "a.example.com",
+                "https://a.example.com",
+                "me",
+                "sub-password",
+                0,
+            ),
+        );
+        assert_eq!(v.entries.len(), 2);
+        let parent = v
+            .entries
+            .iter()
+            .find(|c| c.urls[0] == "https://example.com")
+            .unwrap();
+        assert_eq!(parent.password, "parent-password");
+        // On the site itself, the same username updates in place.
+        apply_save(
+            &mut v,
+            &capture("example.com", "https://example.com", "me", "changed", 0),
+        );
+        assert_eq!(v.entries.len(), 2);
+        let parent = v
+            .entries
+            .iter()
+            .find(|c| c.urls[0] == "https://example.com")
+            .unwrap();
+        assert_eq!(parent.password, "changed");
     }
 }
 

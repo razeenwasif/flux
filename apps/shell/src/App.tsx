@@ -209,7 +209,7 @@ import {
   setPanelDragging,
   pageOverlayActive,
   pushPermAsk,
-  setSavePrompt,
+  pushSavePrompt,
   setUpdateReady,
   setFillRequest,
   wsPanelOpen,
@@ -568,7 +568,7 @@ const App: Component = () => {
       }),
     );
     // Sentinel captured a manually-typed login (#61) — raise the save bar.
-    holdListener(onVaultSavePrompt(setSavePrompt));
+    holdListener(onVaultSavePrompt(pushSavePrompt));
     // A newer Flux is downloaded (#26): the update bar asks to restart into it.
     holdListener(onUpdateReady(setUpdateReady));
     // A page's fill chip asked to autofill. Confirm in the chrome first: any

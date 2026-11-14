@@ -797,13 +797,13 @@ pub async fn agent_page_view(
     tab: Option<TabId>,
 ) -> Result<PageViewOut, String> {
     let tab = tab.or_else(|| state.active_tab()).ok_or("no tab is open")?;
-    let (private, tor, url) = state
+    let (net, url) = state
         .tabs
         .get(&tab)
-        .map(|t| (t.private, t.tor, t.url.clone()))
+        .map(|t| (crate::net::TabNet::of(&t), t.url.clone()))
         .ok_or("no such tab")?;
-    if private || tor {
-        return Err("that's a private or Tor tab, which Fairy never sees".into());
+    if net.off_record() {
+        return Err(format!("that's {}, which Fairy never sees", net.name()));
     }
     if let Some(kind) = flux_agent::steps::sensitive_site(&url) {
         return Err(format!("Flux's agent doesn't read {kind} sites"));

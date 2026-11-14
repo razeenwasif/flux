@@ -112,6 +112,7 @@ fn fetch_text(url: &str) -> Result<String, String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("feed url must be http(s)".into());
     }
+    crate::net::check_core_fetch(url)?;
     let builder = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(30))

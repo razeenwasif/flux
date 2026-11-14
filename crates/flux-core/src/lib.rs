@@ -61,6 +61,7 @@ pub mod memory;
 pub mod msys;
 pub mod nav;
 pub mod phonelink;
+pub mod net;
 pub mod netfilter;
 pub mod netspeed;
 pub mod mdnotes;

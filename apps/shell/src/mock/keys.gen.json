@@ -29,7 +29,7 @@
     {
       "id": "new-tor",
       "title": "New Tor tab",
-      "detail": "A private tab that goes through Tor",
+      "detail": "A private tab that goes through Tor (experimental)",
       "group": "Tabs",
       "keys": [],
       "defaults": [],

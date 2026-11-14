@@ -1205,11 +1205,18 @@ export function removePermAsk(id: number): void {
   setPermAsks((q) => q.filter((x) => x.id !== id));
 }
 
-// "Save password?" prompt (BACKLOG #61 follow-up) — the sentinel captured a
-// manually-typed login on submit. One at a time (latest wins); docks above the
-// content card like the permission bar. The captured password stays in Rust.
-const [savePrompt, setSavePrompt] = createSignal<import("./ipc").VaultSavePrompt | null>(null);
-export { savePrompt, setSavePrompt };
+// "Save password?" prompts (BACKLOG #61 follow-up) — the sentinel captured a
+// manually-typed login on submit. One per tab, as Rust holds them: a prompt from
+// a tab in the background doesn't replace the one you're looking at, and each
+// shows only while its own tab is in front. Docks above the content card like
+// the permission bar. The captured password stays in Rust.
+type SavePrompt = import("./ipc").VaultSavePrompt;
+const [savePrompts, setSavePrompts] = createSignal<Record<number, SavePrompt>>({});
+/** The save prompt of the tab in front, if it has one. */
+const savePrompt = (): SavePrompt | null => savePrompts()[activeId() ?? -1] ?? null;
+const pushSavePrompt = (p: SavePrompt) => setSavePrompts((all) => ({ ...all, [p.tab]: p }));
+const clearSavePrompt = (tab: number) => setSavePrompts(({ [tab]: _gone, ...rest }) => rest);
+export { savePrompt, pushSavePrompt, clearSavePrompt };
 // A downloaded update waiting for a restart (#26), until it's restarted into or
 // put off with Later; one put off installs when Flux quits.
 const [updateReady, setUpdateReady] = createSignal<import("./ipc").UpdateStatus | null>(null);
@@ -1517,6 +1524,9 @@ export async function closeTab(id: number): Promise<void> {
   const all = tabs();
   const closing = all.find((t) => t.id === id);
   const otherStart = all.some((t) => t.id !== id && t.url === START_URL);
+  // Its "Save password?" prompt goes with the page, whether the tab closes or
+  // turns into a start tab below (Rust drops its capture on a real close).
+  clearSavePrompt(id);
   // Remember a closing browser tab so Ctrl+Shift+T can bring it back — covers both
   // a real close and the convert-last-tab-to-start branch below (the URL is lost then).
   // Not a private or Tor tab: this stack is saved to disk and reopens tabs as
@@ -1528,6 +1538,7 @@ export async function closeTab(id: number): Promise<void> {
     setTabLoading(id, false);
     setHibernated(id, false);
     await webviewClose(id); // drop the page webview; start tabs have none
+    clearSavePrompt(id); // again: the dying page may have raised one meanwhile
     updateTabUrl(id, START_URL);
     // Forget only now that it is a start tab: paneLayout can no longer include
     // it, so no tiler re-run can reopen the old page, and its next real URL takes

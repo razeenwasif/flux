@@ -104,6 +104,12 @@ async fn lookup(
         }
     }
 
+    // Not for a site open in a Tor tab (net.rs, #209): the shell doesn't ask for
+    // those, and this is the check that doesn't depend on the shell. Not
+    // remembered as "no icon", so the site gets one once it's opened normally.
+    if crate::net::check_core_fetch(&format!("https://{host}/")).is_err() {
+        return None;
+    }
     // The tabs' network path: through the user's proxy (#63) when one is set,
     // never direct, which would hand each site the address the proxy hides.
     let proxy = proxy.parsed();
@@ -206,6 +212,15 @@ fn pin(addrs: impl Iterator<Item = IpAddr>) -> Vec<IpAddr> {
 /// showing it); any other host only to public addresses. Otherwise a visited
 /// site could point its icon, or a redirect, at the router or a local service.
 fn icon_addrs(netloc: &str, host: &str, pinned: &[IpAddr]) -> std::io::Result<Vec<SocketAddr>> {
+    // Every connection comes through here, a redirect's and a declared icon's
+    // included, so this is where "not a site open in a Tor tab" holds for all
+    // of them and not only the first URL (net.rs, #209).
+    if let Err(why) = crate::net::check_core_fetch(&format!("https://{netloc}/")) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            why,
+        ));
+    }
     let addrs: Vec<SocketAddr> = match netloc.rsplit_once(':') {
         Some((name, port)) if name.eq_ignore_ascii_case(host) => {
             let port = port

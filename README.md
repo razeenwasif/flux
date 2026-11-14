@@ -214,6 +214,24 @@ reinstalling with a new key. Builds aren't notarized (that needs a Developer ID
 certificate), so they're for your own Macs. Windows and Linux builds don't
 update themselves yet.
 
+The key has a password, so a copy of the key file on its own can't sign an
+update. `release.sh` reads it from your login Keychain and passes it to the
+signer in its environment, never on a command line. Store it once:
+
+```sh
+security add-generic-password -s flux-updater-key -a "$USER" -w   # asks for it
+```
+
+A key made without a password is refused, unless
+`FLUX_UPDATER_KEY_UNPROTECTED=1` says you mean it. That is for one release only,
+the one that carries a new, protected key's public half to copies of Flux that
+still trust the old key.
+
+`FLUX_HARDENED_RUNTIME=1` signs the app with macOS's hardened runtime, which
+stops another process from loading its own code into Flux. It's opt-in until
+it has been tried on an install; `scripts/flux.entitlements` lists what Flux
+keeps under it (the microphone and camera, for pages you allow).
+
 Then, on any platform:
 
 ```sh

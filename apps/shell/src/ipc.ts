@@ -997,14 +997,14 @@ export const onSentinelInputWarning = (
   listen<[number, string, PhishVerdict]>("flux://sentinel-input-warning", (e) =>
     cb(e.payload[0], e.payload[1], e.payload[2]),
   );
-/** Commit the pending save (the bar's "Save"/"Update"). */
-export const vaultSaveConfirm = () => invoke<void>("vault_save_confirm");
-/** Drop the pending save ("Not now"). */
-export const vaultSaveDismiss = () => invoke<void>("vault_save_dismiss");
-/** Drop the pending save and never offer for this host again. */
-export const vaultNeverSave = () => invoke<void>("vault_never_save");
+// The save bar's three answers (vault_save_confirm, vault_save_dismiss,
+// vault_never_save) are called from SavePasswordBar.tsx, the only place that
+// uses them, so they load with the bar rather than at startup.
 export const vaultList = () => invoke<CredentialMeta[]>("vault_list");
-export const vaultForHost = (host: string) => invoke<CredentialMeta[]>("vault_for_host", { host });
+/** Logins for `host`. `tab` is the tab showing it, whose port decides whether
+ *  a login saved for another port on that host counts as this page's own. */
+export const vaultForHost = (host: string, tab: number | null) =>
+  invoke<CredentialMeta[]>("vault_for_host", { host, tab });
 /** Reveal one password (explicit user action). */
 export const vaultReveal = (id: string) => invoke<string | null>("vault_reveal", { id });
 export const vaultAdd = (name: string, url: string, username: string, password: string) =>
@@ -1020,8 +1020,11 @@ export const vaultImportProton = (path: string, passphrase?: string) =>
  *  only for moving into another manager. Returns the number of logins written. */
 export const vaultExport = (path: string, format: "encrypted" | "csv", passphrase?: string) =>
   invoke<number>("vault_export", { path, format, passphrase: passphrase ?? null });
-/** Autofill credential `id` into the active tab's login form (same-origin enforced). */
-export const vaultFill = (tabId: number, id: string) => invoke<void>("vault_fill", { tabId, id });
+/** Autofill credential `id` into the tab's login form (same-origin enforced).
+ *  A login saved for a related site (a sub- or parent domain, another port)
+ *  fills only with `confirmRelated`, sent once the user has seen both names. */
+export const vaultFill = (tabId: number, id: string, confirmRelated = false) =>
+  invoke<void>("vault_fill", { tabId, id, confirmRelated });
 /** Why autofill didn't offer on this tab. Chrome-only (never page-callable):
  *  unlike `vault_page_info`, which hides the reason from a possibly-hostile
  *  page, this names the actual stage that stopped it. */
